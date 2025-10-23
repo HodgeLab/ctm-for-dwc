@@ -3,18 +3,18 @@ Tools for calibrating the fundamental diagram of a cell.
 """
 
 # 3rd party imports
-import pandas as pd
+import os
+import typing
+import logging
+import statistics
 import numpy as np
+import pandas as pd
 from pathlib import Path
 from sklearn.linear_model import LinearRegression
-import logging
-import typing
-import os
-import statistics
 
 # Local imports
-from cell_transmission_model.utils.validation import *
-from cell_transmission_model.utils.plotting import *
+from validation import *
+from plotting import *
 
 # Logging setup
 logger = logging.getLogger(__name__)

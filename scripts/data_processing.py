@@ -11,7 +11,7 @@ import logging
 import numpy as np
 import pandas as pd
 import networkx as nx
-from logs import make_logger
+from utils.logs import make_logger
 from datetime import datetime, timedelta
 from sklearn.impute import SimpleImputer
 from torch_geometric.data import Data, Batch
