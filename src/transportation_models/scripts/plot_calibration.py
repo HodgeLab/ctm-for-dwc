@@ -8,9 +8,9 @@ import logging
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from utils.validation import validate_timestamp_dtype
-from utils.calibration import estimate_free_flow_speed
-from utils.calibration import estimate_congestion_wave_speed
+from transportation_models.utils.validation import validate_timestamp_dtype
+from transportation_models.utils.calibration import estimate_free_flow_speed
+from transportation_models.utils.calibration import estimate_congestion_wave_speed
 
 detector = 400839
 root_path = "/Volumes/easystore/work/boulder/Caltrans/PeMS/"
@@ -138,6 +138,7 @@ params
 # %%
 # Optionally plot and save the calibration plots
 save_path = f"./{detector}_fundamental_diagram.png"
+save_path = None
 
 
 def plot_fundamental_diagram(

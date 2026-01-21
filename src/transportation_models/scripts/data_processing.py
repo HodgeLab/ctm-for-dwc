@@ -10,7 +10,7 @@ import logging
 import numpy as np
 import pandas as pd
 import networkx as nx
-from utils.logs import make_logger
+from transportation_models.utils.logs import make_logger
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader as GNNDataLoader
 from sklearn.preprocessing import (

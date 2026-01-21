@@ -7,7 +7,7 @@ Script for one-off calibration of Fundamental Diagram parameters
 import os
 import pandas as pd
 from pathlib import Path
-from utils.calibration import *
+from transportation_models.utils.calibration import *
 
 # Data
 detector_metadata_filepath = Path(

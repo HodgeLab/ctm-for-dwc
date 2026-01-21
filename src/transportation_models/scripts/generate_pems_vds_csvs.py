@@ -4,7 +4,7 @@ NOTE: For extracting many CSVs, this script can take a significant amount of tim
 """
 
 import pandas as pd
-from utils.data_downloading import DataProcessor
+from transportation_models.utils.data_downloading import DataProcessor
 
 
 # Initialize the object

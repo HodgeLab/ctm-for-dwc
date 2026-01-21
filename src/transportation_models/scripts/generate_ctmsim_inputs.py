@@ -9,7 +9,7 @@ import sys
 import logging
 import pandas as pd
 from pathlib import Path
-from utils.representation import *
+from transportation_models.utils.representation import *
 
 # Set up logging to stdout
 root = logging.getLogger()

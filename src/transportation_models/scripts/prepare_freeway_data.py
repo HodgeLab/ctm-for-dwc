@@ -5,7 +5,7 @@ Script for extracting the GMNS links and nodes from OSM data
 # %%
 # Imports
 import os
-from utils.representation import *
+from transportation_models.utils.representation import *
 
 # Define constants
 ALAMEDA_COUNTY_RELATION_ID = 396499

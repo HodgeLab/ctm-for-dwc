@@ -6,7 +6,7 @@ Script for building a fully-defined, CTM-ready, graph-based representation of a 
 import sys
 import logging
 from pathlib import Path
-from utils.representation import Freeway
+from transportation_models.utils.representation import Freeway
 
 # Set up logging to stdout
 root = logging.getLogger()

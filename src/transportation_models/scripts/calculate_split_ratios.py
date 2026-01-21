@@ -6,8 +6,8 @@ Script for calculating the split ratios for freeway off-ramps
 import sys
 import logging
 from pathlib import Path
-from utils.validation import *
-from utils.representation import *
+from transportation_models.utils.validation import *
+from transportation_models.utils.representation import *
 
 # Set up logging to stdout
 root = logging.getLogger()

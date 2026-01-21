@@ -10,7 +10,7 @@ import pandas as pd
 from dotenv import load_dotenv
 
 # Local imports
-from utils.data_downloading import PeMSDownloader
+from transportation_models.utils.data_downloading import PeMSDownloader
 
 # Load login credentials
 load_dotenv("credentials.env")

@@ -8,7 +8,7 @@ import os
 import pandas as pd
 import matplotlib.pyplot as plt
 from pathlib import Path
-from utils.plotting import PeMSPlotter
+from transportation_models.utils.plotting import PeMSPlotter
 
 # Data
 detectors_to_plot = [

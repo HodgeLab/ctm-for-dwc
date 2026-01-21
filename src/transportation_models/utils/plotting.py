@@ -8,7 +8,7 @@ from pathlib import Path
 from sklearn.linear_model import LinearRegression
 
 # Local imports
-from validation import *
+from transportation_models.utils.validation import *
 
 # Logger setup
 logger = logging.getLogger(__name__)
