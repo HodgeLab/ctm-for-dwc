@@ -11,6 +11,7 @@ import os
 import pandas as pd
 import torch
 import typing
+from joblib import dump, load
 from sklearn.preprocessing import (
     OrdinalEncoder,
     MinMaxScaler,
@@ -25,7 +26,7 @@ import transportation_models.utils.logs as logs
 import transportation_models.utils.validation as validation
 
 # Default logger
-logger = logging.getLogger(__name__)
+logger = logs.make_logger(log_prefix="data_processing")
 
 def load_timeseries_single_detector(
     detector_timeseries_filepath: str,
@@ -135,8 +136,7 @@ class PeMSDataProcessor:
     """
 
     def __init__(
-        self,
-        root_directory: str = constants.ROOT_PATH,
+        self, root_directory: str = constants.ROOT_PATH, save_transforms: bool = False
     ) -> None:
         np.random.seed(42)  # For reproducibility
         
@@ -147,6 +147,8 @@ class PeMSDataProcessor:
         self.processed_data_directory = os.path.join(root_directory, "processed_data")
         if not os.path.exists(self.processed_data_directory):
             os.mkdir(self.processed_data_directory)
+
+        self.save_transforms = save_transforms
 
         # Load files
         metadata_cols = [
@@ -358,7 +360,11 @@ class PeMSDataProcessor:
             detectors = self.retrieve_detectors(detector_type='Mainline')
         
         # Load dataframe for each detector
-        detector_dfs = [self.load_data_by_id(detector) for detector in detectors]
+        detector_dfs = []
+        N_detectors = len(detectors)
+        for idx, detector in enumerate(detectors):
+            logger.info(f"Loading dataframe for detector {idx + 1}/{N_detectors}: VDS {detector}")
+            detector_dfs.append(self.load_data_by_id(detector))
 
         # Stack dataframes into one
         df = pd.concat(detector_dfs)
@@ -410,11 +416,8 @@ class PeMSDataProcessor:
 
         return df
 
-    def encode_and_scale(
-        self,
-        df: pd.DataFrame
-        ) -> pd.DataFrame:
-        
+    def encode_and_scale(self, df: pd.DataFrame) -> pd.DataFrame:
+
         categorical_features = ['Station ID', 'Type']
         df.loc[:, categorical_features] = self.encoder.fit_transform(df[categorical_features])
         df[categorical_features] = df[categorical_features].astype('float')     # Cast as float after encoding
@@ -423,9 +426,25 @@ class PeMSDataProcessor:
         df[minmax_features] = df[minmax_features].astype('float')   # Cast as float ahead of scaling
         df.loc[:, minmax_features] = self.scaler.fit_transform(df[minmax_features])
 
+        if self.save_transforms:
+            encoder_filepath = os.path.join(
+                self.processed_data_directory, "encoder.joblib"
+            )
+            scaler_filepath = os.path.join(
+                self.processed_data_directory, "scaler.joblib"
+            )
+
+            dump(self.encoder, encoder_filepath)
+            logger.info(f"Saved encoder to: {encoder_filepath}")
+
+            dump(self.scaler, scaler_filepath)
+            logger.info(f"Saved scaler to: {scaler_filepath}")
+
         return df
 
-    def process_data(self, detectors: typing.Optional[list[str]], save_name: typing.Optional[str] = None) -> pd.DataFrame:
+
+    def process_data(self, detectors: typing.Optional[list[str]] = None, save_name: typing.Optional[str] = None) -> pd.DataFrame:
+        logger.info("Running preprocessing steps on PeMS data...")
         # Execute processing steps
         df = self.build_long_df(detectors=detectors)
         df = self.deconstruct_timestamps(df)
@@ -434,14 +453,17 @@ class PeMSDataProcessor:
         # Optionally save DataFrame
         if save_name is not None:
             filepath = os.path.join(self.processed_data_directory, save_name)
-            df.to_csv(filepath)
+            df.to_csv(filepath, index=False)
+            logger.info(f"Dataframe saved to: {filepath}")
         
         return df
 
     def prepare_sequence_dataset(self, df: pd.DataFrame, seq_len: int = 12, pred_horizon: int = 3, save_name: typing.Optional[str] = None):
         X_list, y_list = [], []
 
-        for station_id in df['Station ID'].unique():
+        N_stations = len(df['Station ID'].unique())
+        for idx, station_id in enumerate(df['Station ID'].unique()):
+            logger.info(f"Preparing sequences for station {idx+1}/{N_stations}")
             station_df = df.loc[df['Station ID'] == station_id, :]
 
             for i in range(len(station_df) - (seq_len + pred_horizon) + 1):
@@ -454,8 +476,8 @@ class PeMSDataProcessor:
                     continue
             
                 # Convert to tensor
-                features = torch.from_numpy(features.values)
-                targets = torch.from_numpy(targets.values)
+                features = torch.from_numpy(features.values).to(dtype=torch.float32)
+                targets = torch.from_numpy(targets.values).to(dtype=torch.float32)
 
                 # Append to list
                 X_list.append(features)
@@ -471,7 +493,8 @@ class PeMSDataProcessor:
         # Optionally save Dataset
         if save_name is not None:
             filepath = os.path.join(self.processed_data_directory, save_name)
-            torch.save(torch.save({'X': X, 'y': y}, filepath))
+            torch.save({'X': X, 'y': y}, filepath)
+            logger.info(f"Saving sequence dataset to {filepath}")
 
         # Return
         return dataset
@@ -479,10 +502,11 @@ class PeMSDataProcessor:
 # Example usage
 if __name__ == "__main__":
     # Initialize processor
-    DataProcessor = PeMSDataProcessor(root_directory="/projects/rost5691/data/Caltrans/PeMS", process=True)
+    DataProcessor = PeMSDataProcessor(root_directory="/projects/rost5691/data/Caltrans/PeMS", save_transforms=True)
 
     # Process raw timeseries and metadata into DataFrame
     df = DataProcessor.process_data(save_name="data_long.csv")
+    logging.info(f"Loaded dataframe:\n{df.head()}")
 
     # Generate Dataset from DataFrame
     dataset = DataProcessor.prepare_sequence_dataset(df, save_name="hour_lookback_15min_horizon.pt")
