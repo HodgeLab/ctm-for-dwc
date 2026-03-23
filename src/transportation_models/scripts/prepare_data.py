@@ -21,7 +21,7 @@ Script for one-time generation of training and testing datasets for scikit-learn
 
 #####     Setup     ######
 
-# Imports
+# 3rd party imports
 import os
 import logging
 import pandas as pd
@@ -29,19 +29,23 @@ from datetime import datetime
 from sklearn.preprocessing import OrdinalEncoder
 from sklearn.preprocessing import StandardScaler
 
-# Variable definitions
-root_dir = "/projects/rost5691/data/Caltrans/PeMS"
-# root_dir = "/volumes/easystore/work/Boulder/Caltrans/PeMS"
-data_filepath = os.path.join(root_dir, "data_long.csv")
-output_dir = os.path.join(root_dir, "formatted_data")
-if not os.path.isdir(output_dir):
-    os.mkdir(output_dir)
-output_filepath = os.path.join(output_dir, "data_wide.csv")
-log_dir = os.path.join(os.getcwd(), "logs")
-now = datetime.now().strftime("%d-%m-%Y_%H:%M:%S")
-log_filename = os.path.join(log_dir, f"data_preparation_{now}.log")
-if not os.path.isdir(log_dir):
-    os.mkdir(log_dir)
+# Local imports
+from transportation_models.utils.logs import make_logger
+
+# Define constants
+ROOT_DIR = "/projects/rost5691/data/Caltrans/PeMS"
+# ROOT_DIR = "/volumes/easystore/work/Boulder/Caltrans/PeMS"
+DATA_FILEPATH = os.path.join(ROOT_DIR, "data_long.csv")
+OUTPUT_DIR = os.path.join(ROOT_DIR, "formatted_data")
+if not os.path.isdir(OUTPUT_DIR):
+    os.mkdir(OUTPUT_DIR)
+OUTPUT_FILEPATH = os.path.join(OUTPUT_DIR, "data_wide.csv")
+
+# Set up logging to file and stdout
+make_logger(include_stdout=True)
+
+# Classify the features in our data
+counts_col = "total_flow_[veh/5-min]"
 metadata_features = [
     "Station ID",
     "Lanes",
@@ -57,29 +61,13 @@ metadata_features = [
     "jam_density",
     "critical_density",
 ]
-counts_col = "total_flow_[veh/5-min]"
-
-# Set up logging to file and stdout
-logger = logging.getLogger()
-logger.setLevel(logging.DEBUG)
-log_formatter = logging.Formatter(
-    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
-file_handler = logging.FileHandler(log_filename, encoding="utf-8")
-file_handler.setFormatter(log_formatter)
-logger.addHandler(file_handler)
-stream_handler = logging.StreamHandler()
-stream_handler.setFormatter(log_formatter)
-logger.addHandler(stream_handler)
-
-# Classify the features in our data
 temporal_features = ["minute", "hour", "year", "weekday", "timestamp_epoch"]
 X_features = temporal_features + metadata_features
 categorical_colnames = ["HOV", "Type", "County", "City"]
 
 # Load the long-format data
-logging.info(f"Loading long-format dataframe from: {data_filepath}")
-data = pd.read_csv(data_filepath)
+logging.info(f"Loading long-format dataframe from: {DATA_FILEPATH}")
+data = pd.read_csv(DATA_FILEPATH)
 logging.info(f"Long-format data loaded successfully")
 
 # Construct the 'timestamp_epoch' column in our data
@@ -171,9 +159,9 @@ wide = wide.reset_index()
 wide["timestamp"] = pd.to_datetime(wide["timestamp"])
 
 # Save the wide-format data
-wide.to_csv(output_filepath, index=False)
+wide.to_csv(OUTPUT_FILEPATH, index=False)
 
-logging.info(f"Wide-format conversion complete, file saved to: {output_filepath}")
+logging.info(f"Wide-format conversion complete, file saved to: {OUTPUT_FILEPATH}")
 
 #####     Split into training/testing sets     #####
 logging.info(f"Generating training and testing datasets")
@@ -202,9 +190,9 @@ logging.info(f"Training and testing dataset generation complete")
 
 #####     Saving     #####
 
-X_train.to_csv(os.path.join(output_dir, "X_train.csv"), index=False)
-X_test.to_csv(os.path.join(output_dir, "X_test.csv"), index=False)
-y_train.to_csv(os.path.join(output_dir, "y_train.csv"), index=False)
-y_test.to_csv(os.path.join(output_dir, "y_test.csv"), index=False)
+X_train.to_csv(os.path.join(OUTPUT_DIR, "X_train.csv"), index=False)
+X_test.to_csv(os.path.join(OUTPUT_DIR, "X_test.csv"), index=False)
+y_train.to_csv(os.path.join(OUTPUT_DIR, "y_train.csv"), index=False)
+y_test.to_csv(os.path.join(OUTPUT_DIR, "y_test.csv"), index=False)
 
-logging.info(f"Training and testing files saved to: {output_dir}")
+logging.info(f"Training and testing files saved to: {OUTPUT_DIR}")
