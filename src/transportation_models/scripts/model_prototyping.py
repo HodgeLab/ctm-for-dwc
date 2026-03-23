@@ -1,4 +1,4 @@
-#%% #----- Setup -----#
+# %% #----- Setup -----#
 
 # 3rd party imports
 import copy
@@ -26,7 +26,7 @@ logger = make_logger(include_stdout=True)
 # Device setup
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-#%% #----- Data loading -----#
+# %% #----- Data loading -----#
 
 # Load dataset
 data_filepath = "/projects/rost5691/data/Caltrans/PeMS/processed_data/hour_lookback_15min_horizon.pt"
@@ -38,13 +38,15 @@ logger.info(f"Loaded dataset with length: {len(dataset)}")
 
 # Create training, validation, and testing splits
 splits = [0.6, 0.2, 0.2]
-train_set, val_set, test_set = random_split(dataset, lengths=splits)
+train_set, val_set, test_set = random_split(
+    dataset, lengths=splits, generator=torch.Generator().manual_seed(42)
+)
 logger.info(f"Dataset split into training, validation, and testing sets with lengths {len(train_set)}, {len(val_set)}, and {len(test_set)}")
 example_x, example_y = next(iter(train_set))
 logger.info(f"Samples in train set have shape {example_x.shape}")
 logger.info(f"Targets in train set have shape {example_y.shape}")
 
-#%% #----- Model & function definitions -----#
+# %% #----- Model & function definitions -----#
 # Basic GRU model
 class simpleGRU(nn.Module):
     def __init__(self, input_size=16, hidden_size=64, output_steps=3, output_size=2):
@@ -233,15 +235,15 @@ def train_model(
 
     return
 
-#%% #----- Model training -----#
+# %% #----- Model training -----#
 
 # Define hyperparameters
-batch_sizes = [1024, 4096, 8192]
-#batch_sizes = [1024]
-learning_rates = [0.01, 0.001]
-#learning_rates = [0.01]
-momentum_rates = [0.9, 0.75]
-#momentum_rates = [0.9]
+# batch_sizes = [1024, 4096, 8192]
+batch_sizes = [1024]
+# learning_rates = [0.01, 0.001]
+learning_rates = [0.01]
+# momentum_rates = [0.9, 0.75]
+momentum_rates = [0.9]
 n_epochs = 20
 
 for batch_size in batch_sizes:
@@ -249,11 +251,9 @@ for batch_size in batch_sizes:
     train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_set, batch_size=batch_size, shuffle=False)
     test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False)
-    
+
     for lr in learning_rates:
         for alpha in momentum_rates:
-            if (batch_size == 1024) and (lr == 0.01) and (alpha == 0.9):
-                continue
             # Define model, loss function, and optimizer
             model = simpleGRU()
             loss_fn = nn.MSELoss()
@@ -269,13 +269,13 @@ for batch_size in batch_sizes:
                 optimizer=optimizer,
                 n_epochs=n_epochs,
                 early_stopping=False,
-                wandb_config = {
+                wandb_config={
                     "model": "simpleGRU",
                     "loss_function": "MSE",
                     "optimizer": "SGD",
-                    "learning_rate":lr,
-                    "momentum_rate":alpha,
+                    "learning_rate": lr,
+                    "momentum_rate": alpha,
                 },
-                wandb_tags=["prototyping"],
-                model_name="simpleGRU"
-                )
+                wandb_tags=["prototyping", "for-groupmeeting"],
+                model_name="simpleGRU",
+            )
