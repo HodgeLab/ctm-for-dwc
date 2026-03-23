@@ -91,6 +91,7 @@ def save_model(
     # Return the filepath
     return filepath
 
+
 # Define a function to evaluate a single epoch
 def run_epoch(
     model: nn.Module,
@@ -99,7 +100,7 @@ def run_epoch(
     loss_fn: nn.Module,
     optimizer: optim.Optimizer,
     train: bool = True,
-) -> float:
+) -> tuple[float, float, float]:
     # Make sure we're on the correct device
     model = model.to(device)
 
@@ -109,8 +110,10 @@ def run_epoch(
     else:
         model.eval()
 
-    # Initial values for tracking loss and accuracy over the epoch
+    # Initial values for tracking loss and squared errors over the epoch
     running_loss = 0.0
+    running_sq_err = torch.zeros(2)  # one accumulator per output column (flow, density)
+    running_n = 0  # total number of (sample, timestep) pairs seen
 
     # Set context based on model mode
     context = torch.enable_grad() if train else torch.no_grad()
@@ -138,14 +141,25 @@ def run_epoch(
                 # Adjust learning weights
                 optimizer.step()
 
-            # Update running counts for loss and accuracy
+            # Update running loss
             running_loss += loss.item()
+
+            # Accumulate per-column squared errors
+            # output/yb shape: [batch, output_steps, 2]
+            # Summing over batch and timestep dimensions gives total SE per column
+            sq_err = (output - yb) ** 2  # [batch, output_steps, 2]
+            running_sq_err += sq_err.sum(dim=(0, 1)).cpu()
+            running_n += yb.shape[0] * yb.shape[1]  # batch_size * output_steps
 
     # Calculate average batch loss
     running_loss = running_loss / len(loader)
 
-    # Return loss and accuracy for this epoch
-    return running_loss
+    # Calculate per-column RMSE across all samples and timesteps
+    flow_rmse, density_rmse = (running_sq_err / running_n).sqrt().tolist()
+
+    # Return loss and RMSE for this epoch
+    return running_loss, flow_rmse, density_rmse
+
 
 # Define function for training
 def train_model(
@@ -186,7 +200,7 @@ def train_model(
     ) as run:
         for epoch in range(n_epochs):
             # Training over epoch
-            train_loss = run_epoch(
+            train_loss, train_flow_rmse, train_density_rmse = run_epoch(
                 model=model,
                 loader=train_loader,
                 device=device,
@@ -196,7 +210,7 @@ def train_model(
             )
 
             # Validation over epoch
-            val_loss = run_epoch(
+            val_loss, val_flow_rmse, val_density_rmse = run_epoch(
                 model=model,
                 loader=val_loader,
                 device=device,
@@ -209,7 +223,11 @@ def train_model(
             run.log(
                 {
                     "training_loss": train_loss,
+                    "train_flow_rmse": train_flow_rmse,
+                    "train_density_rmse": train_density_rmse,
                     "validation_loss": val_loss,
+                    "val_flow_rmse": val_flow_rmse,
+                    "val_density_rmse": val_density_rmse,
                 }
             )
 
