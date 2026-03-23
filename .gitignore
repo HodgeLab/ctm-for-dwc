@@ -209,3 +209,6 @@ __marimo__/
 #####     Extra     #####
 *.DS_Store
 *.env
+wandb
+artifacts
+.vscode
