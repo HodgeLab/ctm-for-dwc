@@ -1044,6 +1044,37 @@ class Freeway:
 
         return G
 
+    def get_k_upstream_stations(self, node, k: int = 1, edge_type: str = "Mainline"):
+        """
+        Find up to k steps of upstream stations for a given node. Optionally filter by edge type.
+        """
+        upstream_stations = {}
+        nodes_to_visit = [node]
+        visited = set()
+
+        for idx in range(k):
+            upstream_stations[f"k={idx+1}"] = []
+            new_nodes = []
+            for n in nodes_to_visit:
+                if n not in visited:
+                    # Find direct predecessors
+                    predecessors = list(self.graph.predecessors(n))
+                    for pred in predecessors:
+                        edge = self.graph.edges[pred, n]
+                        if (
+                            edge_type == None
+                            or edge["static"]["link_type"] == edge_type
+                        ):
+                            station = edge["static"]["Station ID"]
+                            upstream_stations[f"k={idx+1}"].append(station)
+                        new_nodes.append(pred)
+                    visited.add(n)
+            nodes_to_visit = new_nodes
+            if not nodes_to_visit:
+                break
+
+        return upstream_stations
+
     def visualize_roadway_graph(
         self,
         figsize=(12, 8),
