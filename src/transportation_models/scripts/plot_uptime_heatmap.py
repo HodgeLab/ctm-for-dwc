@@ -147,15 +147,15 @@ tick_positions = dates.get_indexer(three_month_starts, method="nearest")
 plt.rcParams.update(
     {
         "font.size": 24,  # Default text size (axes labels, titles, etc.)
-        "axes.titlesize": 24,  # Title size
-        "axes.labelsize": 18,  # X/Y label size
-        "xtick.labelsize": 14,  # X tick labels
-        "ytick.labelsize": 14,  # Y tick labels
-        "legend.fontsize": 14,  # Legend
+        "axes.titlesize": 42,  # Title size
+        "axes.labelsize": 30,  # X/Y label size
+        "xtick.labelsize": 24,  # X tick labels
+        "ytick.labelsize": 24,  # Y tick labels
+        "legend.fontsize": 24,  # Legend
     }
 )
 
-plt.figure(figsize=(17, 8))
+plt.figure(figsize=(48, 20))
 ax = sns.heatmap(
     pivot_df, cmap="viridis", cbar_kws={"label": "Percent Observed"}, linewidths=0
 )
@@ -165,18 +165,12 @@ ax.set_xticks(tick_positions)
 ax.set_xticklabels(
     [d.strftime("%b %Y") for d in three_month_starts], rotation=45, ha="right"
 )
-# ax.set_yticklabels(
-#     ax.get_yticklabels(),
-#     rotation=45,
-#     ha="right",
-#     va="top",
-# )
 
 plt.xlabel("Time")
 plt.ylabel("Vehicle Detector Station ID")
 plt.title("Caltrans PeMS Vehicle Detector Station Health\n(I880-N Segment)")
 plt.tight_layout()
-plt.savefig("I880N_Uptime.png", dpi=300)
+plt.savefig("I880N_Uptime.png", dpi=600)
 plt.show()
 
 # %%
