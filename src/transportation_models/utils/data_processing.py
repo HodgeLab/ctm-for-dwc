@@ -6,9 +6,11 @@ Script for preparing transportation data for deep learning prediction
 
 # 3rd party imports
 import logging
+import math
 import numpy as np
 import os
 import pandas as pd
+import random
 import torch
 import typing
 from joblib import dump, load
@@ -138,8 +140,10 @@ class PeMSDataProcessor:
     def __init__(
         self, root_directory: str = constants.ROOT_PATH, save_transforms: bool = False
     ) -> None:
+        # Set seeds for reproducibility
+        random.seed(42)
         np.random.seed(42)  # For reproducibility
-        
+
         # Define paths
         self.root_directory = root_directory
         self.metadata_path = os.path.join(root_directory, "metadata", "station_metadata_CALIBRATED.csv")
@@ -186,7 +190,7 @@ class PeMSDataProcessor:
             # Station timeseries
             flow = np.random.uniform(0,capacity,n_periods)
             density = np.random.uniform(0,jam_density, n_periods)
-            
+
             # Build dataframe for this station
             df = pd.DataFrame({
                 'time_of_day': (timestamps.minute / 60) + (timestamps.hour),
@@ -253,7 +257,7 @@ class PeMSDataProcessor:
         detectors = list(detectors_in_metadata.intersection(detectors_with_timeseries))
 
         return detectors
-    
+
     def load_data_by_id(
         self,
         station_id: str
@@ -358,7 +362,7 @@ class PeMSDataProcessor:
         # Get a list of detectors to work on
         if detectors is None:
             detectors = self.retrieve_detectors(detector_type='Mainline')
-        
+
         # Load dataframe for each detector
         detector_dfs = []
         N_detectors = len(detectors)
@@ -373,7 +377,7 @@ class PeMSDataProcessor:
         df = self.normalize_counts(df)
 
         return df
-        
+
     def deconstruct_timestamps(
         self,
         df: pd.DataFrame
@@ -442,23 +446,32 @@ class PeMSDataProcessor:
 
         return df
 
-
-    def process_data(self, detectors: typing.Optional[list[str]] = None, save_name: typing.Optional[str] = None) -> pd.DataFrame:
+    def preprocess_data(
+        self,
+        detectors: typing.Optional[list[str]] = None,
+        save_name: typing.Optional[str] = None,
+    ) -> pd.DataFrame:
         logger.info("Running preprocessing steps on PeMS data...")
         # Execute processing steps
         df = self.build_long_df(detectors=detectors)
         df = self.deconstruct_timestamps(df)
         df = self.encode_and_scale(df)
-        
+
         # Optionally save DataFrame
         if save_name is not None:
             filepath = os.path.join(self.processed_data_directory, save_name)
             df.to_csv(filepath, index=False)
             logger.info(f"Dataframe saved to: {filepath}")
-        
+
         return df
 
-    def prepare_sequence_dataset(self, df: pd.DataFrame, seq_len: int = 12, pred_horizon: int = 3, save_name: typing.Optional[str] = None):
+    def prepare_sequence_dataset(
+        self,
+        df: pd.DataFrame,
+        seq_len: int = 12,
+        pred_horizon: int = 3,
+        save_name: typing.Optional[str] = None,
+    ) -> TensorDataset:
         X_list, y_list = [], []
 
         N_stations = len(df['Station ID'].unique())
@@ -474,7 +487,7 @@ class PeMSDataProcessor:
                 # Don't use any sequences with missing data
                 if features.isna().any().any() or targets.isna().any().any():
                     continue
-            
+
                 # Convert to tensor
                 features = torch.from_numpy(features.values).to(dtype=torch.float32)
                 targets = torch.from_numpy(targets.values).to(dtype=torch.float32)
@@ -482,7 +495,7 @@ class PeMSDataProcessor:
                 # Append to list
                 X_list.append(features)
                 y_list.append(targets)
-        
+
         # Convert lists to tensors
         X = torch.stack(X_list)
         y = torch.stack(y_list)
@@ -498,15 +511,77 @@ class PeMSDataProcessor:
 
         # Return
         return dataset
-        
+
+    def prepare_imputation_dataset(
+        self,
+        df: pd.DataFrame,
+        seq_len: int = 36,
+        missing_rate: float = 0.1,
+        save_name: typing.Optional[str] = None,
+    ) -> TensorDataset:
+        # Calculate number of entries to mask for imputation
+        missing_counts = min(math.ceil(missing_rate * seq_len), seq_len)
+
+        # Prepare lists for features and targets
+        X_list, y_list = [], []
+
+        N_stations = len(df["Station ID"].unique())
+        for idx, station_id in enumerate(df["Station ID"].unique()):
+            logger.info(f"Preparing sequences for station {idx+1}/{N_stations}")
+            station_df = df.loc[df["Station ID"] == station_id, :]
+
+            for i in range(0, len(station_df) - (seq_len) + 1, seq_len):
+                # Locate the sequence
+                sequence = station_df.loc[i : i + seq_len - 1, :]
+
+                # Don't use any sequences with missing data
+                if sequence.isna().any().any():
+                    continue
+
+                # Generate a set of random indices to mask
+                mask_ids = random.sample(range(i, i + seq_len), missing_counts)
+
+                # Select features and targets
+                features = sequence.loc[~sequence.index.isin(mask_ids), :]
+                targets = sequence.loc[
+                    sequence.index.isin(mask_ids), ["flow", "density"]
+                ]
+
+                # Convert to tensor
+                features = torch.from_numpy(features.values).to(dtype=torch.float32)
+                targets = torch.from_numpy(targets.values).to(dtype=torch.float32)
+
+                # Append to list
+                X_list.append(features)
+                y_list.append(targets)
+
+        # Convert lists to tensors
+        X = torch.stack(X_list)
+        y = torch.stack(y_list)
+
+        # Create dataset
+        dataset = TensorDataset(X, y)
+
+        # Optionally save Dataset
+        if save_name is not None:
+            filepath = os.path.join(self.processed_data_directory, save_name)
+            torch.save({"X": X, "y": y}, filepath)
+            logger.info(f"Saving imputation dataset to {filepath}")
+
+        # Return
+        return dataset
+
+
 # Example usage
 if __name__ == "__main__":
     # Initialize processor
     DataProcessor = PeMSDataProcessor(root_directory="/projects/rost5691/data/Caltrans/PeMS", save_transforms=True)
 
     # Process raw timeseries and metadata into DataFrame
-    df = DataProcessor.process_data(save_name="data_long.csv")
+    df = DataProcessor.preprocess_data(save_name="data_long.csv")
     logging.info(f"Loaded dataframe:\n{df.head()}")
 
     # Generate Dataset from DataFrame
-    dataset = DataProcessor.prepare_sequence_dataset(df, save_name="hour_lookback_15min_horizon.pt")
+    dataset = DataProcessor.prepare_imputation_dataset(
+        df, save_name="imputation_3hr_10pct.pt"
+    )
