@@ -16,5 +16,5 @@
 module purge
 module load anaconda/2023.09
 conda activate transportation-models-env
-cd src/transportation_models/scripts
+cd ../src/transportation_models/scripts
 python model_prototyping.py
