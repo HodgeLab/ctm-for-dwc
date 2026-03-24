@@ -1,4 +1,4 @@
-# %% #----- Setup -----#
+# ----- Setup -----#
 
 # 3rd party imports
 import copy
@@ -8,6 +8,7 @@ import torch.nn as nn
 import torch.optim as optim
 import wandb
 
+from datetime import datetime
 from dotenv import load_dotenv
 from torch.utils.data import DataLoader, random_split, TensorDataset
 
@@ -26,29 +27,7 @@ logger = make_logger(include_stdout=True)
 # Device setup
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# %% #----- Data loading -----#
-
-# Load dataset
-data_filepath = (
-    "/projects/rost5691/data/Caltrans/PeMS/processed_data/imputation_3hr_10pct.pt"
-)
-data = torch.load(data_filepath)
-logger.info("Loaded raw data from filepath: ", data_filepath)
-X,y = data['X'], data['y']
-dataset = TensorDataset(X.float(),y.float())
-logger.info(f"Loaded dataset with length: {len(dataset)}")
-
-# Create training, validation, and testing splits
-splits = [0.6, 0.2, 0.2]
-train_set, val_set, test_set = random_split(
-    dataset, lengths=splits, generator=torch.Generator().manual_seed(42)
-)
-logger.info(f"Dataset split into training, validation, and testing sets with lengths {len(train_set)}, {len(val_set)}, and {len(test_set)}")
-example_x, example_y = next(iter(train_set))
-logger.info(f"Samples in train set have shape {example_x.shape}")
-logger.info(f"Targets in train set have shape {example_y.shape}")
-
-# %% #----- Model & function definitions -----#
+# ----- Model & function definitions -----#
 # Basic GRU model
 class simpleGRU(nn.Module):
     def __init__(self, input_size=16, hidden_size=64, output_steps=3, output_size=2):
@@ -102,7 +81,7 @@ def run_epoch(
     criterion: nn.Module,
     optimizer: optim.Optimizer,
     train: bool = True,
-) -> tuple[float, float, float]:
+) -> tuple[float, float, float, torch.Tensor | None]:
     # Make sure we're on the correct device
     model = model.to(device)
 
@@ -112,10 +91,11 @@ def run_epoch(
     else:
         model.eval()
 
-    # Initial values for tracking loss and squared errors over the epoch
+    # Initial values for tracking loss, accuracy, and predictions
     running_loss = 0.0
     running_sq_err = torch.zeros(2)  # one accumulator per output column (flow, density)
     running_n = 0  # total number of (sample, timestep) pairs seen
+    all_preds = [] if not train else None
 
     # Set context based on model mode
     context = torch.enable_grad() if train else torch.no_grad()
@@ -142,6 +122,9 @@ def run_epoch(
 
                 # Adjust learning weights
                 optimizer.step()
+            else:
+                # Collect predictions from validation batches
+                all_preds.append(output.cpu())
 
             # Update running loss
             running_loss += loss.item()
@@ -159,8 +142,11 @@ def run_epoch(
     # Calculate per-column RMSE across all samples and timesteps
     flow_rmse, density_rmse = (running_sq_err / running_n).sqrt().tolist()
 
+    # Concatenate all validation predictions into a single tensor
+    all_preds = torch.cat(all_preds, dim=0) if all_preds is not None else None
+
     # Return loss and RMSE for this epoch
-    return running_loss, flow_rmse, density_rmse
+    return running_loss, flow_rmse, density_rmse, all_preds
 
 
 # Define function for training
@@ -179,6 +165,7 @@ def train_model(
     wandb_tags: list[str] = [],
     wandb_notes: str = "",
     model_name: str = "baseline",
+    val_preds_dir: str | None = None,
 ) -> None:
     # Early stopping setup
     best_val_loss = float('inf')
@@ -192,6 +179,11 @@ def train_model(
     wandb_config["patience"] = patience
     wandb_config["min_delta"] = min_delta
 
+    # Validation predictions directory setup
+    if val_preds_dir is not None:
+        os.makedirs(val_preds_dir, exist_ok=True)
+        logger.info(f"Validation predictions will be saved to: {val_preds_dir}")
+
     # Start training
     with wandb.init(
         entity=wandb_entity,
@@ -202,7 +194,7 @@ def train_model(
     ) as run:
         for epoch in range(n_epochs):
             # Training over epoch
-            train_loss, train_flow_rmse, train_density_rmse = run_epoch(
+            train_loss, train_flow_rmse, train_density_rmse, _ = run_epoch(
                 model=model,
                 loader=train_loader,
                 device=device,
@@ -212,7 +204,7 @@ def train_model(
             )
 
             # Validation over epoch
-            val_loss, val_flow_rmse, val_density_rmse = run_epoch(
+            val_loss, val_flow_rmse, val_density_rmse, val_preds = run_epoch(
                 model=model,
                 loader=val_loader,
                 device=device,
@@ -220,6 +212,11 @@ def train_model(
                 optimizer=optimizer,
                 train=False,
             )
+
+            # Save validation predictions for this epoch
+            if val_preds_dir is not None and val_preds is not None:
+                preds_filepath = os.path.join(val_preds_dir, f"epoch_{epoch:04d}.pt")
+                torch.save(val_preds, preds_filepath)
 
             # Save losses for this epoch
             run.log(
@@ -256,44 +253,72 @@ def train_model(
     return
 
 
-# %% #----- Model training -----#
+# ----- Model training -----#
+if __name__ == "__main__":
+    # Path definitions
+    root_dir = "/projects/rost5691/data/Caltrans/PeMS/processed_data"
+    data_filepath = os.path.join(root_dir, "imputation_3hr_10pct.pt")
 
-# Define hyperparameters
-batch_sizes = [32, 128, 512]
-learning_rates = [0.01, 0.001]
-momentum_rates = [0.9, 0.75]
-n_epochs = 20
+    # Load dataset
+    data = torch.load(data_filepath)
+    logger.info("Loaded raw data from filepath: ", data_filepath)
+    X, y = data["X"], data["y"]
+    dataset = TensorDataset(X.float(), y.float())
+    logger.info(f"Loaded dataset with length: {len(dataset)}")
 
-for batch_size in batch_sizes:
-    # Set up DataLoaders
-    train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True)
-    val_loader = DataLoader(val_set, batch_size=batch_size, shuffle=False)
-    test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False)
+    # Create training, validation, and testing splits
+    splits = [0.6, 0.2, 0.2]
+    train_set, val_set, test_set = random_split(
+        dataset, lengths=splits, generator=torch.Generator().manual_seed(42)
+    )
+    logger.info(
+        f"Dataset split into training, validation, and testing sets with lengths {len(train_set)}, {len(val_set)}, and {len(test_set)}"
+    )
+    example_x, example_y = next(iter(train_set))
+    logger.info(f"Samples in train set have shape {example_x.shape}")
+    logger.info(f"Targets in train set have shape {example_y.shape}")
 
-    for lr in learning_rates:
-        for alpha in momentum_rates:
-            # Define model, loss function, and optimizer
-            model = simpleGRU(output_steps=4)
-            criterion = nn.MSELoss()
-            optimizer = optim.SGD(model.parameters(), lr=lr, momentum=alpha)
+    # Define hyperparameters
+    batch_sizes = [32, 128, 512]
+    learning_rates = [0.01, 0.001]
+    momentum_rates = [0.9, 0.75]
+    n_epochs = 20
 
-            # Train model
-            train_model(
-                model=model,
-                train_loader=train_loader,
-                val_loader=val_loader,
-                device=device,
-                criterion=criterion,
-                optimizer=optimizer,
-                n_epochs=n_epochs,
-                early_stopping=False,
-                wandb_config={
-                    "model": "simpleGRU",
-                    "loss_function": "MSE",
-                    "optimizer": "SGD",
-                    "learning_rate": lr,
-                    "momentum_rate": alpha,
-                },
-                wandb_tags=["prototyping", "imputation"],
-                model_name="simpleGRU",
-            )
+    for batch_size in batch_sizes:
+        # Set up DataLoaders
+        train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True)
+        val_loader = DataLoader(val_set, batch_size=batch_size, shuffle=False)
+        test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False)
+
+        for lr in learning_rates:
+            for alpha in momentum_rates:
+                # Define model, loss function, and optimizer
+                model = simpleGRU(output_steps=4)
+                criterion = nn.MSELoss()
+                optimizer = optim.SGD(model.parameters(), lr=lr, momentum=alpha)
+
+                # Define path for saving validation predictions
+                now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                val_preds_dir = os.path.join(root_dir, f"val_predictions_{now}")
+
+                # Train model
+                train_model(
+                    model=model,
+                    train_loader=train_loader,
+                    val_loader=val_loader,
+                    device=device,
+                    criterion=criterion,
+                    optimizer=optimizer,
+                    n_epochs=n_epochs,
+                    early_stopping=False,
+                    wandb_config={
+                        "model": "simpleGRU",
+                        "loss_function": "MSE",
+                        "optimizer": "SGD",
+                        "learning_rate": lr,
+                        "momentum_rate": alpha,
+                    },
+                    wandb_tags=["prototyping", "imputation"],
+                    model_name="simpleGRU",
+                    val_preds_dir=val_preds_dir,
+                )
