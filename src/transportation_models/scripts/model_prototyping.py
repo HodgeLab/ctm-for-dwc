@@ -29,7 +29,9 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # %% #----- Data loading -----#
 
 # Load dataset
-data_filepath = "/projects/rost5691/data/Caltrans/PeMS/processed_data/hour_lookback_15min_horizon.pt"
+data_filepath = (
+    "/projects/rost5691/data/Caltrans/PeMS/processed_data/imputation_3hr_10pct.pt"
+)
 data = torch.load(data_filepath)
 logger.info("Loaded raw data from filepath: ", data_filepath)
 X,y = data['X'], data['y']
@@ -97,7 +99,7 @@ def run_epoch(
     model: nn.Module,
     loader: DataLoader,
     device: torch.device,
-    loss_fn: nn.Module,
+    criterion: nn.Module,
     optimizer: optim.Optimizer,
     train: bool = True,
 ) -> tuple[float, float, float]:
@@ -131,7 +133,7 @@ def run_epoch(
             output, hidden = model(xb)
 
             # Evaluate loss
-            loss = loss_fn(output, yb)
+            loss = criterion(output, yb)
 
             # -- Backward pass -- #
             if train:
@@ -167,7 +169,7 @@ def train_model(
     train_loader: DataLoader,
     val_loader: DataLoader,
     device: torch.device,
-    loss_fn: nn.Module,
+    criterion: nn.Module,
     optimizer: optim.Optimizer,
     n_epochs: int = 1500,
     early_stopping: bool = True,
@@ -204,7 +206,7 @@ def train_model(
                 model=model,
                 loader=train_loader,
                 device=device,
-                loss_fn=loss_fn,
+                criterion=criterion,
                 optimizer=optimizer,
                 train=True,
             )
@@ -214,7 +216,7 @@ def train_model(
                 model=model,
                 loader=val_loader,
                 device=device,
-                loss_fn=loss_fn,
+                criterion=criterion,
                 optimizer=optimizer,
                 train=False,
             )
@@ -253,15 +255,13 @@ def train_model(
 
     return
 
+
 # %% #----- Model training -----#
 
 # Define hyperparameters
-# batch_sizes = [1024, 4096, 8192]
-batch_sizes = [1024]
-# learning_rates = [0.01, 0.001]
-learning_rates = [0.01]
-# momentum_rates = [0.9, 0.75]
-momentum_rates = [0.9]
+batch_sizes = [32, 128, 512]
+learning_rates = [0.01, 0.001]
+momentum_rates = [0.9, 0.75]
 n_epochs = 20
 
 for batch_size in batch_sizes:
@@ -273,8 +273,8 @@ for batch_size in batch_sizes:
     for lr in learning_rates:
         for alpha in momentum_rates:
             # Define model, loss function, and optimizer
-            model = simpleGRU()
-            loss_fn = nn.MSELoss()
+            model = simpleGRU(output_steps=4)
+            criterion = nn.MSELoss()
             optimizer = optim.SGD(model.parameters(), lr=lr, momentum=alpha)
 
             # Train model
@@ -283,7 +283,7 @@ for batch_size in batch_sizes:
                 train_loader=train_loader,
                 val_loader=val_loader,
                 device=device,
-                loss_fn=loss_fn,
+                criterion=criterion,
                 optimizer=optimizer,
                 n_epochs=n_epochs,
                 early_stopping=False,
@@ -294,6 +294,6 @@ for batch_size in batch_sizes:
                     "learning_rate": lr,
                     "momentum_rate": alpha,
                 },
-                wandb_tags=["prototyping", "for-groupmeeting"],
+                wandb_tags=["prototyping", "imputation"],
                 model_name="simpleGRU",
             )
