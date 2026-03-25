@@ -54,6 +54,170 @@ class simpleGRU(nn.Module):
 
         return out, hidden
 
+
+class CustomLoss(nn.Module):
+    def __init__(self):
+        super(CustomLoss, self).__init__()
+        self.mse_criterion = nn.MSELoss()
+        self.phys_criterion = PhysicsLoss()
+
+    def forward(
+        self,
+        predictions: torch.tensor,
+        targets: torch.tensor,
+        station_meta: torch.tensor,
+        alpha: float,
+    ) -> torch.tensor:
+        """
+        Calculate total loss as a weighted combination of MSE loss and physics-based loss.
+        Parameter 'alpha' determines weight contribution of physics-based loss.
+
+        Parameters
+        ----------
+        predictions : torch.tensor
+            Predicted output.
+            Shape [batch, output_steps, 2], where dim -1 is [flow_norm, density_norm].
+        targets : torch.tensor
+            Actual output.
+            Shape [batch, output_steps, 2], where dim -1 is [flow_norm, density_norm].
+        station_meta : torch.tensor
+            Station-specific metadata.
+            Shape [batch, output_steps, 6], where dim -1 is
+            [Station ID, Lanes, capacity, critical_density, free_flow_speed, congestion_wave_speed].
+            These are the raw (unscaled) station-level values used during preprocessing.
+        alpha: float
+            Relative weight of physics-based loss in the total loss.
+            Must be between 0 and 1.
+
+        Returns
+        -------
+        torch.tensor
+            Total loss. Calculated as:
+            alpha * physics_loss + (1 - alpha) * mse_loss
+            Scalar value.
+        """
+        physics_loss = self.phys_criterion(predictions, targets, station_meta)
+        mse_loss = self.mse_criterion(predictions, targets)
+        total_loss = alpha * physics_loss + (1 - alpha) * mse_loss
+        return total_loss
+
+
+class PhysicsLoss(nn.Module):
+    def __init__(self):
+        super(PhysicsLoss, self).__init__()
+
+    def forward(
+        self,
+        predictions: torch.tensor,
+        targets: torch.tensor,
+        station_meta: torch.tensor,
+    ) -> torch.tensor:
+        """
+        Calculate physics-informed loss according to fundamental diagram.
+        Follow these steps:
+
+            1) Determine the appropriate slope to use:
+
+                If the actual density is greater than 1, use a slope m = -1 * congestion_wave_speed
+
+                If the actual density is less than 1, use a slope m = free_flow_speed
+
+            2) Calculate physical flow and density using denormalize_targets.
+
+            3) Determine the expected flow according to this equation:
+
+                flow_expected = m * (density_phys - critical_density) + capacity
+
+            4) Calculate loss as:
+
+                loss_phys = mean((flow_expected - flow_phys) ** 2)
+
+        Parameters
+        ----------
+        predictions : torch.tensor
+            Predicted output.
+            Shape [batch, output_steps, 2], where dim -1 is [flow_norm, density_norm].
+        targets : torch.tensor
+            Actual output.
+            Shape [batch, output_steps, 2], where dim -1 is [flow_norm, density_norm].
+        station_meta : torch.tensor
+            Station-specific metadata.
+            Shape [batch, output_steps, 6], where dim -1 is
+            [Station ID, Lanes, capacity, critical_density, free_flow_speed, congestion_wave_speed].
+            These are the raw (unscaled) station-level values used during preprocessing.
+
+        Returns
+        -------
+        torch.tensor
+            Physics-based loss according to fundamental diagram.
+            Scalar value.
+        """
+        # --- Step 1: Determine appropriate slopes to use ---
+        # Determine indices of prediction that correspond to congested traffic conditions
+        is_congested = targets[:, :, 1] > 1
+
+        # Calculate appropriate slopes according to congestion mask
+        slopes = (
+            station_meta[:, :, 4] * ~is_congested
+            + station_meta[:, :, 5] * is_congested * -1
+        )
+
+        # --- Step 2: Denormalize targets
+        predictions_phys = PhysicsLoss.denormalize_targets(predictions, station_meta)
+
+        # --- Step 3: Calculate expected flow ---
+        critical_density = station_meta[:, :, 3]
+        capacity = station_meta[:, :, 2]
+        predicted_flow_phys = predictions_phys[:, :, 0]
+        predicted_density_phys = predictions_phys[:, :, 1]
+        flow_expected = slopes * (predicted_density_phys - critical_density) + capacity
+
+        # --- Step 4: Calculate physics loss ---
+        physics_loss = ((flow_expected - predicted_flow_phys) ** 2).mean()
+
+        return physics_loss
+
+    # Define a helper function to denormalize the targets
+    @staticmethod
+    def denormalize_targets(
+        targets: torch.Tensor,
+        station_meta: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Reverse the flow and density normalizations applied during preprocessing,
+        converting model outputs back to interpretable physical units:
+            - flow:            normalized → [veh/hr-lane]
+            - density:         normalized → [veh/mi-lane]
+
+        Preprocessing applied (in order):
+            flow_norm    = (total_flow_veh_per_5min * 12 / lanes) / capacity
+            density_norm = (flow_veh_hr_lane / avg_speed_mph) / critical_density
+
+        Inverse (applied here):
+            flow_real    = flow_norm * capacity
+            density_real = density_norm * critical_density
+
+        Parameters
+        ----------
+        targets : torch.Tensor
+            Shape [batch, output_steps, 2], where dim -1 is [flow_norm, density_norm].
+        station_meta : torch.Tensor
+            Shape [batch, output_steps, 6], where dim -1 is
+            [Station ID, Lanes, capacity, critical_density, free_flow_speed, congestion_wave_speed].
+            These are the raw (unscaled) station-level values used during preprocessing.
+
+        Returns
+        -------
+        torch.Tensor
+            Shape [batch, output_steps, 2], with flow in [veh/hr-lane] and
+            density in [veh/mi-lane].
+        """
+        # Select columns for capacity and critical density
+        scale = station_meta[:, :, [2, 3]]  # [batch, output_steps, 2]
+
+        return targets * scale  # [batch, output_steps, 2]
+
+
 # Define a function to save models
 def save_model(
     model: nn.Module,
@@ -71,46 +235,6 @@ def save_model(
 
     # Return the filepath
     return filepath
-
-
-# Define a helper function to denormalize the targets
-def denormalize_targets(
-    targets: torch.Tensor,
-    station_meta: torch.Tensor,
-) -> torch.Tensor:
-    """
-    Reverse the flow and density normalizations applied during preprocessing,
-    converting model outputs back to interpretable physical units:
-        - flow:            normalized → [veh/hr-lane]
-        - speed:   normalized density → [mi/hr]
-
-    Preprocessing applied (in order):
-        flow_norm    = (total_flow_veh_per_5min * 12 / lanes) / capacity
-        density_norm = (flow_veh_hr_lane / avg_speed_mph) / critical_density
-
-    Inverse (applied here):
-        flow_real    = flow_norm * capacity
-        speed        = flow_real / (density_norm * critical_density)
-
-    Parameters
-    ----------
-    targets : torch.Tensor
-        Shape [batch, output_steps, 2], where dim -1 is [flow_norm, density_norm].
-    station_meta : torch.Tensor
-        Shape [batch, output_steps, 6], where dim -1 is
-        [Station ID, Lanes, capacity, critical_density, free_flow_speed, congestion_wave_speed].
-        These are the raw (unscaled) station-level values used during preprocessing.
-
-    Returns
-    -------
-    torch.Tensor
-        Shape [batch, output_steps, 2], with flow in [veh/hr-lane] and
-        speed in [mi/hr].
-    """
-    # Select columns for capacity and critical density
-    scale = station_meta[:, :, [2, 3]]  # [batch, output_steps, 2]
-
-    return targets * scale  # [batch, output_steps, 2]
 
 
 # Define a function to evaluate a single epoch
@@ -172,11 +296,17 @@ def run_epoch(
             running_loss += loss.item()
 
             # --- Physical-space RMSE --- #
-            # Reverse the per-station normalization (and calculate average speed).
-            # Puts errors in [veh/hr-lane] for flow and [mi/hr] for speed.
-            # Sum over batch and timestep dimensions gives total SE per column.
-            output_phys = denormalize_targets(output, meta_b)
-            yb_phys = denormalize_targets(yb, meta_b)
+            # Reverse the per-station normalization
+            output_phys = PhysicsLoss.denormalize_targets(
+                output, meta_b
+            )  # [batch, output_steps, 2]
+            yb_phys = PhysicsLoss.denormalize_targets(yb, meta_b)
+
+            # Calculate speed (flow / density)
+            output_phys[:, :, 1] = output_phys[:, :, 0] / output_phys[:, :, 1]
+            yb_phys[:, :, 1] = yb_phys[:, :, 0] / yb_phys[:, :, 1]
+
+            # Calculate error (sum over batch and timestep dimensions gives total SE per column)
             sq_err = (output_phys - yb_phys) ** 2  # [batch, output_steps, 2]
             running_sq_err += sq_err.sum(dim=(0, 1)).cpu()
 
