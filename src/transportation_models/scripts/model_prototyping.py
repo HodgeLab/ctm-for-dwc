@@ -73,6 +73,46 @@ def save_model(
     return filepath
 
 
+# Define a helper function to denormalize the targets
+def denormalize_targets(
+    targets: torch.Tensor,
+    station_meta: torch.Tensor,
+) -> torch.Tensor:
+    """
+    Reverse the flow and density normalizations applied during preprocessing,
+    converting model outputs back to interpretable physical units:
+        - flow:            normalized → [veh/hr-lane]
+        - speed:   normalized density → [mi/hr]
+
+    Preprocessing applied (in order):
+        flow_norm    = (total_flow_veh_per_5min * 12 / lanes) / capacity
+        density_norm = (flow_veh_hr_lane / avg_speed_mph) / critical_density
+
+    Inverse (applied here):
+        flow_real    = flow_norm * capacity
+        speed        = flow_real / (density_norm * critical_density)
+
+    Parameters
+    ----------
+    targets : torch.Tensor
+        Shape [batch, output_steps, 2], where dim -1 is [flow_norm, density_norm].
+    station_meta : torch.Tensor
+        Shape [batch, output_steps, 6], where dim -1 is
+        [Station ID, Lanes, capacity, critical_density, free_flow_speed, congestion_wave_speed].
+        These are the raw (unscaled) station-level values used during preprocessing.
+
+    Returns
+    -------
+    torch.Tensor
+        Shape [batch, output_steps, 2], with flow in [veh/hr-lane] and
+        speed in [mi/hr].
+    """
+    # Select columns for capacity and critical density
+    scale = station_meta[:, :, [2, 3]]  # [batch, output_steps, 2]
+
+    return targets * scale  # [batch, output_steps, 2]
+
+
 # Define a function to evaluate a single epoch
 def run_epoch(
     model: nn.Module,
@@ -81,7 +121,7 @@ def run_epoch(
     criterion: nn.Module,
     optimizer: optim.Optimizer,
     train: bool = True,
-) -> tuple[float, float, float, torch.Tensor | None]:
+) -> tuple[float, float, float, tuple[torch.Tensor, torch.Tensor] | None]:
     # Make sure we're on the correct device
     model = model.to(device)
 
@@ -93,17 +133,18 @@ def run_epoch(
 
     # Initial values for tracking loss, accuracy, and predictions
     running_loss = 0.0
-    running_sq_err = torch.zeros(2)  # one accumulator per output column (flow, density)
+    running_sq_err = torch.zeros(2)  # one accumulator per output column (flow, speed)
     running_n = 0  # total number of (sample, timestep) pairs seen
     all_preds = [] if not train else None
+    all_metas = [] if not train else None
 
     # Set context based on model mode
     context = torch.enable_grad() if train else torch.no_grad()
     with context:
         # Iterate through the batches in the loader
-        for xb, yb in loader:
+        for xb, yb, meta_b in loader:
             # Transfer to device
-            xb, yb = xb.to(device), yb.to(device)
+            xb, yb, meta_b = xb.to(device), yb.to(device), meta_b.to(device)
 
             # Zero gradients
             optimizer.zero_grad()
@@ -125,28 +166,36 @@ def run_epoch(
             else:
                 # Collect predictions from validation batches
                 all_preds.append(output.cpu())
+                all_metas.append(meta_b.cpu())
 
             # Update running loss
             running_loss += loss.item()
 
-            # Accumulate per-column squared errors
-            # output/yb shape: [batch, output_steps, 2]
-            # Summing over batch and timestep dimensions gives total SE per column
-            sq_err = (output - yb) ** 2  # [batch, output_steps, 2]
+            # --- Physical-space RMSE --- #
+            # Reverse the per-station normalization (and calculate average speed).
+            # Puts errors in [veh/hr-lane] for flow and [mi/hr] for speed.
+            # Sum over batch and timestep dimensions gives total SE per column.
+            output_phys = denormalize_targets(output, meta_b)
+            yb_phys = denormalize_targets(yb, meta_b)
+            sq_err = (output_phys - yb_phys) ** 2  # [batch, output_steps, 2]
             running_sq_err += sq_err.sum(dim=(0, 1)).cpu()
+
             running_n += yb.shape[0] * yb.shape[1]  # batch_size * output_steps
 
     # Calculate average batch loss
     running_loss = running_loss / len(loader)
 
     # Calculate per-column RMSE across all samples and timesteps
-    flow_rmse, density_rmse = (running_sq_err / running_n).sqrt().tolist()
+    flow_rmse, speed_rmse = (running_sq_err / running_n).sqrt().tolist()
 
-    # Concatenate all validation predictions into a single tensor
-    all_preds = torch.cat(all_preds, dim=0) if all_preds is not None else None
+    # Concatenate all validation predictions and metadata into their own tensors
+    if train:
+        preds_with_meta = None
+    else:
+        preds_with_meta = (torch.cat(all_preds, dim=0), torch.cat(all_metas, dim=0))
 
     # Return loss and RMSE for this epoch
-    return running_loss, flow_rmse, density_rmse, all_preds
+    return running_loss, flow_rmse, speed_rmse, preds_with_meta
 
 
 # Define function for training
@@ -194,7 +243,7 @@ def train_model(
     ) as run:
         for epoch in range(n_epochs):
             # Training over epoch
-            train_loss, train_flow_rmse, train_density_rmse, _ = run_epoch(
+            train_loss, train_flow_rmse, train_speed_rmse, _ = run_epoch(
                 model=model,
                 loader=train_loader,
                 device=device,
@@ -204,7 +253,7 @@ def train_model(
             )
 
             # Validation over epoch
-            val_loss, val_flow_rmse, val_density_rmse, val_preds = run_epoch(
+            val_loss, val_flow_rmse, val_speed_rmse, val_preds_and_meta = run_epoch(
                 model=model,
                 loader=val_loader,
                 device=device,
@@ -214,19 +263,22 @@ def train_model(
             )
 
             # Save validation predictions for this epoch
-            if val_preds_dir is not None and val_preds is not None:
+            if val_preds_dir is not None and val_preds_and_meta is not None:
                 preds_filepath = os.path.join(val_preds_dir, f"epoch_{epoch:04d}.pt")
-                torch.save(val_preds, preds_filepath)
+                torch.save(
+                    {"preds": val_preds_and_meta[0], "meta": val_preds_and_meta[1]},
+                    preds_filepath,
+                )
 
             # Save losses for this epoch
             run.log(
                 {
                     "training_loss": train_loss,
                     "train_flow_rmse": train_flow_rmse,
-                    "train_density_rmse": train_density_rmse,
+                    "train_speed_rmse": train_speed_rmse,
                     "validation_loss": val_loss,
                     "val_flow_rmse": val_flow_rmse,
-                    "val_density_rmse": val_density_rmse,
+                    "val_speed_rmse": val_speed_rmse,
                 }
             )
 
@@ -259,11 +311,14 @@ if __name__ == "__main__":
     root_dir = "/projects/rost5691/data/Caltrans/PeMS/processed_data"
     data_filepath = os.path.join(root_dir, "imputation_3hr_10pct.pt")
 
-    # Load dataset
+    # Load dataset.
+    # Expected keys: "X" (features), "y" (normalized targets), "meta" (per-sample station scalars).
+    # "meta" should be a float tensor of shape [N, 6] with these columns:
+    # [Station ID, Lanes, capacity, critical_density, free_flow_speed, congestion_wave_speed]
     data = torch.load(data_filepath)
     logger.info("Loaded raw data from filepath: ", data_filepath)
-    X, y = data["X"], data["y"]
-    dataset = TensorDataset(X.float(), y.float())
+    X, y, meta = data["X"], data["y"], data["meta"]
+    dataset = TensorDataset(X.float(), y.float(), meta.float())
     logger.info(f"Loaded dataset with length: {len(dataset)}")
 
     # Create training, validation, and testing splits
@@ -274,9 +329,10 @@ if __name__ == "__main__":
     logger.info(
         f"Dataset split into training, validation, and testing sets with lengths {len(train_set)}, {len(val_set)}, and {len(test_set)}"
     )
-    example_x, example_y = next(iter(train_set))
+    example_x, example_y, example_meta = next(iter(train_set))
     logger.info(f"Samples in train set have shape {example_x.shape}")
     logger.info(f"Targets in train set have shape {example_y.shape}")
+    logger.info(f"Station meta in train set has shape {example_meta.shape}")
 
     # Define hyperparameters
     batch_sizes = [32, 128, 512]
