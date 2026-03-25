@@ -25,7 +25,7 @@ def make_logger(
     log_dir = os.path.join(os.getcwd(), "logs")
     if not os.path.isdir(log_dir):
         os.mkdir(log_dir)
-    now = datetime.now().strftime("%d-%m-%Y_%H:%M:%S")
+    now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     log_filename = os.path.join(log_dir, f"{log_prefix}_{now}.log")
 
     # Add a handler for files
