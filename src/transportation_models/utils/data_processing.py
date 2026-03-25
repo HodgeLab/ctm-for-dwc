@@ -291,7 +291,7 @@ class PeMSDataProcessor:
         df: pd.DataFrame,
     ) -> pd.DataFrame:
         """
-        Normalize the raw counts (flow, speed) in the timeseries data. 
+        Normalize the raw counts (flow, speed) in the timeseries data.
         Normalization steps include:
             - Calculating per-hour, per-lane flow from 5-minute, station-wide flow. Result has units [veh/hr*lanes]
             - Calculating per-hour, per-lane density from flow and average station speed. Result has units [veh/mi*lanes]
@@ -301,7 +301,7 @@ class PeMSDataProcessor:
         Parameters
         ----------
         df : pd.DataFrame
-            DataFrame containing 
+            DataFrame containing
 
         Returns
         -------
@@ -310,8 +310,8 @@ class PeMSDataProcessor:
             Modifications include:
                 - ADDED column 'flow'
                 - ADDED column 'density'
-                - DROPPED columns ['total_flow_[veh/5-min]', 'avg_speed_[mph]', 'Lanes', 'capacity', 'critical_density']
-                 
+                - DROPPED columns ['total_flow_[veh/5-min]', 'avg_speed_[mph]']
+
         """
         # Number of 5-minute periods per hour (used for normalization)
         periods_per_hour = 12
@@ -331,13 +331,12 @@ class PeMSDataProcessor:
         df['density'] = df['density'] / df['critical_density']
 
         # Drop unnecessary columns
-        df = df.drop(columns=[
-            'total_flow_[veh/5-min]',
-            'avg_speed_[mph]',
-            'Lanes',
-            'capacity',
-            'critical_density'
-        ])
+        df = df.drop(
+            columns=[
+                "total_flow_[veh/5-min]",
+                "avg_speed_[mph]",
+            ]
+        )
 
         return df
 
@@ -421,12 +420,30 @@ class PeMSDataProcessor:
         return df
 
     def encode_and_scale(self, df: pd.DataFrame) -> pd.DataFrame:
+        # Duplicate Station ID, free flow speed, and congestion wave speed
+        # These columns are both metadata and useful features
+        df["Station ID (encoded)"] = df.loc[:, "Station ID"]
+        df["free_flow_speed_scaled"] = df.loc[:, "free_flow_speed"]
+        df["congestion_wave_speed_scaled"] = df.loc[:, "congestion_wave_speed"]
 
-        categorical_features = ['Station ID', 'Type']
+        categorical_features = ["Station ID (encoded)", "Type"]
         df.loc[:, categorical_features] = self.encoder.fit_transform(df[categorical_features])
         df[categorical_features] = df[categorical_features].astype('float')     # Cast as float after encoding
 
-        minmax_features = ['pct_observed', 'Abs PM', 'Length', 'free_flow_speed', 'congestion_wave_speed', 'year', 'month', 'day', 'dayofweek', 'hour', 'minute', '5min_block']
+        minmax_features = [
+            "pct_observed",
+            "Abs PM",
+            "Length",
+            "free_flow_speed_scaled",
+            "congestion_wave_speed_scaled",
+            "year",
+            "month",
+            "day",
+            "dayofweek",
+            "hour",
+            "minute",
+            "5min_block",
+        ]
         df[minmax_features] = df[minmax_features].astype('float')   # Cast as float ahead of scaling
         df.loc[:, minmax_features] = self.scaler.fit_transform(df[minmax_features])
 
@@ -472,7 +489,24 @@ class PeMSDataProcessor:
         pred_horizon: int = 3,
         save_name: typing.Optional[str] = None,
     ) -> TensorDataset:
-        X_list, y_list = [], []
+        # Columns to include in meta tensor
+        meta_columns = [
+            "Station ID",
+            "Lanes",
+            "capacity",
+            "critical_density",
+            "free_flow_speed",
+            "congestion_wave_speed",
+        ]
+
+        # Columns to include in feature tensor
+        feature_columns = [col for col in df.columns if col not in meta_columns]
+
+        # Columns to include in target tensor
+        target_columns = ["flow", "density"]
+
+        # Empty lists for meta, features, and targets
+        meta_list, X_list, y_list = [], [], []
 
         N_stations = len(df['Station ID'].unique())
         for idx, station_id in enumerate(df['Station ID'].unique()):
@@ -480,33 +514,43 @@ class PeMSDataProcessor:
             station_df = df.loc[df['Station ID'] == station_id, :]
 
             for i in range(len(station_df) - (seq_len + pred_horizon) + 1):
-                # Select features and targets
-                features = station_df.loc[i:i + seq_len-1, :]
-                targets = station_df.loc[i + seq_len:i+seq_len+pred_horizon-1, ['flow', 'density']]
+                # Define indices
+                target_idx_start = i + seq_len
+                target_idx_end = target_idx_start + pred_horizon - 1
+
+                # Select metadata, features, and targets
+                metadata = station_df.loc[target_idx_start:target_idx_end, meta_columns]
+                features = station_df.loc[i : target_idx_start - 1, feature_columns]
+                targets = station_df.loc[
+                    target_idx_start:target_idx_end, target_columns
+                ]
 
                 # Don't use any sequences with missing data
                 if features.isna().any().any() or targets.isna().any().any():
                     continue
 
-                # Convert to tensor
+                # Convert to tensors
+                metadata = torch.from_numpy(metadata.values).to(dtype=torch.float32)
                 features = torch.from_numpy(features.values).to(dtype=torch.float32)
                 targets = torch.from_numpy(targets.values).to(dtype=torch.float32)
 
                 # Append to list
+                meta_list.append(metadata)
                 X_list.append(features)
                 y_list.append(targets)
 
         # Convert lists to tensors
+        meta = torch.stack(meta_list)
         X = torch.stack(X_list)
         y = torch.stack(y_list)
 
         # Create dataset
-        dataset = TensorDataset(X, y)
+        dataset = TensorDataset(X, y, meta)
 
         # Optionally save Dataset
         if save_name is not None:
             filepath = os.path.join(self.processed_data_directory, save_name)
-            torch.save({'X': X, 'y': y}, filepath)
+            torch.save({"X": X, "y": y, "meta": meta}, filepath)
             logger.info(f"Saving sequence dataset to {filepath}")
 
         # Return
@@ -519,11 +563,27 @@ class PeMSDataProcessor:
         missing_rate: float = 0.1,
         save_name: typing.Optional[str] = None,
     ) -> TensorDataset:
+        # Columns to include in meta tensor
+        meta_columns = [
+            "Station ID",
+            "Lanes",
+            "capacity",
+            "critical_density",
+            "free_flow_speed",
+            "congestion_wave_speed",
+        ]
+
+        # Columns to include in feature tensor
+        feature_columns = [col for col in df.columns if col not in meta_columns]
+
+        # Columns to include in target tensor
+        target_columns = ["flow", "density"]
+
         # Calculate number of entries to mask for imputation
         missing_counts = min(math.ceil(missing_rate * seq_len), seq_len)
 
         # Prepare lists for features and targets
-        X_list, y_list = [], []
+        meta_list, X_list, y_list = [], [], []
 
         N_stations = len(df["Station ID"].unique())
         for idx, station_id in enumerate(df["Station ID"].unique()):
@@ -541,31 +601,33 @@ class PeMSDataProcessor:
                 # Generate a set of random indices to mask
                 mask_ids = random.sample(range(i, i + seq_len), missing_counts)
 
-                # Select features and targets
-                features = sequence.loc[~sequence.index.isin(mask_ids), :]
-                targets = sequence.loc[
-                    sequence.index.isin(mask_ids), ["flow", "density"]
-                ]
+                # Select metadata, features, and targets
+                metadata = sequence.loc[sequence.index.isin(mask_ids), meta_columns]
+                features = sequence.loc[~sequence.index.isin(mask_ids), feature_columns]
+                targets = sequence.loc[sequence.index.isin(mask_ids), target_columns]
 
                 # Convert to tensor
+                metadata = torch.from_numpy(metadata.values).to(dtype=torch.float32)
                 features = torch.from_numpy(features.values).to(dtype=torch.float32)
                 targets = torch.from_numpy(targets.values).to(dtype=torch.float32)
 
                 # Append to list
+                meta_list.append(metadata)
                 X_list.append(features)
                 y_list.append(targets)
 
         # Convert lists to tensors
+        meta = torch.stack(meta_list)
         X = torch.stack(X_list)
         y = torch.stack(y_list)
 
         # Create dataset
-        dataset = TensorDataset(X, y)
+        dataset = TensorDataset(X, y, meta)
 
         # Optionally save Dataset
         if save_name is not None:
             filepath = os.path.join(self.processed_data_directory, save_name)
-            torch.save({"X": X, "y": y}, filepath)
+            torch.save({"X": X, "y": y, "meta": meta}, filepath)
             logger.info(f"Saving imputation dataset to {filepath}")
 
         # Return
