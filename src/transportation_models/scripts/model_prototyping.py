@@ -1,6 +1,7 @@
 # ----- Setup -----#
 
 # 3rd party imports
+import argparse
 import copy
 import os
 import torch
@@ -55,9 +56,9 @@ class simpleGRU(nn.Module):
         return out, hidden
 
 
-class CustomLoss(nn.Module):
+class TotalLoss(nn.Module):
     def __init__(self):
-        super(CustomLoss, self).__init__()
+        super(TotalLoss, self).__init__()
         self.mse_criterion = nn.MSELoss()
         self.phys_criterion = PhysicsLoss()
 
@@ -437,6 +438,18 @@ def train_model(
 
 # ----- Model training -----#
 if __name__ == "__main__":
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(
+        description="Prototyping script for training a neural network to impute missing traffic data"
+    )
+    parser.add_argument(
+        "--LossType",
+        choices=["mse", "phys", "total"],
+        default="mse",
+        help="String indicator for desired loss function to use during training",
+    )
+    args = parser.parse_args()
+
     # Path definitions
     root_dir = "/projects/rost5691/data/Caltrans/PeMS/processed_data"
     data_filepath = os.path.join(root_dir, "imputation_3hr_10pct.pt")
@@ -480,7 +493,12 @@ if __name__ == "__main__":
             for alpha in momentum_rates:
                 # Define model, loss function, and optimizer
                 model = simpleGRU(output_steps=4)
-                criterion = nn.MSELoss()
+                if args.LossType == "total":
+                    criterion = TotalLoss()
+                elif args.LossType == "phys":
+                    criterion = PhysicsLoss()
+                else:
+                    criterion = nn.MSELoss()
                 optimizer = optim.SGD(model.parameters(), lr=lr, momentum=alpha)
 
                 # Define path for saving validation predictions
