@@ -57,17 +57,29 @@ class simpleGRU(nn.Module):
 
 
 class TotalLoss(nn.Module):
-    def __init__(self):
+
+    def __init__(self, alpha: float) -> None:
+        """
+        init function for class
+
+        Parameters
+        ----------
+        alpha : float
+            Relative weight of physics-based loss in the total loss.
+            Must be between 0 and 1.
+            0 indicates complete MSE loss.
+            1 indicates complete Physics loss.
+        """
         super(TotalLoss, self).__init__()
         self.mse_criterion = nn.MSELoss()
         self.phys_criterion = PhysicsLoss()
+        self.alpha = alpha
 
     def forward(
         self,
         predictions: torch.tensor,
         targets: torch.tensor,
         station_meta: torch.tensor,
-        alpha: float,
     ) -> torch.tensor:
         """
         Calculate total loss as a weighted combination of MSE loss and physics-based loss.
@@ -86,9 +98,6 @@ class TotalLoss(nn.Module):
             Shape [batch, output_steps, 6], where dim -1 is
             [Station ID, Lanes, capacity, critical_density, free_flow_speed, congestion_wave_speed].
             These are the raw (unscaled) station-level values used during preprocessing.
-        alpha: float
-            Relative weight of physics-based loss in the total loss.
-            Must be between 0 and 1.
 
         Returns
         -------
@@ -99,7 +108,7 @@ class TotalLoss(nn.Module):
         """
         physics_loss = self.phys_criterion(predictions, targets, station_meta)
         mse_loss = self.mse_criterion(predictions, targets)
-        total_loss = alpha * physics_loss + (1 - alpha) * mse_loss
+        total_loss = self.alpha * physics_loss + (1 - self.alpha) * mse_loss
         return total_loss
 
 
@@ -279,7 +288,7 @@ def run_epoch(
             output, hidden = model(xb)
 
             # Evaluate loss
-            loss = criterion(output, yb)
+            loss = criterion(output, yb, meta_b)
 
             # -- Backward pass -- #
             if train:
@@ -494,11 +503,11 @@ if __name__ == "__main__":
                 # Define model, loss function, and optimizer
                 model = simpleGRU(output_steps=4)
                 if args.LossType == "total":
-                    criterion = TotalLoss()
+                    criterion = TotalLoss(alpha=0.5)
                 elif args.LossType == "phys":
-                    criterion = PhysicsLoss()
+                    criterion = TotalLoss(alpha=1)
                 else:
-                    criterion = nn.MSELoss()
+                    criterion = TotalLoss(alpha=0.0)
                 optimizer = optim.SGD(model.parameters(), lr=lr, momentum=alpha)
 
                 # Define path for saving validation predictions
@@ -517,7 +526,7 @@ if __name__ == "__main__":
                     early_stopping=False,
                     wandb_config={
                         "model": "simpleGRU",
-                        "loss_function": "MSE",
+                        "loss_function": args.LossType,
                         "optimizer": "SGD",
                         "learning_rate": lr,
                         "momentum_rate": alpha,
