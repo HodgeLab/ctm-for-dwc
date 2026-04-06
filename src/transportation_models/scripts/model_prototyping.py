@@ -452,10 +452,11 @@ if __name__ == "__main__":
         description="Prototyping script for training a neural network to impute missing traffic data"
     )
     parser.add_argument(
-        "--LossType",
-        choices=["mse", "phys", "total"],
-        default="mse",
-        help="String indicator for desired loss function to use during training",
+        "--PhysWeight",
+        type=float,
+        default=0.5,
+        required=True,
+        help="Alpha parameter for loss function: relative weight of physics loss to MSE loss. 0 for pure MSE, 1 for pure physics",
     )
     args = parser.parse_args()
 
@@ -502,12 +503,7 @@ if __name__ == "__main__":
             for alpha in momentum_rates:
                 # Define model, loss function, and optimizer
                 model = simpleGRU(output_steps=4)
-                if args.LossType == "total":
-                    criterion = TotalLoss(alpha=0.5)
-                elif args.LossType == "phys":
-                    criterion = TotalLoss(alpha=1)
-                else:
-                    criterion = TotalLoss(alpha=0.0)
+                criterion = TotalLoss(alpha=args.PhysWeight)
                 optimizer = optim.SGD(model.parameters(), lr=lr, momentum=alpha)
 
                 # Define path for saving validation predictions
@@ -526,7 +522,8 @@ if __name__ == "__main__":
                     early_stopping=False,
                     wandb_config={
                         "model": "simpleGRU",
-                        "loss_function": args.LossType,
+                        "loss_function": "Total",
+                        "PhysWeight": args.PhysWeight,
                         "optimizer": "SGD",
                         "learning_rate": lr,
                         "momentum_rate": alpha,
