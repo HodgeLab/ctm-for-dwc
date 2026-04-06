@@ -8,13 +8,13 @@ from datetime import datetime
 
 
 def make_logger(
-    include_stdout: bool = False, log_prefix: str = "logs"
+    include_stdout: bool = False, log_prefix: str = "logs", log_level: int = logging.DEBUG
 ) -> logging.Logger:
     # Create a logger
     logger = logging.getLogger()
 
     # Capture all message levels
-    logger.setLevel(logging.DEBUG)
+    logger.setLevel(log_level)
 
     # Set the format
     log_formatter = logging.Formatter(
