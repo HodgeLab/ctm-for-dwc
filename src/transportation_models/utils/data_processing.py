@@ -145,6 +145,7 @@ class PeMSDataProcessor:
         self,
         root_directory: str = constants.ROOT_PATH,
         metadata_filepath: typing.Optional[str] = None,
+        imputation_threshold: float = 100.0,
         save_transforms: bool = False
     ) -> None:
         # Set seeds for reproducibility
@@ -177,6 +178,9 @@ class PeMSDataProcessor:
             5: "Sat",
             6: "Sun",
         }
+
+        # Set imputation threshold
+        self.imputation_threshold = imputation_threshold
 
         # Load files
         self.timeseries_cols = ['timestamp', 'station', 'pct_observed', 'total_flow_[veh/5-min]', 'avg_speed_[mph]']
@@ -956,7 +960,6 @@ class PeMSDataProcessor:
         detectors: typing.Optional[list[str]] = None,
         filter_colname: str = "whitened_flow",
         iqr_multiplier: float = 1.0,
-        imputation_threshold: float = 100.0,
         make_plots: bool = False,
         saved_plot_dir: typing.Optional[Path] = None,
         save_params: bool = False,
@@ -991,13 +994,13 @@ class PeMSDataProcessor:
             # Filter for measurements exceeding the imputation threshold
             len_original = len(df_standardized)
             df_standardized = df_standardized.loc[
-                df_standardized["pct_observed"] >= imputation_threshold, :
+                df_standardized["pct_observed"] >= self.imputation_threshold, :
             ].reset_index(drop=True)
             len_filtered = len(df_standardized)
             logger.debug(
                 f"{(((len_original - len_filtered) / len_original) * 100):.2f} percent of"
                 f" datapoints removed from dataframe of length {len_original}:"
-                f" pct_observed < {imputation_threshold}"
+                f" pct_observed < {self.imputation_threshold}"
             )
             if df_standardized.empty:
                 logger.debug(f"Calibration failed for VDS: {detector}. Too many missing data points.")
