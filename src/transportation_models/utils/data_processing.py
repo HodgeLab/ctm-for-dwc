@@ -571,6 +571,16 @@ class PeMSDataProcessor:
         df = self.standardize_timeseries(df)
         df = self.normalize_timeseries(df)
 
+        # Filter based on imputation threshold
+        mask = df["pct_observed"] >= self.imputation_threshold
+        n_removed = (~mask).sum()
+        df = df.loc[mask, :]
+        logger.debug(
+            f"{((n_removed / len(df)) * 100):.2f} percent of"
+            f" datapoints removed from dataframe of length {len(df)}:"
+            f" pct_observed < {self.imputation_threshold}"
+        )
+
         return df
 
     def deconstruct_timestamps(
@@ -1154,7 +1164,7 @@ class PeMSDataProcessor:
         ]
 
         # Columns to include in feature tensor
-        feature_columns = [col for col in df.columns if col not in meta_columns]
+        feature_columns = [col for col in df.columns if col not in meta_columns] + ["observed"]
 
         # Columns to include in target tensor
         target_columns = ["flow", "density"]
@@ -1168,11 +1178,11 @@ class PeMSDataProcessor:
         N_stations = len(df["Station ID"].unique())
         for idx, station_id in enumerate(df["Station ID"].unique()):
             logger.info(f"Preparing sequences for station {idx+1}/{N_stations}")
-            station_df = df.loc[df["Station ID"] == station_id, :]
+            station_df = df.loc[df["Station ID"] == station_id, :].reset_index(drop=True)
 
             for i in range(0, len(station_df) - (seq_len) + 1, seq_len):
                 # Locate the sequence
-                sequence = station_df.loc[i : i + seq_len - 1, :]
+                sequence = station_df.loc[i : i + seq_len - 1, :].copy()
 
                 # Don't use any sequences with missing data
                 if sequence.isna().any().any():
@@ -1181,10 +1191,16 @@ class PeMSDataProcessor:
                 # Generate a set of random indices to mask
                 mask_ids = random.sample(range(i, i + seq_len), missing_counts)
 
+                # Add masking indicator
+                sequence['observed'] = (~sequence.index.isin(mask_ids)).astype(int)
+
                 # Select metadata, features, and targets
-                metadata = sequence.loc[sequence.index.isin(mask_ids), meta_columns]
-                features = sequence.loc[~sequence.index.isin(mask_ids), feature_columns]
-                targets = sequence.loc[sequence.index.isin(mask_ids), target_columns]
+                metadata = sequence.loc[:, meta_columns]
+                features = sequence.loc[:, feature_columns]
+                targets = sequence.loc[:, target_columns]
+
+                # Mask targets
+                targets.loc[sequence["observed"] == 0, :] = -1
 
                 # Convert to tensor
                 metadata = torch.from_numpy(metadata.values).to(dtype=torch.float32)
@@ -1225,5 +1241,5 @@ if __name__ == "__main__":
 
     # Generate Dataset from DataFrame
     dataset = DataProcessor.prepare_imputation_dataset(
-        df, save_name="imputation_3hr_10pct.pt"
+        df, save_name="imputation_3hr_10pct_with_masking.pt"
     )
