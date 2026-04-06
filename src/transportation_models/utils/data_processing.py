@@ -142,7 +142,10 @@ class PeMSDataProcessor:
     """
 
     def __init__(
-        self, root_directory: str = constants.ROOT_PATH, save_transforms: bool = False
+        self,
+        root_directory: str = constants.ROOT_PATH,
+        metadata_filepath: typing.Optional[str] = None,
+        save_transforms: bool = False
     ) -> None:
         # Set seeds for reproducibility
         random.seed(42)
@@ -150,7 +153,7 @@ class PeMSDataProcessor:
 
         # Define paths
         self.root_directory = root_directory
-        self.metadata_path = os.path.join(
+        self.metadata_path = metadata_filepath or os.path.join(
             root_directory, "metadata", "station_metadata.csv"
         )
         self.timeseries_directory = os.path.join(root_directory, "timeseries_data")
@@ -488,7 +491,6 @@ class PeMSDataProcessor:
         n_removed = (~mask).sum()
         if n_removed > 0:
             logger.debug(
-                f"{(((n_removed / len(df)) * 100))} percent of"
                 f"Outlier filter removed {n_removed} rows "
                 f"(flow outside [{lower_fence:.1f}, {upper_fence:.1f}] veh/hr-lane)"
             )
