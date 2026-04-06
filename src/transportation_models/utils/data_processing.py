@@ -861,9 +861,9 @@ class PeMSDataProcessor:
             x=params["jam_density"], color="gray", linestyle=":", label="Jam Density"
         )
 
-        # Set y limits
-        bottom, top = plt.ylim()
-        ax.set_ylim(-25, top)
+        # Set limits
+        ax.set_ylim(-25, 2000)
+        ax.set_xlim(-10, 200)
 
         # Add plot features
         plt.xlabel("Density (Vehicles Per Mile Per Lane)")
