@@ -7,6 +7,8 @@ Script for preparing transportation data for deep learning prediction
 # 3rd party imports
 import logging
 import math
+import matplotlib.dates as mdates
+import matplotlib.pyplot as plt
 import numpy as np
 import os
 import pandas as pd
@@ -14,6 +16,8 @@ import random
 import torch
 import typing
 from joblib import dump, load
+from pathlib import Path
+from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import (
     OrdinalEncoder,
     MinMaxScaler,
@@ -146,7 +150,9 @@ class PeMSDataProcessor:
 
         # Define paths
         self.root_directory = root_directory
-        self.metadata_path = os.path.join(root_directory, "metadata", "station_metadata_CALIBRATED.csv")
+        self.metadata_path = os.path.join(
+            root_directory, "metadata", "station_metadata.csv"
+        )
         self.timeseries_directory = os.path.join(root_directory, "timeseries_data")
         self.processed_data_directory = os.path.join(root_directory, "processed_data")
         if not os.path.exists(self.processed_data_directory):
@@ -154,17 +160,33 @@ class PeMSDataProcessor:
 
         self.save_transforms = save_transforms
 
-        # Load files
-        metadata_cols = [
-            'Station ID', 'Lanes', 'Type', 'Abs PM', 'Length', 'capacity', 'free_flow_speed', 'congestion_wave_speed', 'critical_density'
-        ]
-        self.metadata_df = pd.read_csv(
-            self.metadata_path,
-            usecols=metadata_cols)
-
         # Initialized encoders and scalers
         self.encoder = OrdinalEncoder()
         self.scaler = MinMaxScaler()
+
+        # Map days of week to integer values
+        self.day_of_week_mapping = {
+            0: "Mon",
+            1: "Tue",
+            2: "Wed",
+            3: "Thu",
+            4: "Fri",
+            5: "Sat",
+            6: "Sun",
+        }
+
+        # Load files
+        self.timeseries_cols = ['timestamp', 'station', 'pct_observed', 'total_flow_[veh/5-min]', 'avg_speed_[mph]']
+        self.metadata_base_cols = [
+            'Station ID', 'Lanes', 'Type', 'Abs PM', 'Length'
+        ]
+        self.calibration_params = ['capacity', 'free_flow_speed', 'congestion_wave_speed', 'critical_density']
+        self.metadata_df = pd.read_csv(
+            self.metadata_path,
+        )
+        self.metadata_cols = self.metadata_base_cols + [
+            col for col in self.calibration_params if col in self.metadata_df.columns
+        ]
 
     @staticmethod
     def generate_mock_data(n_stations: int = 1):
@@ -268,7 +290,7 @@ class PeMSDataProcessor:
         filepath = os.path.join(self.timeseries_directory, filename)
 
         # Load the timeseries dataframe
-        timeseries_df = pd.read_csv(filepath, usecols=['timestamp', 'station', 'pct_observed', 'total_flow_[veh/5-min]', 'avg_speed_[mph]'])
+        timeseries_df = pd.read_csv(filepath, usecols=self.timeseries_cols)
 
         # Ensure that the timestamp column exists and is a datetime object
         timeseries_df = validation.validate_timestamp_dtype(timeseries_df)
@@ -282,19 +304,203 @@ class PeMSDataProcessor:
         df_reindexed.reset_index(names='timestamp', inplace=True)
 
         # Merge the metadata into the timeseries
-        df = df_reindexed.rename(columns={'station': 'Station ID'}).merge(right=self.metadata_df, how='inner', on='Station ID')
+        metadata_to_merge = self.metadata_df.loc[:, self.metadata_cols]
+        df = df_reindexed.rename(columns={'station': 'Station ID'}).merge(right=metadata_to_merge, how='inner', on='Station ID')
 
         return df
 
-    def normalize_counts(
+    def standardize_timeseries(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Standardize the raw counts (flow, speed) in the timeseries data.
+        Standardization includes:
+            - Calculating per-hour, per-lane flow from 5-minute, station-wide flow. Result has units [veh/hr*lanes]
+            - Calculating per-hour, per-lane density from flow and average station speed. Result has units [veh/mi*lanes]
+
+        Parameters
+        ----------
+        df : pd.DataFrame
+            The timeseries data
+
+        Returns
+        -------
+        pd.DataFrame
+            Standardized version of timeseries data.
+            Changes are:
+                - ADDED column 'flow_[veh/hr-lane]'
+                - ADDED column 'density_[veh/mi-lane]'
+                - DROPPED columns ['total_flow_[veh/5-min]', 'avg_speed_[mph]']
+        """
+        # Number of 5-minute periods per hour (used for normalization)
+        periods_per_hour = 12
+
+        # Scale the flow: [veh/5-min] * [5-min/hr] * [1/lanes] = [veh/hr*lanes]
+        df["flow_[veh/hr-lane]"] = (
+            df["total_flow_[veh/5-min]"] * periods_per_hour
+        ) / df["Lanes"]
+
+        # Scale the density: [veh/5-min] * [5-min/h] * [1/lanes] / [mi/h] = [veh/mi*lanes]
+        df["density_[veh/mi-lane]"] = df["flow_[veh/hr-lane]"] / df["avg_speed_[mph]"]
+
+        # Drop old columns
+        df = df.drop(
+            columns=[
+                "total_flow_[veh/5-min]",
+                "avg_speed_[mph]",
+            ]
+        )
+
+        return df
+
+    def get_daily_aggregation(
+        self,
+        df: pd.DataFrame,
+        colname: str,
+        aggregation_type: str = "mean",
+    ) -> pd.DataFrame:
+        # Pick out relevant columns from the df
+        sub_df = df.loc[:, ["timestamp", colname]]
+
+        # Generate some derived temporal qualities from the timestamp
+        sub_df["weekday"] = sub_df["timestamp"].dt.weekday
+        sub_df["5min_block"] = (sub_df["timestamp"].dt.minute / 60) + (
+            sub_df["timestamp"].dt.hour
+        )
+        sub_df.drop(columns=["timestamp"], inplace=True)
+
+        # Calculate the aggregation type for the metric for each (t,weekday) index
+        if aggregation_type == "mean":
+            aggregation_df = (
+                sub_df.groupby(["5min_block", "weekday"]).mean().unstack("weekday")
+            )
+        elif aggregation_type == "std_dev":
+            aggregation_df = (
+                sub_df.groupby(["5min_block", "weekday"]).std().unstack("weekday")
+            )
+        else:
+            raise ValueError(
+                f"Unknown aggregation type provided: {aggregation_type}. Please use one of ['mean','std_dev']"
+            )
+
+        # Drop the metric index and map the weekday integers onto days of the week
+        aggregation_df.columns = aggregation_df.columns.get_level_values("weekday").map(
+            self.day_of_week_mapping
+        )
+
+        # Translate the time information in '5min_block' back into a timestamp & use this as the index
+        aggregation_df.reset_index(inplace=True)
+        aggregation_df["timestamp"] = (
+            pd.to_timedelta(aggregation_df["5min_block"], unit="h")
+            .apply(lambda x: (pd.Timestamp("1970-01-01") + x))
+            .dt.round(freq="5min")
+        )
+        aggregation_df.set_index("timestamp", inplace=True)
+
+        return aggregation_df
+
+    def get_agg_value(self, row: pd.Series, agg_df: pd.DataFrame) -> float:
+        """
+        Look up an aggregated statistic (e.g., mean, std_dev) for a given time block (expressed as a (day_of_week, 5min_block) combination)
+
+        Parameters
+        ----------
+        row : pd.Series
+            A row in the full timeseries dataframe for a given VDS
+        agg_df : pd.DataFrame
+            A DataFrame containing the desired aggregation statistics for the VDS
+
+        Returns
+        -------
+        agg: float
+            The value in agg_df corresponding to the (day_of_week, 5min_block) combination in row
+        """
+        day_of_week = self.day_of_week_mapping.get(row["weekday"], np.nan)
+        time_block = row["5min_block"]
+        agg = agg_df.loc[agg_df["5min_block"] == time_block, day_of_week].values[0]
+        return agg
+
+    def whiten_timeseries(self, timeseries_df: pd.DataFrame) -> pd.DataFrame:
+        # Make a local copy to avoid writing over the input dataframe
+        df = timeseries_df.copy()
+
+        # Generate some derived temporal qualities from the timestamp
+        df["weekday"] = df["timestamp"].dt.weekday
+        df["5min_block"] = (df["timestamp"].dt.minute / 60) + (df["timestamp"].dt.hour)
+
+        # Get the mean and standard deviation for flow and density
+        mean_flow_df = self.get_daily_aggregation(
+            df,
+            colname="flow_[veh/hr-lane]",
+            aggregation_type="mean",
+        )
+        stddev_flow_df = self.get_daily_aggregation(
+            df,
+            colname="flow_[veh/hr-lane]",
+            aggregation_type="std_dev",
+        )
+        mean_density_df = self.get_daily_aggregation(
+            df,
+            colname="density_[veh/mi-lane]",
+            aggregation_type="mean",
+        )
+        stddev_density_df = self.get_daily_aggregation(
+            df,
+            colname="density_[veh/mi-lane]",
+            aggregation_type="std_dev",
+        )
+
+        # Add columns for mean and standard deviation
+        df["mean_flow"] = df.apply(
+            lambda row: self.get_agg_value(row, agg_df=mean_flow_df), axis=1
+        )
+        df["stddev_flow"] = df.apply(
+            lambda row: self.get_agg_value(row, agg_df=stddev_flow_df), axis=1
+        )
+        df["mean_density"] = df.apply(
+            lambda row: self.get_agg_value(row, agg_df=mean_density_df), axis=1
+        )
+        df["stddev_density"] = df.apply(
+            lambda row: self.get_agg_value(row, agg_df=stddev_density_df), axis=1
+        )
+
+        # Whiten the flow and density timeseries
+        df["whitened_flow"] = (df["flow_[veh/hr-lane]"] - df["mean_flow"]) / df[
+            "stddev_flow"
+        ]
+        df["whitened_density"] = (
+            df["density_[veh/mi-lane]"] - df["mean_density"]
+        ) / df["stddev_density"]
+
+        # Return the result
+        return df
+
+    def filter_flow_outliers(
+        self,
+        timeseries_df: pd.DataFrame,
+        flow_col: str = "whitened_flow",
+        iqr_multiplier: float = 1.5,
+    ) -> pd.DataFrame:
+        q1 = timeseries_df[flow_col].quantile(0.25)
+        q3 = timeseries_df[flow_col].quantile(0.75)
+        iqr = q3 - q1
+        lower_fence = q1 - iqr_multiplier * iqr
+        upper_fence = q3 + iqr_multiplier * iqr
+        mask = timeseries_df[flow_col].between(lower_fence, upper_fence)
+        n_removed = (~mask).sum()
+        if n_removed > 0:
+            logger.debug(
+                f"{(((n_removed / len(df)) * 100))} percent of"
+                f"Outlier filter removed {n_removed} rows "
+                f"(flow outside [{lower_fence:.1f}, {upper_fence:.1f}] veh/hr-lane)"
+            )
+        return timeseries_df.loc[mask].reset_index(drop=True)
+
+    def normalize_timeseries(
         self,
         df: pd.DataFrame,
     ) -> pd.DataFrame:
         """
-        Normalize the raw counts (flow, speed) in the timeseries data.
+        Normalize the standardized counts (flow, density) in the timeseries data.
         Normalization steps include:
-            - Calculating per-hour, per-lane flow from 5-minute, station-wide flow. Result has units [veh/hr*lanes]
-            - Calculating per-hour, per-lane density from flow and average station speed. Result has units [veh/mi*lanes]
             - Normalizing flow by station capacity. Resulting values range [0,1].
             - Normalizing density by critical density. Resulting values range [0,1] if traffic is in free-flow, and (1,inf) if traffic is congested.
 
@@ -310,33 +516,16 @@ class PeMSDataProcessor:
             Modifications include:
                 - ADDED column 'flow'
                 - ADDED column 'density'
-                - DROPPED columns ['total_flow_[veh/5-min]', 'avg_speed_[mph]']
-
+                - DROPPED columns ['flow_[veh/hr-lane]', 'density_[veh/mi-lane]']
         """
-        # Number of 5-minute periods per hour (used for normalization)
-        periods_per_hour = 12
-
-        # Scale the flow: [veh/5-min] * [5-min/hr] * [1/lanes] = [veh/hr*lanes]
-        df["flow"] = (
-            df['total_flow_[veh/5-min]'] * periods_per_hour
-        ) / df['Lanes']
-
-        # Scale the density: [veh/5-min] * [5-min/h] * [1/lanes] / [mi/h] = [veh/mi*lanes]
-        df["density"] = df['flow'] / df['avg_speed_[mph]']
-
         # Normalize flow by station capacity
-        df['flow'] = df['flow'] / df['capacity']
+        df["flow"] = df["flow_[veh/hr-lane]"] / df["capacity"]
 
         # Normalize density by critical density
-        df['density'] = df['density'] / df['critical_density']
+        df["density"] = df["density_[veh/mi-lane]"] / df["critical_density"]
 
         # Drop unnecessary columns
-        df = df.drop(
-            columns=[
-                "total_flow_[veh/5-min]",
-                "avg_speed_[mph]",
-            ]
-        )
+        df = df.drop(columns=["flow_[veh/hr-lane]", "density_[veh/mi-lane]"])
 
         return df
 
@@ -372,8 +561,9 @@ class PeMSDataProcessor:
         # Stack dataframes into one
         df = pd.concat(detector_dfs)
 
-        # Normalize counts
-        df = self.normalize_counts(df)
+        # Standardize and normalize counts
+        df = self.standardize_timeseries(df)
+        df = self.normalize_timeseries(df)
 
         return df
 
@@ -463,6 +653,391 @@ class PeMSDataProcessor:
 
         return df
 
+    def estimate_free_flow_speed(
+        self,
+        timeseries_df: pd.DataFrame,
+        critical_density_estimate: float,
+        test_points: list[float],
+    ) -> tuple[float, LinearRegression]:
+
+        # 1. Filter points with density <= critical_density_estimate
+        free_flow_points = timeseries_df.loc[
+            timeseries_df["density_[veh/mi-lane]"] <= critical_density_estimate, :
+        ].copy()
+
+        # 2. Fit regression
+        X = free_flow_points["density_[veh/mi-lane]"].copy().to_numpy().reshape(-1, 1)
+        y = free_flow_points["flow_[veh/hr-lane]"].copy().to_numpy()
+
+        model = LinearRegression(fit_intercept=False)
+        model.fit(X, y)
+
+        free_flow_speed = model.coef_[0]
+
+        # Print the results
+        logger.debug(f"Free flow speed model fit score: {model.score(X, y)}")
+        for test_point in test_points:
+            test_point_arr = np.array(test_point).reshape(-1, 1)
+            logger.debug(
+                f"Model predicts flow = {model.predict(test_point_arr)} for density = {test_point_arr}"
+            )
+
+        return free_flow_speed, model
+
+    def estimate_congestion_wave_speed(
+        self,
+        timeseries_df: pd.DataFrame,
+        critical_density_estimate: float,
+        test_points: list[float],
+        bin_size: int = 10,
+        iqr_multiplier: float = 1.0,
+    ) -> tuple[float, float, LinearRegression, pd.DataFrame]:
+
+        # 1. Filter points with density > critical_density_estimate (congested regime)
+        congested = timeseries_df.loc[
+            timeseries_df["density_[veh/mi-lane]"] > critical_density_estimate, :
+        ].copy()
+        congested = congested.sort_values(by="density_[veh/mi-lane]").reset_index(
+            drop=True
+        )
+
+        # 2. Partition into non-overlapping bins of bin_size
+        num_bins = len(congested) // bin_size
+        bin_densities = []
+        bin_flows = []
+
+        for i in range(num_bins):
+            bin_data = congested.iloc[i * bin_size : (i + 1) * bin_size]
+            flows = bin_data["flow_[veh/hr-lane]"].values
+            densities = bin_data["density_[veh/mi-lane]"].values
+            whitened_flows = bin_data["whitened_flow"].values
+
+            # Compute IQR on whitened_flow
+            Q1 = np.percentile(whitened_flows, 25)
+            Q3 = np.percentile(whitened_flows, 75)
+            IQR = Q3 - Q1
+            outlier_threshold = Q3 + iqr_multiplier * IQR
+
+            # Build a valid mask from whitened_flow, apply to both flows and densities
+            valid_mask = whitened_flows <= outlier_threshold
+
+            valid_flows = flows[valid_mask]
+            valid_densities = densities[valid_mask]
+
+            if len(valid_flows) == 0:
+                continue
+
+            BinFlow = np.max(valid_flows)
+            BinDensity = np.mean(valid_densities)
+
+            bin_densities.append(BinDensity)
+            bin_flows.append(BinFlow)
+
+        # Convert to DataFrame
+        bin_df = pd.DataFrame({"BinDensity": bin_densities, "BinFlow": bin_flows})
+
+        # 3. Fit unconstrained regression
+        X = bin_df["BinDensity"].values.reshape(-1, 1)
+        y = bin_df["BinFlow"].values
+
+        model = LinearRegression()
+        model.fit(X, y)
+        wave_speed = model.coef_[0]
+
+        # 4. Compute x-intercept (jam density): flow = 0 => density = -intercept / wave_speed
+        jam_density = -model.intercept_ / wave_speed
+
+        # Print the results
+        logger.debug(f"Congestion wave model fit score: {model.score(X, y)}")
+        for test_point in test_points:
+            test_point_arr = np.array(test_point).reshape(-1, 1)
+            logger.debug(
+                f"Model predicts flow = {model.predict(test_point_arr)} for density = {test_point_arr}"
+            )
+
+        return wave_speed, jam_density, model, bin_df
+
+    def find_fundamental_diagram_peak(
+        self,
+        free_flow_model: LinearRegression,
+        congestion_model: LinearRegression,
+    ) -> tuple[float, float]:
+        """
+        Find the intersection of the free flow and congestion fit lines.
+        Free flow model:  flow = ff_slope * density                (no intercept)
+        Congestion model: flow = cw_slope * density + cw_intercept
+        Solving: ff_slope * density = cw_slope * density + cw_intercept
+                density = cw_intercept / (ff_slope - cw_slope)
+        """
+        ff_slope = free_flow_model.coef_[0]
+        cw_slope = congestion_model.coef_[0]
+        cw_intercept = congestion_model.intercept_
+
+        critical_density = cw_intercept / (ff_slope - cw_slope)
+        max_capacity = ff_slope * critical_density
+
+        logger.debug(f"Critical density: {critical_density:.4f} veh/mi-lane")
+        logger.debug(f"Max capacity: {max_capacity:.4f} veh/hr-lane")
+
+        return critical_density, max_capacity
+
+    @staticmethod
+    def plot_fundamental_diagram(
+        timeseries_df: pd.DataFrame,
+        bin_df: pd.DataFrame,
+        free_flow_model: LinearRegression,
+        congestion_model: LinearRegression,
+        params: dict[str, float],
+        save_path: typing.Optional[Path] = None,
+    ) -> None:
+        # Generate some prediction points using the models
+        free_flow_xvals = np.linspace(
+            0,
+            params["critical_density"],
+        ).reshape(-1, 1)
+        free_flow_pred = free_flow_model.predict(free_flow_xvals)
+
+        congestion_xvals = np.linspace(
+            bin_df["BinDensity"].min(), bin_df["BinDensity"].max(), 100
+        )
+        congestion_slope = congestion_model.coef_[0]
+        congestion_pred = (
+            congestion_slope * (congestion_xvals - params["critical_density"])
+            + params["capacity"]
+        )
+
+        fig, ax = plt.subplots(figsize=(9, 6))
+
+        # Plot the data points
+        plt.scatter(
+            timeseries_df["density_[veh/mi-lane]"],
+            timeseries_df["flow_[veh/hr-lane]"],
+            label="Raw (data)",
+            color="tab:blue",
+            marker=".",
+            s=5,
+            alpha=0.3,
+        )
+        plt.plot(
+            bin_df["BinDensity"],
+            bin_df["BinFlow"],
+            color="gray",
+            alpha=0.2,
+            marker="o",
+            markersize=5,
+            linestyle="-",
+            label="Congestion Bins",
+        )
+
+        # Plot the regression lines
+        plt.plot(
+            free_flow_xvals,
+            free_flow_pred,
+            color="tab:orange",
+            linewidth=3,
+            label="Free flow (fit)",
+        )
+        plt.plot(
+            congestion_xvals,
+            congestion_pred,
+            color="tab:green",
+            linewidth=3,
+            label="Congestion (fit)",
+        )
+
+        # Plot a horizontal line for capacity
+        plt.axhline(
+            y=params["capacity"], color="gray", linestyle="--", label="Capacity"
+        )
+
+        # Plot vertical lines for critical and jam densities
+        plt.axvline(
+            x=params["critical_density"],
+            color="gray",
+            linestyle="-.",
+            label="Critical Density",
+        )
+        plt.axvline(
+            x=params["jam_density"], color="gray", linestyle=":", label="Jam Density"
+        )
+
+        # Set y limits
+        bottom, top = plt.ylim()
+        ax.set_ylim(-25, top)
+
+        # Add plot features
+        plt.xlabel("Density (Vehicles Per Mile Per Lane)")
+        plt.ylabel("Flow (Vehicles Per Hour Per Lane)")
+        plt.title(f"Fundamental Diagram for Detector: {params['Station ID']}")
+        plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
+        plt.tight_layout()
+
+        params_as_text = f"q_max = {params['capacity']:.2f} vphpl\nrho_jam = {params['jam_density']:.2f} vpmpl\nrho_crit = {params['critical_density']:.2f} vpmpl\nv_f = {params['free_flow_speed']:.2f} mph\nw = {(params['congestion_wave_speed']):.2f} mph"
+        plt.annotate(
+            text=params_as_text,
+            xy=(0.77, 0.25),
+            xycoords="figure fraction",
+            bbox=dict(boxstyle="square,pad=0.5", fc="lightgray", ec="black", lw=2),
+        )
+
+        if save_path is None:
+            # Show the plot
+            plt.show()
+        else:
+            try:
+                plt.savefig(save_path)
+                logger.info(f"Figure for detector {params['Station ID']} saved to: {save_path}")
+            except Exception as e:
+                logger.error(
+                    f"An exception was raised while saving the figure for detector {params['Station ID']}: {e}"
+                )
+        # Close the figure
+        plt.close()
+
+    def extract_fundamental_diagram_params_from_timeseries(
+        self,
+        timeseries_df: pd.DataFrame,
+        detector_id: str,
+        make_plots: bool = False,
+        save_path: typing.Optional[Path] = None,
+    ) -> dict[str, float]:
+        # Estimate critical density based on peak observed flow
+        capacity_idx = timeseries_df["flow_[veh/hr-lane]"].idxmax()
+        critical_density_estimate = timeseries_df.loc[
+            capacity_idx, "density_[veh/mi-lane]"
+        ]
+
+        # Fit free flow speed and congestion wave speed with linear model
+        free_flow_speed, free_flow_speed_model = self.estimate_free_flow_speed(
+            timeseries_df=timeseries_df,
+            critical_density_estimate=critical_density_estimate,
+            test_points=[0.0, critical_density_estimate],
+        )
+        congestion_slope, jam_density, congestion_wave_speed_model, bin_df = (
+            self.estimate_congestion_wave_speed(
+                timeseries_df=timeseries_df,
+                critical_density_estimate=critical_density_estimate,
+                test_points=[critical_density_estimate],
+            )
+        )
+
+        # Extract critical density and capacity from speed models
+        critical_density, capacity = self.find_fundamental_diagram_peak(
+            free_flow_model=free_flow_speed_model,
+            congestion_model=congestion_wave_speed_model,
+        )
+
+        # Pack parameters dictionary
+        params = {
+            "Station ID": int(detector_id),
+            "capacity": capacity,
+            "free_flow_speed": free_flow_speed,
+            "congestion_wave_speed": -1 * congestion_slope,
+            "jam_density": jam_density,
+            "critical_density": critical_density,
+        }
+
+        if make_plots:
+            self.plot_fundamental_diagram(
+                timeseries_df=timeseries_df,
+                bin_df=bin_df,
+                free_flow_model=free_flow_speed_model,
+                congestion_model=congestion_wave_speed_model,
+                params=params,
+                save_path=save_path,
+            )
+
+        return params
+
+    def calibrate_fundamental_diagrams(
+        self,
+        detectors: typing.Optional[list[str]] = None,
+        filter_colname: str = "whitened_flow",
+        iqr_multiplier: float = 1.0,
+        imputation_threshold: float = 100.0,
+        make_plots: bool = False,
+        saved_plot_dir: typing.Optional[Path] = None,
+        save_params: bool = False,
+        output_metadata_path: typing.Optional[str] = None,
+    ) -> None:
+        # Get a list of detectors to work on
+        if detectors is None:
+            detectors = self.retrieve_detectors(detector_type="Mainline")
+
+        # Ensure that save_dir is a directory and exists
+        if saved_plot_dir is not None:
+            if not os.path.exists(saved_plot_dir):
+                os.mkdir(saved_plot_dir)
+            assert saved_plot_dir.is_dir()
+
+        # Calibrate each detector
+        N_detectors = len(detectors)
+        for idx, detector in enumerate(detectors):
+            logger.info(f"Calibrating detector {idx + 1}/{N_detectors}: VDS {detector}")
+            # Prepare a filename for the calibrated diagram plot
+            if saved_plot_dir:
+                save_path = Path(os.path.join(saved_plot_dir), f"{detector}.png")
+            else:
+                save_path = None
+
+            # Load the detector data
+            df = self.load_data_by_id(detector)
+
+            # Standardize the timeseries
+            df_standardized = self.standardize_timeseries(df)
+
+            # Filter for measurements exceeding the imputation threshold
+            len_original = len(df_standardized)
+            df_standardized = df_standardized.loc[
+                df_standardized["pct_observed"] >= imputation_threshold, :
+            ].reset_index(drop=True)
+            len_filtered = len(df_standardized)
+            logger.debug(
+                f"{(((len_original - len_filtered) / len_original) * 100):.2f} percent of"
+                f" datapoints removed from dataframe of length {len_original}:"
+                f" pct_observed < {imputation_threshold}"
+            )
+            if df_standardized.empty:
+                logger.debug(f"Calibration failed for VDS: {detector}. Too many missing data points.")
+                continue
+
+            # Whiten the timeseries
+            df_whitened = self.whiten_timeseries(df_standardized)
+
+            # Filter outliers based on IQR of whitened flow
+            df_filtered = self.filter_flow_outliers(
+                df_whitened, flow_col=filter_colname, iqr_multiplier=iqr_multiplier
+            )
+
+            # Extract parameters
+            params = self.extract_fundamental_diagram_params_from_timeseries(
+                timeseries_df=df_filtered,
+                detector_id=detector,
+                make_plots=make_plots,
+                save_path=save_path,
+            )
+            params_str = "\n".join(f"  {k}: {v:.3f}" for k, v in params.items())
+            logger.info(f"Calibrated parameters:\n{params_str}")
+
+            if save_params:
+                # Update metadata_df with calibrated parameters
+                for key, value in params.items():
+                    self.metadata_df.loc[self.metadata_df["Station ID"] == int(detector), key] = value
+                
+        if save_params:
+            output_path = output_metadata_path or os.path.join(self.processed_data_directory, "station_metadata_calibrated.csv")
+            
+            # Save metadata_df to a CSV file
+            self.metadata_df.to_csv(output_path, index=False)
+            logger.info(
+                f"Updated version of metadata saved to: {output_path}"
+            )
+
+            # Refresh metadata_cols now that calibration params are present
+            self.metadata_cols = self.metadata_base_cols + [
+                col for col in self.calibration_params if col in self.metadata_df.columns
+            ]
+                
     def preprocess_data(
         self,
         detectors: typing.Optional[list[str]] = None,
@@ -641,7 +1216,7 @@ if __name__ == "__main__":
 
     # Process raw timeseries and metadata into DataFrame
     df = DataProcessor.preprocess_data(save_name="data_long.csv")
-    logging.info(f"Loaded dataframe:\n{df.head()}")
+    logger.info(f"Loaded dataframe:\n{df.head()}")
 
     # Generate Dataset from DataFrame
     dataset = DataProcessor.prepare_imputation_dataset(
