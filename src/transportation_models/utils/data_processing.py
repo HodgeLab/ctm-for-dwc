@@ -1109,10 +1109,22 @@ class PeMSDataProcessor:
             "critical_density",
             "free_flow_speed",
             "congestion_wave_speed",
+            "5min_block",
+            "dayofweek",
+        ]
+
+        # Columns that appear only in meta, not in features
+        meta_only_columns = [
+            "Station ID",
+            "Lanes",
+            "capacity",
+            "critical_density",
+            "free_flow_speed",
+            "congestion_wave_speed",
         ]
 
         # Columns to include in feature tensor
-        feature_columns = [col for col in df.columns if col not in meta_columns]
+        feature_columns = [col for col in df.columns if col not in meta_only_columns]
 
         # Columns to include in target tensor
         target_columns = ["flow", "density"]
@@ -1190,10 +1202,22 @@ class PeMSDataProcessor:
             "critical_density",
             "free_flow_speed",
             "congestion_wave_speed",
+            "5min_block",
+            "dayofweek",
+        ]
+
+        # Columns that appear only in meta, not in features
+        meta_only_columns = [
+            "Station ID",
+            "Lanes",
+            "capacity",
+            "critical_density",
+            "free_flow_speed",
+            "congestion_wave_speed",
         ]
 
         # Columns to include in feature tensor
-        feature_columns = [col for col in df.columns if col not in meta_columns] + ["observed"]
+        feature_columns = [col for col in df.columns if col not in meta_only_columns] + ["observed"]
 
         # Columns to include in target tensor
         target_columns = ["flow", "density"]
