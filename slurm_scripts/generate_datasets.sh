@@ -4,10 +4,10 @@
 #SBATCH --partition=amilan
 #SBATCH --job-name=dataset_preprocessing
 #SBATCH --output=/home/rost5691/slurm_job_logs/dataset_preprocessing%j.out
-#SBATCH --time=16:00:00
+#SBATCH --time=01:30:00
 #SBATCH --qos=normal
 #SBATCH --nodes=1
-#SBATCH --ntasks=16
+#SBATCH --ntasks=4
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=rost5691@colorado.edu
 
