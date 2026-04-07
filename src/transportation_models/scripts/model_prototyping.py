@@ -255,7 +255,7 @@ def run_epoch(
     criterion: nn.Module,
     optimizer: optim.Optimizer,
     train: bool = True,
-) -> tuple[float, float, float, tuple[torch.Tensor, torch.Tensor] | None]:
+) -> tuple[float, dict[str, float], tuple[torch.Tensor, torch.Tensor] | None]:
     # Make sure we're on the correct device
     model = model.to(device)
 
@@ -268,6 +268,8 @@ def run_epoch(
     # Initial values for tracking loss, accuracy, and predictions
     running_loss = 0.0
     running_sq_err = torch.zeros(2)  # one accumulator per output column (flow, speed)
+    running_abs_err = torch.zeros(2)
+    running_abs_pct_err = torch.zeros(2)
     running_n = 0  # total number of (sample, timestep) pairs seen
     all_preds = [] if not train else None
     all_metas = [] if not train else None
@@ -316,17 +318,33 @@ def run_epoch(
             output_phys[:, :, 1] = output_phys[:, :, 0] / output_phys[:, :, 1]
             yb_phys[:, :, 1] = yb_phys[:, :, 0] / yb_phys[:, :, 1]
 
-            # Calculate error (sum over batch and timestep dimensions gives total SE per column)
-            sq_err = (output_phys - yb_phys) ** 2  # [batch, output_steps, 2]
-            running_sq_err += sq_err.sum(dim=(0, 1)).cpu()
+            # Calculate errors (sum over batch and timestep dimensions gives totals per column)
+            diff = output_phys - yb_phys  # [batch, output_steps, 2]
+            running_sq_err += (diff ** 2).sum(dim=(0, 1)).cpu()
+            running_abs_err += diff.abs().sum(dim=(0, 1)).cpu()
+            running_abs_pct_err += (diff.abs() / yb_phys.abs().clamp(min=1e-6)).sum(dim=(0, 1)).cpu()
 
             running_n += yb.shape[0] * yb.shape[1]  # batch_size * output_steps
 
     # Calculate average batch loss
     running_loss = running_loss / len(loader)
 
-    # Calculate per-column RMSE across all samples and timesteps
-    flow_rmse, speed_rmse = (running_sq_err / running_n).sqrt().tolist()
+    # Calculate per-column metrics across all samples and timesteps
+    mse = (running_sq_err / running_n).tolist()
+    rmse = (running_sq_err / running_n).sqrt().tolist()
+    mae = (running_abs_err / running_n).tolist()
+    mape = (running_abs_pct_err / running_n * 100).tolist()
+
+    metrics = {
+        "flow_mae": mae[0],
+        "flow_mse": mse[0],
+        "flow_rmse": rmse[0],
+        "flow_mape": mape[0],
+        "speed_mae": mae[1],
+        "speed_mse": mse[1],
+        "speed_rmse": rmse[1],
+        "speed_mape": mape[1],
+    }
 
     # Concatenate all validation predictions and metadata into their own tensors
     if train:
@@ -334,8 +352,8 @@ def run_epoch(
     else:
         preds_with_meta = (torch.cat(all_preds, dim=0), torch.cat(all_metas, dim=0))
 
-    # Return loss and RMSE for this epoch
-    return running_loss, flow_rmse, speed_rmse, preds_with_meta
+    # Return loss and metrics for this epoch
+    return running_loss, metrics, preds_with_meta
 
 
 # Define function for training
@@ -383,7 +401,7 @@ def train_model(
     ) as run:
         for epoch in range(n_epochs):
             # Training over epoch
-            train_loss, train_flow_rmse, train_speed_rmse, _ = run_epoch(
+            train_loss, train_metrics, _ = run_epoch(
                 model=model,
                 loader=train_loader,
                 device=device,
@@ -393,7 +411,7 @@ def train_model(
             )
 
             # Validation over epoch
-            val_loss, val_flow_rmse, val_speed_rmse, val_preds_and_meta = run_epoch(
+            val_loss, val_metrics, val_preds_and_meta = run_epoch(
                 model=model,
                 loader=val_loader,
                 device=device,
@@ -410,15 +428,13 @@ def train_model(
                     preds_filepath,
                 )
 
-            # Save losses for this epoch
+            # Save losses and metrics for this epoch
             run.log(
                 {
                     "training_loss": train_loss,
-                    "train_flow_rmse": train_flow_rmse,
-                    "train_speed_rmse": train_speed_rmse,
+                    **{f"train_{k}": v for k, v in train_metrics.items()},
                     "validation_loss": val_loss,
-                    "val_flow_rmse": val_flow_rmse,
-                    "val_speed_rmse": val_speed_rmse,
+                    **{f"val_{k}": v for k, v in val_metrics.items()},
                 }
             )
 
