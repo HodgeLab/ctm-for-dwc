@@ -146,7 +146,8 @@ class PeMSDataProcessor:
         root_directory: str = constants.ROOT_PATH,
         metadata_filepath: typing.Optional[str] = None,
         imputation_threshold: float = 100.0,
-        save_transforms: bool = False
+        save_transforms: bool = False,
+        save_directory: typing.Optional[str] = None,
     ) -> None:
         # Set seeds for reproducibility
         random.seed(42)
@@ -161,6 +162,14 @@ class PeMSDataProcessor:
         self.processed_data_directory = os.path.join(root_directory, "processed_data")
         if not os.path.exists(self.processed_data_directory):
             os.mkdir(self.processed_data_directory)
+
+        # Resolve the active save directory.
+        if save_directory is not None:
+            if not os.path.exists(save_directory):
+                os.makedirs(save_directory, exist_ok=True)
+            self._save_dir: typing.Optional[str] = save_directory
+        else:
+            self._save_dir = None
 
         self.save_transforms = save_transforms
 
@@ -574,12 +583,12 @@ class PeMSDataProcessor:
         # Filter based on imputation threshold
         mask = df["pct_observed"] >= self.imputation_threshold
         n_removed = (~mask).sum()
-        df = df.loc[mask, :]
         logger.debug(
             f"{((n_removed / len(df)) * 100):.2f} percent of"
             f" datapoints removed from dataframe of length {len(df)}:"
             f" pct_observed < {self.imputation_threshold}"
         )
+        df = df.loc[mask, :]
 
         return df
 
@@ -654,12 +663,10 @@ class PeMSDataProcessor:
         df.loc[:, minmax_features] = self.scaler.fit_transform(df[minmax_features])
 
         if self.save_transforms:
-            encoder_filepath = os.path.join(
-                self.processed_data_directory, "encoder.joblib"
-            )
-            scaler_filepath = os.path.join(
-                self.processed_data_directory, "scaler.joblib"
-            )
+            # Write to self._save_dir if set, otherwise fall back to processed_data_directory.
+            _out_dir = self._save_dir if self._save_dir is not None else self.processed_data_directory
+            encoder_filepath = os.path.join(_out_dir, "encoder.joblib")
+            scaler_filepath = os.path.join(_out_dir, "scaler.joblib")
 
             dump(self.encoder, encoder_filepath)
             logger.info(f"Saved encoder to: {encoder_filepath}")
@@ -979,6 +986,11 @@ class PeMSDataProcessor:
         if detectors is None:
             detectors = self.retrieve_detectors(detector_type="Mainline")
 
+        # If self._save_dir is set and no explicit saved_plot_dir was given,
+        # auto-create a 'fundamental_diagram_plots' subdirectory within self._save_dir.
+        if saved_plot_dir is None and self._save_dir is not None and make_plots:
+            saved_plot_dir = Path(os.path.join(self._save_dir, "fundamental_diagram_plots"))
+
         # Ensure that save_dir is a directory and exists
         if saved_plot_dir is not None:
             if not os.path.exists(saved_plot_dir):
@@ -1040,7 +1052,9 @@ class PeMSDataProcessor:
                     self.metadata_df.loc[self.metadata_df["Station ID"] == int(detector), key] = value
                 
         if save_params:
-            output_path = output_metadata_path or os.path.join(self.processed_data_directory, "station_metadata_calibrated.csv")
+            # Resolve output path: explicit arg > self._save_dir > processed_data_directory fallback.
+            _default_dir = self._save_dir if self._save_dir is not None else self.processed_data_directory
+            output_path = output_metadata_path or os.path.join(_default_dir, "station_metadata_calibrated.csv")
             
             # Save metadata_df to a CSV file
             self.metadata_df.to_csv(output_path, index=False)
@@ -1064,9 +1078,17 @@ class PeMSDataProcessor:
         df = self.deconstruct_timestamps(df)
         df = self.encode_and_scale(df)
 
-        # Optionally save DataFrame
-        if save_name is not None:
-            filepath = os.path.join(self.processed_data_directory, save_name)
+        # Determine where to save:
+        #   1. If an explicit save_name was provided, honour it.
+        #   2. Else if self._save_dir is set, auto-save with a default filename.
+        #   3. Otherwise do not save.
+        _resolved_save_name = save_name
+        if _resolved_save_name is None and self._save_dir is not None:
+            _resolved_save_name = "preprocessed_data.csv"
+
+        if _resolved_save_name is not None:
+            _out_dir = self._save_dir if self._save_dir is not None else self.processed_data_directory
+            filepath = os.path.join(_out_dir, _resolved_save_name)
             df.to_csv(filepath, index=False)
             logger.info(f"Dataframe saved to: {filepath}")
 
@@ -1137,9 +1159,16 @@ class PeMSDataProcessor:
         # Create dataset
         dataset = TensorDataset(X, y, meta)
 
-        # Optionally save Dataset
-        if save_name is not None:
-            filepath = os.path.join(self.processed_data_directory, save_name)
+        # Determine where to save:
+        #   1. Explicit save_name takes priority.
+        #   2. Else auto-save to self._save_dir with a default filename if set.
+        _resolved_save_name = save_name
+        if _resolved_save_name is None and self._save_dir is not None:
+            _resolved_save_name = "sequence_dataset.pt"
+
+        if _resolved_save_name is not None:
+            _out_dir = self._save_dir if self._save_dir is not None else self.processed_data_directory
+            filepath = os.path.join(_out_dir, _resolved_save_name)
             torch.save({"X": X, "y": y, "meta": meta}, filepath)
             logger.info(f"Saving sequence dataset to {filepath}")
 
@@ -1220,9 +1249,16 @@ class PeMSDataProcessor:
         # Create dataset
         dataset = TensorDataset(X, y, meta)
 
-        # Optionally save Dataset
-        if save_name is not None:
-            filepath = os.path.join(self.processed_data_directory, save_name)
+        # Determine where to save:
+        #   1. Explicit save_name takes priority.
+        #   2. Else auto-save to self._save_dir with a default filename if set.
+        _resolved_save_name = save_name
+        if _resolved_save_name is None and self._save_dir is not None:
+            _resolved_save_name = "imputation_dataset.pt"
+
+        if _resolved_save_name is not None:
+            _out_dir = self._save_dir if self._save_dir is not None else self.processed_data_directory
+            filepath = os.path.join(_out_dir, _resolved_save_name)
             torch.save({"X": X, "y": y, "meta": meta}, filepath)
             logger.info(f"Saving imputation dataset to {filepath}")
 
@@ -1232,14 +1268,19 @@ class PeMSDataProcessor:
 
 # Example usage
 if __name__ == "__main__":
-    # Initialize processor
-    DataProcessor = PeMSDataProcessor(root_directory="/projects/rost5691/data/Caltrans/PeMS", save_transforms=True)
+    # Pass save_directory to automatically route all outputs there.
+    DataProcessor = PeMSDataProcessor(
+        root_directory="/projects/rost5691/data/Caltrans/PeMS",
+        metadata_filepath="/projects/rost5691/data/Caltrans/PeMS/metadata/station_metadata_calibrated.csv",
+        save_transforms=True,
+        save_directory="/projects/rost5691/data/Caltrans/PeMS/processed_data/3hr_10pct_imputation",
+    )
 
     # Process raw timeseries and metadata into DataFrame
-    df = DataProcessor.preprocess_data(save_name="data_long.csv")
+    # Output saved automatically as 'preprocessed_data.csv' inside save_directory.
+    df = DataProcessor.preprocess_data()
     logger.info(f"Loaded dataframe:\n{df.head()}")
 
     # Generate Dataset from DataFrame
-    dataset = DataProcessor.prepare_imputation_dataset(
-        df, save_name="imputation_3hr_10pct_with_masking.pt"
-    )
+    # Output saved automatically as 'imputation_dataset.pt' inside save_directory.
+    dataset = DataProcessor.prepare_imputation_dataset(df)
