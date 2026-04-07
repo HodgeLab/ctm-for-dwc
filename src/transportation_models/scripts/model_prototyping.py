@@ -31,7 +31,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # Basic GRU model
 class simpleGRU(nn.Module):
 
-    def __init__(self, input_size=16, hidden_size=128, output_steps=36, output_size=2):
+    def __init__(self, input_size=17, hidden_size=128, output_steps=36, output_size=2):
         super(simpleGRU, self).__init__()
         self.hidden_size = hidden_size
         self.output_steps = output_steps
