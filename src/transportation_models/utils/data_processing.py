@@ -1252,9 +1252,6 @@ class PeMSDataProcessor:
                 features = sequence.loc[:, feature_columns]
                 targets = sequence.loc[:, target_columns]
 
-                # Mask targets
-                targets.loc[sequence["observed"] == 0, :] = -1
-
                 # Convert to tensor
                 metadata = torch.from_numpy(metadata.values).to(dtype=torch.float32)
                 features = torch.from_numpy(features.values).to(dtype=torch.float32)

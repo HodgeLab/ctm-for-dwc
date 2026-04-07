@@ -73,7 +73,6 @@ class TotalLoss(nn.Module):
             1 indicates complete Physics loss.
         """
         super(TotalLoss, self).__init__()
-        self.mse_criterion = nn.MSELoss()
         self.phys_criterion = PhysicsLoss()
         self.alpha = alpha
 
@@ -82,10 +81,12 @@ class TotalLoss(nn.Module):
         predictions: torch.tensor,
         targets: torch.tensor,
         station_meta: torch.tensor,
+        observed_mask: torch.tensor,
     ) -> torch.tensor:
         """
         Calculate total loss as a weighted combination of MSE loss and physics-based loss.
         Parameter 'alpha' determines weight contribution of physics-based loss.
+        Loss is only calculated for masked (unobserved) data points.
 
         Parameters
         ----------
@@ -100,6 +101,9 @@ class TotalLoss(nn.Module):
             Shape [batch, output_steps, 6], where dim -1 is
             [Station ID, Lanes, capacity, critical_density, free_flow_speed, congestion_wave_speed].
             These are the raw (unscaled) station-level values used during preprocessing.
+        observed_mask : torch.tensor
+            Binary mask indicating observed (1) vs masked (0) data points.
+            Shape [batch, output_steps].
 
         Returns
         -------
@@ -108,8 +112,10 @@ class TotalLoss(nn.Module):
             alpha * physics_loss + (1 - alpha) * mse_loss
             Scalar value.
         """
-        physics_loss = self.phys_criterion(predictions, targets, station_meta)
-        mse_loss = self.mse_criterion(predictions, targets)
+        mask = observed_mask == 0  # [batch, output_steps] — True where masked
+
+        physics_loss = self.phys_criterion(predictions, targets, station_meta, mask)
+        mse_loss = ((predictions[mask] - targets[mask]) ** 2).mean()
         total_loss = self.alpha * physics_loss + (1 - self.alpha) * mse_loss
         return total_loss
 
@@ -123,9 +129,12 @@ class PhysicsLoss(nn.Module):
         predictions: torch.tensor,
         targets: torch.tensor,
         station_meta: torch.tensor,
+        mask: torch.tensor,
     ) -> torch.tensor:
         """
         Calculate physics-informed loss according to fundamental diagram.
+        Loss is only calculated for masked (unobserved) data points.
+
         Follow these steps:
 
             1) Determine the appropriate slope to use:
@@ -157,6 +166,9 @@ class PhysicsLoss(nn.Module):
             Shape [batch, output_steps, 6], where dim -1 is
             [Station ID, Lanes, capacity, critical_density, free_flow_speed, congestion_wave_speed].
             These are the raw (unscaled) station-level values used during preprocessing.
+        mask : torch.tensor
+            Boolean mask. True where data points are masked (unobserved).
+            Shape [batch, output_steps].
 
         Returns
         -------
@@ -184,8 +196,8 @@ class PhysicsLoss(nn.Module):
         predicted_density_phys = predictions_phys[:, :, 1]
         flow_expected = slopes * (predicted_density_phys - critical_density) + capacity
 
-        # --- Step 4: Calculate physics loss ---
-        physics_loss = ((flow_expected - predicted_flow_phys) ** 2).mean()
+        # --- Step 4: Calculate physics loss (masked only) ---
+        physics_loss = ((flow_expected[mask] - predicted_flow_phys[mask]) ** 2).mean()
 
         return physics_loss
 
@@ -269,11 +281,14 @@ def run_epoch(
             optimizer.zero_grad()
 
             # -- Forward pass -- #
+            # Extract observed mask from last feature column
+            observed_mask = xb[:, :, -1]  # [batch, seq_len], 1=observed, 0=masked
+
             # Get model predictions
             output, hidden = model(xb)
 
-            # Evaluate loss
-            loss = criterion(output, yb, meta_b)
+            # Evaluate loss (only on masked data points)
+            loss = criterion(output, yb, meta_b, observed_mask)
 
             # -- Backward pass -- #
             if train:
@@ -290,7 +305,9 @@ def run_epoch(
             # Update running loss
             running_loss += loss.item()
 
-            # --- Physical-space RMSE --- #
+            # --- Physical-space RMSE (masked points only) --- #
+            mask = observed_mask == 0  # [batch, seq_len] — True where masked
+
             # Reverse the per-station normalization
             output_phys = PhysicsLoss.denormalize_targets(
                 output, meta_b
@@ -301,13 +318,14 @@ def run_epoch(
             output_phys[:, :, 1] = output_phys[:, :, 0] / output_phys[:, :, 1]
             yb_phys[:, :, 1] = yb_phys[:, :, 0] / yb_phys[:, :, 1]
 
-            # Calculate errors (sum over batch and timestep dimensions gives totals per column)
+            # Calculate errors only at masked positions
             diff = output_phys - yb_phys  # [batch, output_steps, 2]
-            running_sq_err += (diff ** 2).sum(dim=(0, 1)).cpu()
-            running_abs_err += diff.abs().sum(dim=(0, 1)).cpu()
-            running_abs_pct_err += (diff.abs() / yb_phys.abs().clamp(min=1e-6)).sum(dim=(0, 1)).cpu()
+            mask_3d = mask.unsqueeze(-1).expand_as(diff)  # [batch, output_steps, 2]
+            running_sq_err += (diff ** 2).masked_fill(~mask_3d, 0).sum(dim=(0, 1)).cpu()
+            running_abs_err += diff.abs().masked_fill(~mask_3d, 0).sum(dim=(0, 1)).cpu()
+            running_abs_pct_err += (diff.abs() / yb_phys.abs().clamp(min=1e-6)).masked_fill(~mask_3d, 0).sum(dim=(0, 1)).cpu()
 
-            running_n += yb.shape[0] * yb.shape[1]  # batch_size * output_steps
+            running_n += mask.sum().item()  # count of masked timesteps
 
     # Calculate average batch loss
     running_loss = running_loss / len(loader)
