@@ -30,7 +30,8 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # ----- Model & function definitions -----#
 # Basic GRU model
 class simpleGRU(nn.Module):
-    def __init__(self, input_size=16, hidden_size=64, output_steps=3, output_size=2):
+
+    def __init__(self, input_size=16, hidden_size=128, output_steps=36, output_size=2):
         super(simpleGRU, self).__init__()
         self.hidden_size = hidden_size
         self.output_steps = output_steps
@@ -50,7 +51,9 @@ class simpleGRU(nn.Module):
         last_step = gru_out[:, -1, :]               # [batch, hidden]
 
         out = self.fc(last_step)                    # [batch, 6]
-        out = out.view(batch_size, self.output_steps, self.output_size)  # [batch, 3, 2]
+        out = out.view(
+            batch_size, self.output_steps, self.output_size
+        )  # [batch, 36, 2]
 
         return out, hidden
 
@@ -487,9 +490,9 @@ if __name__ == "__main__":
     logger.info(f"Station meta in train set has shape {example_meta.shape}")
 
     # Define hyperparameters
-    batch_sizes = [32, 128, 512]
-    learning_rates = [0.01, 0.001]
-    momentum_rates = [0.9, 0.75]
+    batch_sizes = [32]
+    learning_rates = [0.01]
+    momentum_rates = [0.9]
     n_epochs = 20
 
     for batch_size in batch_sizes:
@@ -501,7 +504,7 @@ if __name__ == "__main__":
         for lr in learning_rates:
             for alpha in momentum_rates:
                 # Define model, loss function, and optimizer
-                model = simpleGRU(output_steps=4)
+                model = simpleGRU(output_steps=36)
                 criterion = TotalLoss(alpha=args.PhysWeight)
                 optimizer = optim.SGD(model.parameters(), lr=lr, momentum=alpha)
 
