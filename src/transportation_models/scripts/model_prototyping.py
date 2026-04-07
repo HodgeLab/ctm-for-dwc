@@ -9,7 +9,6 @@ import torch.nn as nn
 import torch.optim as optim
 import wandb
 
-from datetime import datetime
 from dotenv import load_dotenv
 from torch.utils.data import DataLoader, random_split, TensorDataset
 
@@ -228,25 +227,6 @@ class PhysicsLoss(nn.Module):
         return targets * scale  # [batch, output_steps, 2]
 
 
-# Define a function to save models
-def save_model(
-    model: nn.Module,
-    name: str,
-    root_path: str = os.getcwd(),
-) -> str:
-    # Create a directory for models if it doesn't yet exist
-    if not os.path.exists(os.path.join(root_path, "models")):
-        os.mkdir(os.path.join(root_path, "models"))
-
-    # Save the model to the directory
-    filepath = os.path.join(root_path, "models", f"{name}.pt")
-    torch.save(model.state_dict(), filepath)
-    logger.info(f"Model saved to: {filepath}")
-
-    # Return the filepath
-    return filepath
-
-
 # Define a function to evaluate a single epoch
 def run_epoch(
     model: nn.Module,
@@ -372,7 +352,7 @@ def train_model(
     wandb_tags: list[str] = [],
     wandb_notes: str = "",
     model_name: str = "baseline",
-    val_preds_dir: str | None = None,
+    results_dir: str = os.getcwd(),
 ) -> None:
     # Early stopping setup
     best_val_loss = float('inf')
@@ -386,11 +366,6 @@ def train_model(
     wandb_config["patience"] = patience
     wandb_config["min_delta"] = min_delta
 
-    # Validation predictions directory setup
-    if val_preds_dir is not None:
-        os.makedirs(val_preds_dir, exist_ok=True)
-        logger.info(f"Validation predictions will be saved to: {val_preds_dir}")
-
     # Start training
     with wandb.init(
         entity=wandb_entity,
@@ -399,6 +374,12 @@ def train_model(
         tags=wandb_tags,
         config=wandb_config,
     ) as run:
+        # Create run directory using the W&B run name
+        run_dir = os.path.join(results_dir, run.name)
+        val_preds_dir = os.path.join(run_dir, "val_predictions")
+        os.makedirs(val_preds_dir, exist_ok=True)
+        logger.info(f"Run results will be saved to: {run_dir}")
+
         for epoch in range(n_epochs):
             # Training over epoch
             train_loss, train_metrics, _ = run_epoch(
@@ -454,8 +435,10 @@ def train_model(
         if early_stopping:
             model.load_state_dict(best_model_weights)
 
-        # Upload the best model as an artifact
-        model_filepath = save_model(model=model, name=model_name)
+        # Save the best model and upload as an artifact
+        model_filepath = os.path.join(run_dir, f"{model_name}.pt")
+        torch.save(model.state_dict(), model_filepath)
+        logger.info(f"Model saved to: {model_filepath}")
         run.log_artifact(model_filepath, name="trained-model", type="model")
 
     return
@@ -477,8 +460,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Path definitions
-    root_dir = "/projects/rost5691/data/Caltrans/PeMS/processed_data"
-    data_filepath = os.path.join(root_dir, "imputation_3hr_10pct.pt")
+    results_dir = "/projects/rost5691/data/Caltrans/PeMS/results"
+    data_filepath = "/projects/rost5691/data/Caltrans/PeMS/processed_data/3hr_10pct_imputation/imputation_dataset.pt"
 
     # Load dataset.
     # Expected keys: "X" (features), "y" (normalized targets), "meta" (per-sample station scalars).
@@ -522,10 +505,6 @@ if __name__ == "__main__":
                 criterion = TotalLoss(alpha=args.PhysWeight)
                 optimizer = optim.SGD(model.parameters(), lr=lr, momentum=alpha)
 
-                # Define path for saving validation predictions
-                now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-                val_preds_dir = os.path.join(root_dir, f"val_predictions_{now}")
-
                 # Train model
                 train_model(
                     model=model,
@@ -546,5 +525,5 @@ if __name__ == "__main__":
                     },
                     wandb_tags=["prototyping", "imputation"],
                     model_name="simpleGRU",
-                    val_preds_dir=val_preds_dir,
+                    results_dir=results_dir,
                 )
