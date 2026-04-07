@@ -315,8 +315,11 @@ def run_epoch(
             yb_phys = PhysicsLoss.denormalize_targets(yb, meta_b)
 
             # Calculate speed (flow / density)
-            output_phys[:, :, 1] = output_phys[:, :, 0] / output_phys[:, :, 1]
-            yb_phys[:, :, 1] = yb_phys[:, :, 0] / yb_phys[:, :, 1]
+            # Use clamp to avoid divide by zero
+            output_phys[:, :, 1] = output_phys[:, :, 0] / output_phys[:, :, 1].clamp(
+                min=1e-6
+            )
+            yb_phys[:, :, 1] = yb_phys[:, :, 0] / yb_phys[:, :, 1].clamp(min=1e-6)
 
             # Calculate errors only at masked positions
             diff = output_phys - yb_phys  # [batch, output_steps, 2]
