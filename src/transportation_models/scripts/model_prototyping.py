@@ -60,7 +60,7 @@ class simpleGRU(nn.Module):
 
 class TotalLoss(nn.Module):
 
-    def __init__(self, alpha: float) -> None:
+    def __init__(self, alpha: float, max_loss_clamp: float = 1e9) -> None:
         """
         init function for class
 
@@ -75,6 +75,7 @@ class TotalLoss(nn.Module):
         super(TotalLoss, self).__init__()
         self.phys_criterion = PhysicsLoss()
         self.alpha = alpha
+        self.max_loss_clamp = max_loss_clamp
 
     def forward(
         self,
@@ -116,6 +117,8 @@ class TotalLoss(nn.Module):
 
         physics_loss = self.phys_criterion(predictions, targets, station_meta, mask)
         mse_loss = ((predictions[mask] - targets[mask]) ** 2).mean()
+        physics_loss = physics_loss.clamp(max=self.max_loss_clamp)
+        mse_loss = mse_loss.clamp(max=self.max_loss_clamp)
         total_loss = self.alpha * physics_loss + (1 - self.alpha) * mse_loss
         return total_loss
 
@@ -294,6 +297,7 @@ def run_epoch(
             if train:
                 # Update gradients
                 loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
 
                 # Adjust learning weights
                 optimizer.step()
