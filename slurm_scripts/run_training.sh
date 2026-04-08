@@ -7,7 +7,7 @@
 #SBATCH --time=12:00:00
 #SBATCH --qos=normal
 #SBATCH --nodes=1
-#SBATCH --ntasks=16
+#SBATCH --ntasks=32
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=rost5691@colorado.edu
 
