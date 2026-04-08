@@ -31,7 +31,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # Basic GRU model
 class simpleGRU(nn.Module):
 
-    def __init__(self, input_size=17, hidden_size=128, output_steps=36, output_size=2):
+    def __init__(self, input_size=16, hidden_size=128, output_steps=36, output_size=2):
         super(simpleGRU, self).__init__()
         self.hidden_size = hidden_size
         self.output_steps = output_steps
@@ -285,7 +285,7 @@ def run_epoch(
 
             # -- Forward pass -- #
             # Extract observed mask from last feature column
-            observed_mask = xb[:, :, -1]  # [batch, seq_len], 1=observed, 0=masked
+            observed_mask = meta_b[:, :, -1]  # [batch, seq_len], 1=observed, 0=masked
 
             # Get model predictions
             output, hidden = model(xb)
@@ -310,27 +310,29 @@ def run_epoch(
             running_loss += loss.item()
 
             # --- Physical-space RMSE (masked points only) --- #
-            mask = observed_mask == 0  # [batch, seq_len] — True where masked
-
             # Reverse the per-station normalization
             output_phys = PhysicsLoss.denormalize_targets(
                 output, meta_b
             )  # [batch, output_steps, 2]
             yb_phys = PhysicsLoss.denormalize_targets(yb, meta_b)
 
+            # Calculate errors only at masked positions
+            mask = observed_mask == 0  # [batch, seq_len] — True where masked
+            output_phys = output_phys[mask]  # [n_masked  * batch, 2]
+            yb_phys = yb_phys[mask]  # [n_masked  * batch, 2]
+
             # Calculate speed (flow / density)
             # Use clamp to avoid divide by zero
-            output_phys[:, :, 1] = output_phys[:, :, 0] / output_phys[:, :, 1].clamp(
-                min=1e-6
-            )
-            yb_phys[:, :, 1] = yb_phys[:, :, 0] / yb_phys[:, :, 1].clamp(min=1e-6)
+            output_phys[:, 1] = output_phys[:, 0] / output_phys[:, 1].clamp(min=1e-6)
+            yb_phys[:, 1] = yb_phys[:, 0] / yb_phys[:, 1].clamp(min=1e-6)
 
             # Calculate errors only at masked positions
-            diff = output_phys - yb_phys  # [batch, output_steps, 2]
-            mask_3d = mask.unsqueeze(-1).expand_as(diff)  # [batch, output_steps, 2]
-            running_sq_err += (diff ** 2).masked_fill(~mask_3d, 0).sum(dim=(0, 1)).cpu()
-            running_abs_err += diff.abs().masked_fill(~mask_3d, 0).sum(dim=(0, 1)).cpu()
-            running_abs_pct_err += (diff.abs() / yb_phys.abs().clamp(min=1e-6)).masked_fill(~mask_3d, 0).sum(dim=(0, 1)).cpu()
+            diff = yb_phys - output_phys  # [n_masked * batch, 2]
+            running_sq_err += (diff**2).sum(dim=0).cpu()
+            running_abs_err += diff.abs().sum(dim=0).cpu()
+            running_abs_pct_err += (
+                (diff.abs() / yb_phys.abs().clamp(min=1e-6)).sum(dim=0).cpu()
+            )
 
             running_n += mask.sum().item()  # count of masked timesteps
 

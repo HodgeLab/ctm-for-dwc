@@ -1050,12 +1050,12 @@ class PeMSDataProcessor:
                 # Update metadata_df with calibrated parameters
                 for key, value in params.items():
                     self.metadata_df.loc[self.metadata_df["Station ID"] == int(detector), key] = value
-                
+
         if save_params:
             # Resolve output path: explicit arg > self._save_dir > processed_data_directory fallback.
             _default_dir = self._save_dir if self._save_dir is not None else self.processed_data_directory
             output_path = output_metadata_path or os.path.join(_default_dir, "station_metadata_calibrated.csv")
-            
+
             # Save metadata_df to a CSV file
             self.metadata_df.to_csv(output_path, index=False)
             logger.info(
@@ -1066,7 +1066,7 @@ class PeMSDataProcessor:
             self.metadata_cols = self.metadata_base_cols + [
                 col for col in self.calibration_params if col in self.metadata_df.columns
             ]
-                
+
     def preprocess_data(
         self,
         detectors: typing.Optional[list[str]] = None,
@@ -1204,6 +1204,7 @@ class PeMSDataProcessor:
             "congestion_wave_speed",
             "5min_block",
             "dayofweek",
+            "observed",
         ]
 
         # Columns that appear only in meta, not in features
@@ -1217,7 +1218,7 @@ class PeMSDataProcessor:
         ]
 
         # Columns to include in feature tensor
-        feature_columns = [col for col in df.columns if col not in meta_only_columns] + ["observed"]
+        feature_columns = [col for col in df.columns if col not in meta_only_columns]
 
         # Columns to include in target tensor
         target_columns = ["flow", "density"]
