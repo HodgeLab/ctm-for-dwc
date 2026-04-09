@@ -195,12 +195,16 @@ class PhysicsLoss(nn.Module):
         # --- Step 3: Calculate expected flow ---
         critical_density = station_meta[:, :, 3]
         capacity = station_meta[:, :, 2]
-        predicted_flow_phys = predictions_phys[:, :, 0]
         predicted_density_phys = predictions_phys[:, :, 1]
-        flow_expected = slopes * (predicted_density_phys - critical_density) + capacity
+        flow_expected_phys = (
+            slopes * (predicted_density_phys - critical_density) + capacity
+        )
+        flow_expected = flow_expected_phys / capacity
 
         # --- Step 4: Calculate physics loss (masked only) ---
-        physics_loss = ((flow_expected[mask] - predicted_flow_phys[mask]) ** 2).mean()
+        predicted_flow = predictions[:, :, 0]
+        diff = flow_expected[mask] - predicted_flow[mask]
+        physics_loss = (diff**2).mean()
 
         return physics_loss
 
