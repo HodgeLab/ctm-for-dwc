@@ -181,7 +181,7 @@ class PhysicsLoss(nn.Module):
         """
         # --- Step 1: Determine appropriate slopes to use ---
         # Determine indices of prediction that correspond to congested traffic conditions
-        is_congested = targets[:, :, 1] > 1
+        is_congested = predictions[:, :, 1] > 1
 
         # Calculate appropriate slopes according to congestion mask
         slopes = (
