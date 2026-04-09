@@ -148,7 +148,6 @@ class PeMSDataProcessor:
         imputation_threshold: float = 100.0,
         save_transforms: bool = False,
         save_directory: typing.Optional[str] = None,
-        normalize_by_segment_params: bool = True,
     ) -> None:
         # Set seeds for reproducibility
         random.seed(42)
@@ -189,9 +188,8 @@ class PeMSDataProcessor:
             6: "Sun",
         }
 
-        # Set parameters
+        # Set imputation threshold
         self.imputation_threshold = imputation_threshold
-        self.normalize_by_segment_params = normalize_by_segment_params
 
         # Load files
         self.timeseries_cols = ['timestamp', 'station', 'pct_observed', 'total_flow_[veh/5-min]', 'avg_speed_[mph]']
@@ -511,7 +509,10 @@ class PeMSDataProcessor:
             )
         return timeseries_df.loc[mask].reset_index(drop=True)
 
-    def normalize_timeseries(self, df: pd.DataFrame) -> pd.DataFrame:
+    def normalize_timeseries(
+        self,
+        df: pd.DataFrame,
+    ) -> pd.DataFrame:
         """
         Normalize the standardized counts (flow, density) in the timeseries data.
         Normalization steps include:
@@ -532,38 +533,14 @@ class PeMSDataProcessor:
                 - ADDED column 'density'
                 - DROPPED columns ['flow_[veh/hr-lane]', 'density_[veh/mi-lane]']
         """
-        if self.normalize_by_segment_params:
-            # Normalize flow by station capacity
-            df["flow"] = df["flow_[veh/hr-lane]"] / df["capacity"]
+        # Normalize flow by station capacity
+        df["flow"] = df["flow_[veh/hr-lane]"] / df["capacity"]
 
-            # Normalize density by critical density
-            df["density"] = df["density_[veh/mi-lane]"] / df["critical_density"]
+        # Normalize density by critical density
+        df["density"] = df["density_[veh/mi-lane]"] / df["critical_density"]
 
-            # Drop unnecessary columns
-            df = df.drop(columns=["flow_[veh/hr-lane]", "density_[veh/mi-lane]"])
-        else:
-            # Whiten timeseries
-            df = self.whiten_timeseries(timeseries_df=df)
-
-            # Set flow, density to the whitened values
-            df["flow"] = df["whitened_flow"]
-            df["density"] = df["whitened_density"]
-
-            # Drop unnecessary columns
-            df = df.drop(
-                columns=[
-                    "flow_[veh/hr-lane]",
-                    "mean_flow",
-                    "stddev_flow",
-                    "whitened_flow",
-                    "density_[veh/mi-lane]",
-                    "mean_density",
-                    "stddev_density",
-                    "whitened_density",
-                    "weekday",
-                    "5min_block",
-                ]
-            )
+        # Drop unnecessary columns
+        df = df.drop(columns=["flow_[veh/hr-lane]", "density_[veh/mi-lane]"])
 
         return df
 
