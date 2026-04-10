@@ -491,6 +491,12 @@ if __name__ == "__main__":
         required=True,
         help="Alpha parameter for loss function: relative weight of physics loss to MSE loss. 0 for pure MSE, 1 for pure physics",
     )
+    parser.add_argument(
+        "--description",
+        type=str,
+        default="",
+        help="Description of the prototyping experiment, logged to Weights and Biases as run notes",
+    )
     args = parser.parse_args()
 
     # Path definitions
@@ -557,6 +563,7 @@ if __name__ == "__main__":
                         "learning_rate": lr,
                         "momentum_rate": alpha,
                     },
+                    wandb_notes=args.description,
                     wandb_tags=["prototyping", "imputation"],
                     model_name="simpleGRU",
                     results_dir=results_dir,
