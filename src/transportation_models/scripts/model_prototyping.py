@@ -10,9 +10,11 @@ import torch.optim as optim
 import wandb
 
 from dotenv import load_dotenv
+from sklearn.preprocessing import MinMaxScaler
 from torch.utils.data import DataLoader, random_split, TensorDataset
 
 # Local imports
+from transportation_models.utils.data_processing import TargetNormalization
 from transportation_models.utils.logs import make_logger
 
 # WandB setup
@@ -249,6 +251,68 @@ class PhysicsLoss(nn.Module):
         return targets * scale  # [batch, output_steps, 2]
 
 
+def denormalize_targets_for_metrics(
+    targets: torch.Tensor,
+    station_meta: torch.Tensor,
+    target_normalization: TargetNormalization,
+    target_minmax_scaler: MinMaxScaler | None = None,
+) -> torch.Tensor:
+    """
+    Invert the target normalization applied during preprocessing so that error
+    metrics are reported in physical units ([veh/hr-lane] for flow,
+    [veh/mi-lane] for density).
+
+    Dispatches on ``target_normalization``:
+
+    - ``STATION_PARAMS``: multiply by per-station capacity and critical_density
+      (pulled from ``station_meta`` columns [2, 3]).
+    - ``MIN_MAX``: delegate to the fitted ``MinMaxScaler.inverse_transform``
+      so that any ``feature_range`` setting is honored correctly.
+    - ``WHITENED``: not supported here — per-sample mean/stddev were not
+      carried into ``meta``, so metrics stay in the whitened (z-score) space
+      the targets already live in. Targets are returned unchanged.
+
+    Parameters
+    ----------
+    targets : torch.Tensor
+        Shape [batch, output_steps, 2], dim -1 is [flow_norm, density_norm].
+    station_meta : torch.Tensor
+        Shape [batch, output_steps, >=4], dim -1 columns include
+        [Station ID, Lanes, capacity, critical_density, ...].
+    target_normalization : TargetNormalization
+        The normalization strategy that was applied to the targets.
+    target_minmax_scaler : MinMaxScaler or None
+        The fitted sklearn MinMaxScaler used at preprocessing time. Required
+        when ``target_normalization == MIN_MAX``.
+    """
+    if target_normalization == TargetNormalization.STATION_PARAMS:
+        scale = station_meta[:, :, [2, 3]]  # capacity, critical_density
+        return targets * scale
+    elif target_normalization == TargetNormalization.MIN_MAX:
+        if target_minmax_scaler is None:
+            raise ValueError(
+                "target_minmax_scaler must be provided for MIN_MAX "
+                "denormalization"
+            )
+        # sklearn's inverse_transform expects a 2D numpy array, so flatten the
+        # [batch, output_steps, 2] tensor to [batch * output_steps, 2], invert,
+        # then restore the original shape.
+        original_shape = targets.shape
+        flat = targets.detach().cpu().numpy().reshape(-1, original_shape[-1])
+        inverted = target_minmax_scaler.inverse_transform(flat)
+        return torch.from_numpy(inverted).to(
+            device=targets.device, dtype=targets.dtype
+        ).reshape(original_shape)
+    elif target_normalization == TargetNormalization.WHITENED:
+        # Per-sample whitening stats are not available in meta; leave targets
+        # as-is and compute error metrics in the whitened space.
+        return targets
+    else:
+        raise ValueError(
+            f"Unsupported target_normalization: {target_normalization!r}"
+        )
+
+
 # Define a function to evaluate a single epoch
 def run_epoch(
     model: nn.Module,
@@ -256,6 +320,8 @@ def run_epoch(
     device: torch.device,
     criterion: nn.Module,
     optimizer: optim.Optimizer,
+    target_normalization: TargetNormalization = TargetNormalization.STATION_PARAMS,
+    target_minmax_scaler: MinMaxScaler | None = None,
     train: bool = True,
 ) -> tuple[float, dict[str, float], tuple[torch.Tensor, torch.Tensor] | None]:
     # Make sure we're on the correct device
@@ -314,11 +380,20 @@ def run_epoch(
             running_loss += loss.item()
 
             # --- Physical-space RMSE (masked points only) --- #
-            # Reverse the per-station normalization
-            output_phys = PhysicsLoss.denormalize_targets(
-                output, meta_b
+            # Reverse the target normalization (strategy determined at
+            # preprocessing time and carried alongside the dataset).
+            output_phys = denormalize_targets_for_metrics(
+                output,
+                meta_b,
+                target_normalization=target_normalization,
+                target_minmax_scaler=target_minmax_scaler,
             )  # [batch, output_steps, 2]
-            yb_phys = PhysicsLoss.denormalize_targets(yb, meta_b)
+            yb_phys = denormalize_targets_for_metrics(
+                yb,
+                meta_b,
+                target_normalization=target_normalization,
+                target_minmax_scaler=target_minmax_scaler,
+            )
 
             # Calculate errors only at masked positions
             mask = observed_mask == 0  # [batch, seq_len] — True where masked
@@ -387,6 +462,8 @@ def train_model(
     wandb_notes: str = "",
     model_name: str = "baseline",
     results_dir: str = os.getcwd(),
+    target_normalization: TargetNormalization = TargetNormalization.STATION_PARAMS,
+    target_minmax_scaler: MinMaxScaler | None = None,
 ) -> None:
     # Early stopping setup
     best_val_loss = float('inf')
@@ -422,6 +499,8 @@ def train_model(
                 device=device,
                 criterion=criterion,
                 optimizer=optimizer,
+                target_normalization=target_normalization,
+                target_minmax_scaler=target_minmax_scaler,
                 train=True,
             )
 
@@ -432,6 +511,8 @@ def train_model(
                 device=device,
                 criterion=criterion,
                 optimizer=optimizer,
+                target_normalization=target_normalization,
+                target_minmax_scaler=target_minmax_scaler,
                 train=False,
             )
 
@@ -504,14 +585,45 @@ if __name__ == "__main__":
     data_filepath = "/projects/rost5691/data/Caltrans/PeMS/processed_data/3hr_10pct_imputation/imputation_dataset.pt"
 
     # Load dataset.
-    # Expected keys: "X" (features), "y" (normalized targets), "meta" (per-sample station scalars).
-    # "meta" should be a float tensor of shape [N, 6] with these columns:
-    # [Station ID, Lanes, capacity, critical_density, free_flow_speed, congestion_wave_speed]
-    data = torch.load(data_filepath)
+    # Expected keys:
+    #   "X"                     -> features
+    #   "y"                     -> normalized targets
+    #   "meta"                  -> per-sample station scalars, float tensor of
+    #                              shape [N, 6]:
+    #                              [Station ID, Lanes, capacity,
+    #                               critical_density, free_flow_speed,
+    #                               congestion_wave_speed]
+    #   "target_normalization"   -> str value of the TargetNormalization used
+    #                               (optional for legacy files; defaults to
+    #                               STATION_PARAMS)
+    #   "target_minmax_scaler"   -> fitted sklearn MinMaxScaler; only present
+    #                               for MIN_MAX normalization
+    data = torch.load(data_filepath, weights_only=False)
     logger.info("Loaded raw data from filepath: ", data_filepath)
     X, y, meta = data["X"], data["y"], data["meta"]
     dataset = TensorDataset(X.float(), y.float(), meta.float())
     logger.info(f"Loaded dataset with length: {len(dataset)}")
+
+    # Determine which target normalization strategy was used so that error
+    # metrics can be computed in physical units. Fall back to STATION_PARAMS
+    # for legacy dataset files that predate the enum.
+    target_normalization = TargetNormalization(
+        data.get("target_normalization", TargetNormalization.STATION_PARAMS.value)
+    )
+    target_minmax_scaler = data.get("target_minmax_scaler")
+    logger.info(f"Target normalization strategy: {target_normalization.value}")
+    if target_normalization == TargetNormalization.MIN_MAX:
+        if target_minmax_scaler is None:
+            raise ValueError(
+                "Dataset was normalized with MIN_MAX but does not contain a "
+                "'target_minmax_scaler' entry — cannot invert for metric "
+                "reporting."
+            )
+        logger.info(
+            "MIN_MAX scaler params: "
+            f"min={target_minmax_scaler.data_min_.tolist()}, "
+            f"max={target_minmax_scaler.data_max_.tolist()}"
+        )
 
     # Create training, validation, and testing splits
     splits = [0.6, 0.2, 0.2]
@@ -567,4 +679,6 @@ if __name__ == "__main__":
                     wandb_tags=["prototyping", "imputation"],
                     model_name="simpleGRU",
                     results_dir=results_dir,
+                    target_normalization=target_normalization,
+                    target_minmax_scaler=target_minmax_scaler,
                 )

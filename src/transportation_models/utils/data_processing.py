@@ -15,6 +15,7 @@ import pandas as pd
 import random
 import torch
 import typing
+from enum import Enum
 from joblib import dump, load
 from pathlib import Path
 from sklearn.linear_model import LinearRegression
@@ -25,6 +26,21 @@ from sklearn.preprocessing import (
 from torch.utils.data import (
     TensorDataset,
 )
+
+
+class TargetNormalization(str, Enum):
+    """How to normalize the flow/density target columns in PeMSDataProcessor."""
+
+    # Normalize flow by station capacity and density by station critical density
+    # (uses the calibrated fundamental diagram parameters for each VDS).
+    STATION_PARAMS = "station_params"
+
+    # Whiten flow and density by their per-(weekday, 5min_block) mean and stddev.
+    WHITENED = "whitened"
+
+    # Min/max scale flow and density using min/max computed across all detectors
+    # in the long_df.
+    MIN_MAX = "min_max"
 
 # Local imports
 import transportation_models.utils.constants as constants
@@ -148,7 +164,7 @@ class PeMSDataProcessor:
         imputation_threshold: float = 100.0,
         save_transforms: bool = False,
         save_directory: typing.Optional[str] = None,
-        normalize_by_segment_params: bool = True,
+        target_normalization: TargetNormalization = TargetNormalization.STATION_PARAMS,
     ) -> None:
         # Set seeds for reproducibility
         random.seed(42)
@@ -191,7 +207,7 @@ class PeMSDataProcessor:
 
         # Set parameters
         self.imputation_threshold = imputation_threshold
-        self.normalize_by_segment_params = normalize_by_segment_params
+        self.target_normalization = TargetNormalization(target_normalization)
 
         # Load files
         self.timeseries_cols = ['timestamp', 'station', 'pct_observed', 'total_flow_[veh/5-min]', 'avg_speed_[mph]']
@@ -513,26 +529,37 @@ class PeMSDataProcessor:
 
     def normalize_timeseries(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Normalize the standardized counts (flow, density) in the timeseries data.
-        Normalization steps include:
-            - Normalizing flow by station capacity. Resulting values range [0,1].
-            - Normalizing density by critical density. Resulting values range [0,1] if traffic is in free-flow, and (1,inf) if traffic is congested.
+        Normalize the flow and density target columns in the timeseries data.
+
+        Normalization strategy is controlled by ``self.target_normalization``:
+
+        - ``TargetNormalization.STATION_PARAMS`` (default): divide flow by station
+          capacity and density by station critical density. Flow values range
+          [0,1]; density values range [0,1] in free-flow and (1,inf) in
+          congestion.
+        - ``TargetNormalization.WHITENED``: whiten flow and density against their
+          per-(weekday, 5min_block) mean and stddev.
+        - ``TargetNormalization.MIN_MAX``: min/max scale flow and density using
+          the global min and max observed across all detectors in ``df``. If
+          ``self.save_transforms`` is set, the fitted scaler is saved to disk
+          as ``target_minmax_scaler.joblib``.
 
         Parameters
         ----------
         df : pd.DataFrame
-            DataFrame containing
+            DataFrame containing the standardized ``flow_[veh/hr-lane]`` and
+            ``density_[veh/mi-lane]`` columns.
 
         Returns
         -------
         pd.DataFrame
-            Modified version of passed DataFrame.
+            Modified version of the passed DataFrame.
             Modifications include:
                 - ADDED column 'flow'
                 - ADDED column 'density'
                 - DROPPED columns ['flow_[veh/hr-lane]', 'density_[veh/mi-lane]']
         """
-        if self.normalize_by_segment_params:
+        if self.target_normalization == TargetNormalization.STATION_PARAMS:
             # Normalize flow by station capacity
             df["flow"] = df["flow_[veh/hr-lane]"] / df["capacity"]
 
@@ -541,7 +568,7 @@ class PeMSDataProcessor:
 
             # Drop unnecessary columns
             df = df.drop(columns=["flow_[veh/hr-lane]", "density_[veh/mi-lane]"])
-        else:
+        elif self.target_normalization == TargetNormalization.WHITENED:
             # Whiten timeseries
             df = self.whiten_timeseries(timeseries_df=df)
 
@@ -563,6 +590,44 @@ class PeMSDataProcessor:
                     "weekday",
                     "5min_block",
                 ]
+            )
+        elif self.target_normalization == TargetNormalization.MIN_MAX:
+            # Fit a MinMaxScaler across all detectors using the (flow, density)
+            # columns, then apply it. The scaler is stored on the instance so
+            # downstream code can invert the transform if needed.
+            flow_density = df[["flow_[veh/hr-lane]", "density_[veh/mi-lane]"]].to_numpy()
+            self.target_minmax_scaler = MinMaxScaler()
+            scaled = self.target_minmax_scaler.fit_transform(flow_density)
+            df["flow"] = scaled[:, 0]
+            df["density"] = scaled[:, 1]
+            logger.debug(
+                "Applied global MinMax scaling to flow/density: "
+                f"flow min/max = {self.target_minmax_scaler.data_min_[0]:.2f}/"
+                f"{self.target_minmax_scaler.data_max_[0]:.2f}, "
+                f"density min/max = {self.target_minmax_scaler.data_min_[1]:.2f}/"
+                f"{self.target_minmax_scaler.data_max_[1]:.2f}"
+            )
+
+            # Optionally persist the fitted scaler alongside other transforms.
+            if self.save_transforms:
+                _out_dir = (
+                    self._save_dir
+                    if self._save_dir is not None
+                    else self.processed_data_directory
+                )
+                target_scaler_filepath = os.path.join(
+                    _out_dir, "target_minmax_scaler.joblib"
+                )
+                dump(self.target_minmax_scaler, target_scaler_filepath)
+                logger.info(
+                    f"Saved target min/max scaler to: {target_scaler_filepath}"
+                )
+
+            # Drop unnecessary columns
+            df = df.drop(columns=["flow_[veh/hr-lane]", "density_[veh/mi-lane]"])
+        else:
+            raise ValueError(
+                f"Unsupported target_normalization: {self.target_normalization!r}"
             )
 
         return df
@@ -1204,7 +1269,8 @@ class PeMSDataProcessor:
         if _resolved_save_name is not None:
             _out_dir = self._save_dir if self._save_dir is not None else self.processed_data_directory
             filepath = os.path.join(_out_dir, _resolved_save_name)
-            torch.save({"X": X, "y": y, "meta": meta}, filepath)
+            save_dict = self._build_dataset_save_dict(X=X, y=y, meta=meta)
+            torch.save(save_dict, filepath)
             logger.info(f"Saving sequence dataset to {filepath}")
 
         # Return
@@ -1304,11 +1370,46 @@ class PeMSDataProcessor:
         if _resolved_save_name is not None:
             _out_dir = self._save_dir if self._save_dir is not None else self.processed_data_directory
             filepath = os.path.join(_out_dir, _resolved_save_name)
-            torch.save({"X": X, "y": y, "meta": meta}, filepath)
+            save_dict = self._build_dataset_save_dict(X=X, y=y, meta=meta)
+            torch.save(save_dict, filepath)
             logger.info(f"Saving imputation dataset to {filepath}")
 
         # Return
         return dataset
+
+    def _build_dataset_save_dict(
+        self,
+        X: torch.Tensor,
+        y: torch.Tensor,
+        meta: torch.Tensor,
+    ) -> dict:
+        """
+        Build the dict persisted to disk for a prepared dataset.
+
+        Always includes X/y/meta and the ``target_normalization`` mode used to
+        produce the targets. When MIN_MAX scaling was applied, also embeds the
+        global min/max used by the fitted scaler so that downstream consumers
+        can invert the transform without loading the joblib file.
+        """
+        save_dict: dict = {
+            "X": X,
+            "y": y,
+            "meta": meta,
+            "target_normalization": self.target_normalization.value,
+        }
+        if self.target_normalization == TargetNormalization.MIN_MAX:
+            scaler = getattr(self, "target_minmax_scaler", None)
+            if scaler is None:
+                raise RuntimeError(
+                    "target_normalization is MIN_MAX but no fitted scaler is "
+                    "available — did normalize_timeseries run?"
+                )
+            # Embed the fitted scaler itself so downstream consumers can call
+            # inverse_transform rather than reimplementing the math (which
+            # would silently drift for non-default feature_range values).
+            # Scaler columns are [flow_[veh/hr-lane], density_[veh/mi-lane]].
+            save_dict["target_minmax_scaler"] = scaler
+        return save_dict
 
 
 # Example usage
