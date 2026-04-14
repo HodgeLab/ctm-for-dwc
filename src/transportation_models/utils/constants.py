@@ -5,7 +5,7 @@ ROOT_PATH = Path("/Volumes/easystore/work/boulder/Caltrans/PeMS")
 GMNS_LINKS_FILEPATH = Path("/Volumes/easystore/work/boulder/GMNS/links_modified.csv")
 GMNS_NODES_FILEPATH = Path("/Volumes/easystore/work/boulder/GMNS/nodes_modified.csv")
 CALTRANS_VDS_METADATA_FILEPATH = Path(
-    "/Volumes/easystore/work/boulder/Caltrans/PeMS/metadata/station_metadata_CALIBRATED.csv"
+    "/Volumes/easystore/work/boulder/Caltrans/PeMS/metadata/station_metadata_calibrated.csv"
 )
 CALTRANS_VDS_TIMESERIES_DIRECTORY_PATH = Path(
     "/Volumes/easystore/work/boulder/Caltrans/PeMS/timeseries_data"
