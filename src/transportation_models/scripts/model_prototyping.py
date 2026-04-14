@@ -142,23 +142,32 @@ class PhysicsLoss(nn.Module):
         Calculate physics-informed loss according to fundamental diagram.
         Loss is only calculated for masked (unobserved) data points.
 
-        Follow these steps:
+        The loss is the mean squared Euclidean distance between each predicted
+        (density_norm, flow_norm) point and the fundamental-diagram line,
+        measured in normalized coordinates so both axes are O(1).
 
-            1) Determine the appropriate slope to use:
+        Steps:
 
-                If the actual density is greater than 1, use a slope m = -1 * congestion_wave_speed
+            1) Select the physical slope per point:
 
-                If the actual density is less than 1, use a slope m = free_flow_speed
+                - predicted density_norm > 1  →  m = -congestion_wave_speed
+                - predicted density_norm ≤ 1  →  m =  free_flow_speed
 
-            2) Calculate physical flow and density using denormalize_targets.
+            2) Convert the line to normalized coordinates. The physical line
+               flow_phys = m * (density_phys - critical_density) + capacity
+               becomes, after dividing flow by capacity and density by
+               critical_density:
 
-            3) Determine the expected flow according to this equation:
+                   flow_norm = m_norm * (density_norm - 1) + 1,
+                   where  m_norm = m * critical_density / capacity
 
-                flow_expected = m * (density_phys - critical_density) + capacity
+            3) Compute the perpendicular distance from (density_norm, flow_norm)
+               to that line:
 
-            4) Calculate loss as:
+                   d = |m_norm * density_norm - flow_norm + (1 - m_norm)|
+                       / sqrt(m_norm**2 + 1)
 
-                loss_phys = mean((flow_expected - flow_phys) ** 2)
+            4) loss_phys = mean(d ** 2) over masked points.
 
         Parameters
         ----------
@@ -183,32 +192,30 @@ class PhysicsLoss(nn.Module):
             Physics-based loss according to fundamental diagram.
             Scalar value.
         """
-        # --- Step 1: Determine appropriate slopes to use ---
-        # Determine indices of prediction that correspond to congested traffic conditions
+        # --- Step 1: Select the physical slope per point ---
         is_congested = predictions[:, :, 1] > 1
-
-        # Calculate appropriate slopes according to congestion mask
-        slopes = (
+        slopes_phys = (
             station_meta[:, :, 4] * ~is_congested
             + station_meta[:, :, 5] * is_congested * -1
         )
 
-        # --- Step 2: Denormalize targets
-        predictions_phys = PhysicsLoss.denormalize_targets(predictions, station_meta)
-
-        # --- Step 3: Calculate expected flow ---
-        critical_density = station_meta[:, :, 3]
+        # --- Step 2: Rescale slope into normalized (density_norm, flow_norm) space ---
         capacity = station_meta[:, :, 2]
-        predicted_density_phys = predictions_phys[:, :, 1]
-        flow_expected_phys = (
-            slopes * (predicted_density_phys - critical_density) + capacity
-        )
-        flow_expected = flow_expected_phys / capacity
+        critical_density = station_meta[:, :, 3]
+        slopes_norm = slopes_phys * critical_density / capacity
 
-        # --- Step 4: Calculate physics loss (masked only) ---
+        # --- Step 3: Perpendicular distance to the line
+        #     slopes_norm * density_norm - flow_norm + (1 - slopes_norm) = 0
         predicted_flow = predictions[:, :, 0]
-        diff = flow_expected[mask] - predicted_flow[mask]
-        physics_loss = (diff**2).mean()
+        predicted_density = predictions[:, :, 1]
+        numerator = (
+            slopes_norm * predicted_density - predicted_flow + (1 - slopes_norm)
+        ).abs()
+        denominator = (slopes_norm**2 + 1).sqrt()
+        distance = numerator / denominator
+
+        # --- Step 4: Mean squared distance (masked only) ---
+        physics_loss = (distance[mask] ** 2).mean()
 
         return physics_loss
 
