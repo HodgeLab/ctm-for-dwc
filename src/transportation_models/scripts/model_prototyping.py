@@ -6,6 +6,7 @@ import copy
 import os
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 import wandb
 
@@ -53,6 +54,7 @@ class simpleGRU(nn.Module):
         last_step = gru_out[:, -1, :]               # [batch, hidden]
 
         out = self.fc(last_step)                    # [batch, 6]
+        out = F.relu(out)
         out = out.view(
             batch_size, self.output_steps, self.output_size
         )  # [batch, 36, 2]
