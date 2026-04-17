@@ -1283,7 +1283,46 @@ class PeMSDataProcessor:
         missing_rate: float = 0.1,
         save_name: typing.Optional[str] = None,
     ) -> TensorDataset:
-        # Columns to include in meta tensor
+        # ----- Column definitions -----
+        # Each tensor's columns are listed explicitly here so that the
+        # mapping from DataFrame to tensor is easy to audit and update.
+        #
+        # X (features)  — model input, shape [seq_len, 16]
+        # y (targets)   — ground-truth values the model must reconstruct,
+        #                  shape [seq_len, 2]
+        # meta          — per-timestep context carried alongside each sample
+        #                  for the loss function and metric reporting,
+        #                  shape [seq_len, 9]
+        #
+        # "observed" is generated per-sequence below (not present on df).
+        # "flow" and "density" appear in both features and targets; in the
+        # feature tensor masked positions are replaced with a -1 sentinel,
+        # while the target tensor always holds the true values.
+
+        feature_columns = [
+            "Type",
+            "Abs PM",
+            "Length",
+            "pct_observed",
+            "flow",
+            "density",
+            "Station ID (encoded)",
+            "free_flow_speed_scaled",
+            "congestion_wave_speed_scaled",
+            "year",
+            "month",
+            "day",
+            "dayofweek",
+            "hour",
+            "minute",
+            "5min_block",
+        ]
+
+        target_columns = [
+            "flow",
+            "density",
+        ]
+
         meta_columns = [
             "Station ID",
             "Lanes",
@@ -1295,22 +1334,6 @@ class PeMSDataProcessor:
             "dayofweek",
             "observed",
         ]
-
-        # Columns that appear only in meta, not in features
-        meta_only_columns = [
-            "Station ID",
-            "Lanes",
-            "capacity",
-            "critical_density",
-            "free_flow_speed",
-            "congestion_wave_speed",
-        ]
-
-        # Columns to include in feature tensor
-        feature_columns = [col for col in df.columns if col not in meta_only_columns]
-
-        # Columns to include in target tensor
-        target_columns = ["flow", "density"]
 
         # Calculate number of entries to mask for imputation
         missing_counts = min(math.ceil(missing_rate * seq_len), seq_len)
@@ -1334,13 +1357,16 @@ class PeMSDataProcessor:
                 # Generate a set of random indices to mask
                 mask_ids = random.sample(range(i, i + seq_len), missing_counts)
 
-                # Add masking indicator
-                sequence['observed'] = (~sequence.index.isin(mask_ids)).astype(int)
+                # Capture true targets before masking
+                targets = sequence.loc[:, target_columns]
 
-                # Select metadata, features, and targets
+                # Add masking indicator and replace masked targets with sentinel
+                sequence['observed'] = (~sequence.index.isin(mask_ids)).astype(int)
+                sequence.loc[mask_ids, ["flow", "density"]] = -1
+
+                # Select metadata and features (after masking)
                 metadata = sequence.loc[:, meta_columns]
                 features = sequence.loc[:, feature_columns]
-                targets = sequence.loc[:, target_columns]
 
                 # Convert to tensor
                 metadata = torch.from_numpy(metadata.values).to(dtype=torch.float32)
