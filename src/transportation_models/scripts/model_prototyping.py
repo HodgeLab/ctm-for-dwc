@@ -34,32 +34,19 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # Basic GRU model
 class simpleGRU(nn.Module):
 
-    def __init__(self, input_size=16, hidden_size=128, output_steps=36, output_size=2):
+    def __init__(self, input_size=16, hidden_size=128, output_size=2):
         super(simpleGRU, self).__init__()
         self.hidden_size = hidden_size
-        self.output_steps = output_steps
-        self.output_size = output_size
 
-        self.gru = nn.GRU(input_size, hidden_size, batch_first=True)
-        self.fc = nn.Linear(hidden_size, output_steps * output_size)
+        self.gru = nn.GRU(input_size, hidden_size, batch_first=True, bidirectional=True)
+        self.fc = nn.Linear(hidden_size * 2, output_size)
 
-    def forward(self, x, hidden=None):
-        # x: [batch, 12, 16]
-        batch_size = x.size(0)
-
-        if hidden is None:
-            hidden = torch.zeros(1, batch_size, self.hidden_size, device=x.device)
-
-        gru_out, hidden = self.gru(x, hidden)       # [batch, 12, hidden]
-        last_step = gru_out[:, -1, :]               # [batch, hidden]
-
-        out = self.fc(last_step)                    # [batch, 6]
+    def forward(self, x):
+        # x: [batch, seq_len, input_size]
+        gru_out, _ = self.gru(x)             # [batch, seq_len, hidden_size * 2]
+        out = self.fc(gru_out)               # [batch, seq_len, output_size]
         out = F.relu(out)
-        out = out.view(
-            batch_size, self.output_steps, self.output_size
-        )  # [batch, 36, 2]
-
-        return out, hidden
+        return out
 
 
 class TotalLoss(nn.Module):
@@ -367,7 +354,7 @@ def run_epoch(
             observed_mask = meta_b[:, :, -1]  # [batch, seq_len], 1=observed, 0=masked
 
             # Get model predictions
-            output, hidden = model(xb)
+            output = model(xb)
 
             # Evaluate loss (only on masked data points)
             loss = criterion(output, yb, meta_b, observed_mask)
@@ -662,7 +649,7 @@ if __name__ == "__main__":
         for lr in learning_rates:
             for alpha in momentum_rates:
                 # Define model, loss function, and optimizer
-                model = simpleGRU(output_steps=36)
+                model = simpleGRU()
                 criterion = TotalLoss(alpha=args.PhysWeight)
                 optimizer = optim.SGD(model.parameters(), lr=lr, momentum=alpha)
 
