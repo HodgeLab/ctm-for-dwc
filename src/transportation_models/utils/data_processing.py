@@ -318,6 +318,9 @@ class PeMSDataProcessor:
         df_reindexed = timeseries_df.set_index('timestamp').reindex(full_date_range)
         df_reindexed.reset_index(names='timestamp', inplace=True)
 
+        # Broadcast station onto reindexed gap rows so they survive the inner merge below.
+        df_reindexed['station'] = int(station_id)
+
         # Merge the metadata into the timeseries
         metadata_to_merge = self.metadata_df.loc[:, self.metadata_cols]
         df = df_reindexed.rename(columns={'station': 'Station ID'}).merge(right=metadata_to_merge, how='inner', on='Station ID')
@@ -715,19 +718,23 @@ class PeMSDataProcessor:
         # Stack dataframes into one
         df = pd.concat(detector_dfs)
 
+        # NaN out raw counts below the imputation threshold at the source, so no
+        # downstream transform operates on sub-threshold data and the per-station
+        # 5-minute grid stays contiguous (required by the sequence/imputation
+        # dataset builders). NaN propagates through the arithmetic in both
+        # standardize_timeseries and normalize_timeseries.
+        mask = df["pct_observed"] < self.imputation_threshold
+        n_nulled = mask.sum()
+        logger.debug(
+            f"{((n_nulled / len(df)) * 100):.2f} percent of"
+            f" datapoints NaN'd in dataframe of length {len(df)}:"
+            f" pct_observed < {self.imputation_threshold}"
+        )
+        df.loc[mask, ["total_flow_[veh/5-min]", "avg_speed_[mph]"]] = np.nan
+
         # Standardize and normalize counts
         df = self.standardize_timeseries(df)
         df = self.normalize_timeseries(df)
-
-        # Filter based on imputation threshold
-        mask = df["pct_observed"] >= self.imputation_threshold
-        n_removed = (~mask).sum()
-        logger.debug(
-            f"{((n_removed / len(df)) * 100):.2f} percent of"
-            f" datapoints removed from dataframe of length {len(df)}:"
-            f" pct_observed < {self.imputation_threshold}"
-        )
-        df = df.loc[mask, :]
 
         return df
 
