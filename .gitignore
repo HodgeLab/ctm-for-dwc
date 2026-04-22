@@ -213,3 +213,4 @@ wandb
 artifacts
 .vscode
 .claude
+slurm_scripts
