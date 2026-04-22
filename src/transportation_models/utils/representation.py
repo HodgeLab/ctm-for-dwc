@@ -1,5 +1,11 @@
 """
-Tools for building a representation of a freeway which is compatible with the CTM
+Tools for building a Cell Transmission Model-compatible representation of a freeway.
+
+Includes the :class:`Freeway` class, which loads GMNS networks, PeMS detector
+metadata, and postmile/boundary shapefiles into a single NetworkX graph, along
+with module-level helpers for downloading OSM networks, classifying link types
+and directions, loading per-link timeseries, and computing split ratios at
+diverging nodes.
 """
 
 # 3rd party imports
@@ -27,6 +33,18 @@ logger = logging.getLogger(__name__)
 
 
 class Freeway:
+    """
+    CTM-compatible representation of a single directional freeway segment.
+
+    Loads GMNS links/nodes, PeMS detector metadata, and (optionally) state
+    postmiles and a study-area boundary, all reprojected to a common CRS.
+    During construction the inputs are filtered by direction and postmile,
+    mainline links between retained nodes are collapsed into single segments,
+    detectors are attached to links (with manual overrides), virtual
+    detectors are synthesized for links without a nearby real detector, and
+    a NetworkX ``DiGraph`` is built for downstream analysis.
+    """
+
     def __init__(
         self,
         links_filepath: Path,
@@ -56,6 +74,63 @@ class Freeway:
         *args,
         **kwargs,
     ) -> None:
+        """
+        Load all inputs, run the roadway-preparation pipeline, and build the graph.
+
+        Parameters
+        ----------
+        links_filepath : Path
+            CSV of GMNS links with a geometry or ``x_coord``/``y_coord``
+            columns.
+        nodes_filepath : Path
+            CSV of GMNS nodes.
+        detector_metadata_filepath : Path
+            CSV of PeMS detector metadata (station_metadata).
+        detector_timeseries_data_directory : Path
+            Directory with per-station timeseries CSVs; used by
+            :meth:`_create_mock_virtual_detector_timeseries`.
+        postmile_filepath : typing.Optional[Path], optional
+            Shapefile of California State Highway Network postmiles. If None,
+            per-node postmiles cannot be assigned, by default None.
+        bounding_filepath : typing.Optional[Path], optional
+            Shapefile (or CSV) defining a study-area boundary used when
+            assigning virtual detectors, by default None.
+        timeseries_reference_station : int, optional
+            Station whose timeseries CSV is copied (time index only) when
+            generating mock timeseries for virtual detectors, by default
+            407219.
+        freeway_name : str, optional
+            Freeway identifier, matched against ``Fwy`` entries in the
+            detector metadata, by default ``"I880"``.
+        direction : str, optional
+            One of ``N``/``S``/``E``/``W`` (case-insensitive), by default
+            ``"N"``.
+        links_crs, nodes_crs, vds_crs, postmile_crs : str, optional
+            Source CRS for each input layer, by default ``"EPSG:4326"``.
+        boundary_crs : typing.Optional[str], optional
+            Source CRS for the boundary shapefile; required if
+            ``bounding_filepath`` is provided, by default None.
+        common_crs : str, optional
+            Target CRS to reproject all layers into, by default
+            ``"EPSG:4087"`` (equidistant cylindrical).
+        postmile_start, postmile_end : typing.Optional[float], optional
+            Postmile bounds for :meth:`_filter_by_postmile`. If either is
+            None, that bound is not applied, by default None.
+        additional_offramp_node_ids, additional_onramp_node_ids, \
+additional_mainline_node_ids : list[int], optional
+            Node IDs to forcibly classify as the corresponding purpose.
+        offramp_node_ids_to_exclude, onramp_node_ids_to_exclude, \
+mainline_node_ids_to_exclude : list[int], optional
+            Node IDs to remove from each classification.
+        link_to_station_override : dict[typing.Any, int], optional
+            Manual ``link_id -> Station ID`` overrides applied by
+            :meth:`_attach_nearest_detectors`, by default ``{}``.
+
+        Raises
+        ------
+        ValueError
+            If ``direction`` is not one of the accepted values.
+        """
         # Load the data
         self.links = self._load_gdf_from_csv(
             csv_filepath=links_filepath, data_crs=links_crs, common_crs=common_crs
@@ -114,6 +189,29 @@ class Freeway:
     def _load_gdf_from_csv(
         csv_filepath: Path, data_crs: str, common_crs: str
     ) -> gpd.GeoDataFrame:
+        """
+        Load a CSV with WKT or x/y columns into a reprojected GeoDataFrame.
+
+        Parameters
+        ----------
+        csv_filepath : Path
+            CSV containing either a ``geometry`` (WKT) column or ``x_coord``
+            and ``y_coord`` columns.
+        data_crs : str
+            Source CRS of the input coordinates.
+        common_crs : str
+            Target CRS to reproject into.
+
+        Returns
+        -------
+        gpd.GeoDataFrame
+            The CSV contents as a GeoDataFrame in ``common_crs``.
+
+        Raises
+        ------
+        ValueError
+            If the CSV has no usable geometry columns.
+        """
         # Load the file as a DataFrame
         df = pd.read_csv(csv_filepath)
 
@@ -141,6 +239,23 @@ class Freeway:
     def _load_gdf_from_shp(
         shp_filepath: Path, data_crs: str, common_crs: str
     ) -> gpd.GeoDataFrame:
+        """
+        Load a shapefile and reproject it to a common CRS.
+
+        Parameters
+        ----------
+        shp_filepath : Path
+            Path to a ``.shp`` file.
+        data_crs : str
+            CRS to assign if the shapefile lacks one.
+        common_crs : str
+            Target CRS to reproject into.
+
+        Returns
+        -------
+        gpd.GeoDataFrame
+            The shapefile contents in ``common_crs``.
+        """
         # Ensure that the filepath exists
         assert shp_filepath.exists()
 
@@ -164,6 +279,23 @@ class Freeway:
         offramp_node_ids: np.ndarray,
         mainline_node_ids: np.ndarray,
     ) -> str:
+        """
+        Map a node ID to one of ``"merge"``, ``"diverge"``, ``"mainline"``, or ``""``.
+
+        Parameters
+        ----------
+        node_id : int
+            Node identifier to classify.
+        onramp_node_ids, offramp_node_ids, mainline_node_ids : np.ndarray
+            Pre-computed sets of node IDs for each role.
+
+        Returns
+        -------
+        str
+            ``"merge"`` for on-ramp endpoints, ``"diverge"`` for off-ramp
+            endpoints, ``"mainline"`` for mainline-only nodes, or ``""`` if
+            the node belongs to none of these.
+        """
         if node_id in onramp_node_ids:
             return "merge"
         elif node_id in offramp_node_ids:
@@ -229,6 +361,24 @@ class Freeway:
         )
 
     def _validate_direction(self, direction: str):
+        """
+        Normalize and validate a direction string.
+
+        Parameters
+        ----------
+        direction : str
+            One of ``N``/``S``/``E``/``W`` (case-insensitive).
+
+        Returns
+        -------
+        str
+            The uppercase direction string.
+
+        Raises
+        ------
+        ValueError
+            If ``direction`` is not one of the accepted values.
+        """
         # Check the direction parameter
         direction = direction.upper()
         if direction in ["N", "S", "E", "W"]:
@@ -240,6 +390,22 @@ class Freeway:
     def _classify_node_direction(
         self, node_id: int, directed_node_ids: np.ndarray
     ) -> str:
+        """
+        Tag a node with the freeway direction if it appears in ``directed_node_ids``.
+
+        Parameters
+        ----------
+        node_id : int
+            Node identifier to classify.
+        directed_node_ids : np.ndarray
+            Node IDs that participate in links matching ``self.direction``.
+
+        Returns
+        -------
+        str
+            ``self.direction`` if the node is part of the directed set, else
+            ``""``.
+        """
         if node_id in directed_node_ids:
             return self.direction
         else:
@@ -263,6 +429,20 @@ class Freeway:
         )
 
     def _classify_vds_direction(self, freeway_name: str) -> str:
+        """
+        Tag a detector with the freeway direction if its ``Fwy`` field matches.
+
+        Parameters
+        ----------
+        freeway_name : str
+            Detector ``Fwy`` value (e.g. ``"I880-N"``).
+
+        Returns
+        -------
+        str
+            ``self.direction`` if ``"{self.freeway_name}-{self.direction}"`` is
+            a substring of ``freeway_name``, else ``""``.
+        """
         if f"{self.freeway_name}-{self.direction}" in freeway_name:
             return self.direction
         else:
@@ -277,6 +457,12 @@ class Freeway:
         )
 
     def _filter_data_by_direction(self):
+        """
+        Restrict ``self.links``, ``self.nodes``, ``self.detectors``, and
+        ``self.postmiles`` to entries matching ``self.direction``.
+
+        Modifies the GeoDataFrames in place.
+        """
         # Assign directions to the nodes and detector stations (links are already assigned)
         self._assign_node_direction()
         self._assign_vds_direction()
@@ -304,6 +490,11 @@ class Freeway:
             )
 
     def _filter_postmiles_by_route(self):
+        """
+        Restrict ``self.postmiles`` to rows whose ``Route`` matches the
+        freeway. The route number is parsed from ``self.freeway_name`` by
+        stripping a leading ``"I"``. No-op if ``self.postmiles`` is None.
+        """
         if self.postmiles is not None:
             mask = self.postmiles["Route"] == int(self.freeway_name.strip("I"))
             self.postmiles = self.postmiles.loc[mask, :].copy().reset_index(drop=True)
@@ -314,6 +505,26 @@ class Freeway:
         data_crs: typing.Optional[str] = None,
         common_crs: str = "",
     ):
+        """
+        Build a study-area boundary as the convex hull of a point dataset.
+
+        Parameters
+        ----------
+        boundary_filepath : typing.Optional[Path], optional
+            Path to a ``.csv`` (with WKT or x/y columns) or ``.shp`` file of
+            points. If None or any other extension, no boundary is built.
+        data_crs : typing.Optional[str], optional
+            Source CRS for ``boundary_filepath``. Required when the filepath
+            is provided.
+        common_crs : str, optional
+            Target CRS to reproject the points into.
+
+        Returns
+        -------
+        shapely.geometry.base.BaseGeometry or None
+            Convex hull of the boundary points, or None if no usable file was
+            supplied.
+        """
         # Make sure that the CRS for the data exists if the filepath exists
         if boundary_filepath is not None:
             assert data_crs is not None
@@ -342,6 +553,20 @@ class Freeway:
     def _filter_data_by_boundary(
         self, gdf_to_filter: gpd.GeoDataFrame
     ) -> gpd.GeoDataFrame:
+        """
+        Keep only rows whose geometry lies entirely inside ``self.boundary``.
+
+        Parameters
+        ----------
+        gdf_to_filter : gpd.GeoDataFrame
+            GeoDataFrame to filter.
+
+        Returns
+        -------
+        gpd.GeoDataFrame
+            ``gdf_to_filter`` filtered to elements within ``self.boundary``,
+            or the original frame unchanged if no boundary was supplied.
+        """
         # Protect against option to pass no bounding shapefile
         if self.boundary is None:
             logger.info(f"No boundary to filter by!")
@@ -534,6 +759,30 @@ class Freeway:
         buffer_m: float = 5.0,
         detector_type: str = "",
     ):
+        """
+        Snap PeMS detectors of one type onto links of the matching link type.
+
+        For each link, candidates within a buffer are filtered to detectors
+        with the same lane count, ranked by distance, and the nearest one is
+        recorded in the link's ``Station ID``/``Abs PM``/``nearest_detectors``
+        columns. Manual ``link_to_station_override`` entries take precedence.
+        The matched detector's geometry is moved to the link's midpoint.
+
+        Parameters
+        ----------
+        buffer_m : float, optional
+            Buffer distance around each link used to find candidate detectors,
+            by default 5.0.
+        detector_type : str, optional
+            One of ``"Mainline"``, ``"Off Ramp"``, or ``"On Ramp"``. Maps to
+            link types ``"Mainline"``, ``"Off-ramp"``, and ``"On-ramp"``
+            respectively.
+
+        Raises
+        ------
+        ValueError
+            If ``detector_type`` is not one of the accepted values.
+        """
         # Validate detector_type and define associated link_type
         if detector_type == "Mainline":
             link_type = "Mainline"
@@ -1082,6 +1331,33 @@ class Freeway:
         layout="transit",
         ramp_offset=0.2,
     ):
+        """
+        Draw the freeway graph with mainline, on-ramps, off-ramps, and detector legend.
+
+        Edge color encodes detector ``Sensor Type`` (loop, virtual, unknown).
+        Edge labels show the assigned ``Station ID``.
+
+        Parameters
+        ----------
+        figsize : tuple of (float, float), optional
+            Matplotlib figure size, by default ``(12, 8)``.
+        node_color : str, optional
+            Fill color for graph nodes, by default ``"#ccebc5"``.
+        layout : str, optional
+            Layout strategy. ``"transit"`` orders nodes along the corridor and
+            offsets ramps; ``"spring"``, ``"kamada_kawai"``, ``"shell"``, and
+            ``"circular"`` use the corresponding NetworkX layouts; any other
+            value falls back to a geographic layout based on node coordinates.
+            By default ``"transit"``.
+        ramp_offset : float, optional
+            Vertical offset applied to ramp nodes in the ``"transit"`` layout,
+            by default 0.2.
+
+        Returns
+        -------
+        None
+            Renders the figure with ``plt.show()``.
+        """
         # Figure out an ordering of nodes along the corridor
         # This assumes the graph is basically a path with small branches for ramps
         ordered_nodes = list(nx.topological_sort(self.graph))
@@ -1632,6 +1908,38 @@ def build_link_timeseries_df(
     start_datetime: typing.Union[str, pd.DatetimeIndex, None] = None,
     end_datetime: typing.Union[str, pd.DatetimeIndex, None] = None,
 ):
+    """
+    Combine per-station timeseries CSVs into one long DataFrame keyed by link.
+
+    For each row in ``links_df``, the matching ``{Station ID}.csv`` is loaded
+    from ``timeseries_dir``, sliced by the date range, and joined with the
+    link's metadata columns.
+
+    Parameters
+    ----------
+    links_df : pd.DataFrame
+        Must contain ``Station ID`` and ``link_id`` columns. All other columns
+        are propagated onto the timeseries rows.
+    timeseries_dir : Path
+        Directory containing ``{station_id}.csv`` files.
+    cols_to_load : list[str], optional
+        Columns to read from each CSV. ``timestamp`` is added if missing.
+    start_datetime, end_datetime : str, pd.DatetimeIndex, or None, optional
+        Inclusive bounds passed to :func:`limit_dataframe_by_date`. If None,
+        each file's own first/last timestamp is used.
+
+    Returns
+    -------
+    pd.DataFrame
+        Concatenated long-form DataFrame indexed by timestamp, with link
+        metadata columns attached. Empty if ``links_df`` produced no usable
+        rows.
+
+    Raises
+    ------
+    FileNotFoundError
+        If a CSV is missing for a referenced ``Station ID``.
+    """
     # Validate the timeseries directory that was passed
     assert timeseries_dir.is_dir
 
@@ -1685,6 +1993,26 @@ def build_link_timeseries_df(
 
 
 def prepare_directory(directory_path: Path) -> bool:
+    """
+    Create a directory, prompting the user before overwriting an existing one.
+
+    Parameters
+    ----------
+    directory_path : Path
+        Directory to create.
+
+    Returns
+    -------
+    bool
+        ``True`` if the directory was newly created or the user chose to
+        overwrite, ``False`` if existing files should be reused.
+
+    Raises
+    ------
+    ValueError
+        If the user response to the overwrite prompt is not ``"y"`` or
+        ``"n"``.
+    """
     try:
         # Try to make the directory assuming it does not already exist
         directory_path.mkdir(parents=True)
@@ -1716,6 +2044,21 @@ def prepare_directory(directory_path: Path) -> bool:
 
 
 def find_file_os_walk(directory: str, filename: str) -> typing.Union[str, None]:
+    """
+    Search ``directory`` recursively for ``filename`` and return its full path.
+
+    Parameters
+    ----------
+    directory : str
+        Root directory to search.
+    filename : str
+        Exact filename to match.
+
+    Returns
+    -------
+    str or None
+        Path to the first matching file, or None if not found.
+    """
     # Make sure the directory really is a directory
     assert Path(directory).is_dir
 
@@ -1729,6 +2072,24 @@ def find_file_os_walk(directory: str, filename: str) -> typing.Union[str, None]:
 def download_osm_file_by_relation_id(
     relation_id: int, output_dir: str, osm_filename: str
 ) -> Path:
+    """
+    Download an OSM extract for a relation ID via :mod:`osm2gmns`.
+
+    Parameters
+    ----------
+    relation_id : int
+        OSM relation ID.
+    output_dir : str
+        Directory where the OSM file will be written. The user is prompted if
+        the directory already exists.
+    osm_filename : str
+        Filename for the downloaded ``.osm`` file.
+
+    Returns
+    -------
+    Path
+        Path to the downloaded OSM file.
+    """
     # Prepare a directory for the output files
     write_new_directory = prepare_directory(Path(output_dir))
 
@@ -1764,6 +2125,25 @@ def download_gmns_network_from_osm_file(
     mode_types: list[str] = ["auto"],
     output_dir: str = os.path.join(".", "gmns_files"),
 ) -> None:
+    """
+    Convert an OSM file to GMNS link/node CSVs via :mod:`osm2gmns`.
+
+    Parameters
+    ----------
+    osm_filepath : Path
+        Source OSM file.
+    link_types : list[str], optional
+        OSM link types to retain. Restricted to a known whitelist.
+    mode_types : list[str], optional
+        Travel modes to retain. Restricted to a known whitelist.
+    output_dir : str, optional
+        Directory to write ``link.csv`` and ``node.csv`` to.
+
+    Raises
+    ------
+    ValueError
+        If none of the requested link or mode types are valid.
+    """
     # Validate the link types
     VALID_LINK_TYPES = [
         "motorway",
@@ -1831,6 +2211,35 @@ def find_way_ids_by_ref(
     id_whitelist: list[str] = [],
     id_blacklist: list[str] = [],
 ) -> tuple[set[str], set[str], set[str]]:
+    """
+    Find OSM way IDs for a given route ``ref`` and its connecting motorway links.
+
+    Mainline ways are matched by ``ref`` (or the whitelist); motorway-link
+    ways are then included if any of their nodes touch a mainline way.
+
+    Parameters
+    ----------
+    gmns_network_directory : str
+        Directory containing the OSM file.
+    osm_filename : str
+        OSM filename inside ``gmns_network_directory``.
+    ref : str, optional
+        Route reference string to match against the OSM ``ref`` tag.
+    id_whitelist : list[str], optional
+        Way IDs to force-include regardless of ``ref``.
+    id_blacklist : list[str], optional
+        Way IDs to force-exclude.
+
+    Returns
+    -------
+    tuple[set[str], set[str], set[str]]
+        ``(all_way_ids, motorway_way_ids, motorway_link_way_ids)``.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the OSM file cannot be located.
+    """
     # Find the .osm file
     osm_filepath = find_file_os_walk(
         directory=gmns_network_directory, filename=osm_filename
@@ -1894,6 +2303,24 @@ def find_way_ids_by_ref(
 def classify_link_type(
     row: pd.Series, mainline_way_ids: set[str], mainline_node_ids: set[int]
 ):
+    """
+    Classify a link as ``Mainline``, ``On-ramp``, ``Off-ramp``, or unknown.
+
+    Parameters
+    ----------
+    row : pd.Series
+        A row with ``osm_way_id``, ``from_node_id``, and ``to_node_id``.
+    mainline_way_ids : set[str]
+        OSM way IDs for the mainline.
+    mainline_node_ids : set[int]
+        Node IDs that appear on a mainline link.
+
+    Returns
+    -------
+    str
+        ``"Mainline"`` if the way is mainline, ``"Off-ramp"`` if leaving a
+        mainline node, ``"On-ramp"`` if entering one, otherwise ``""``.
+    """
     osm_id = row["osm_way_id"]
     from_node = row["from_node_id"]
     to_node = row["to_node_id"]
@@ -1911,6 +2338,24 @@ def classify_link_type(
 def assign_link_type(
     links_df: pd.DataFrame, mainline_way_ids: set[str], overwrite: dict[int, str]
 ) -> pd.DataFrame:
+    """
+    Add a ``link_type`` column to ``links_df`` via :func:`classify_link_type`.
+
+    Parameters
+    ----------
+    links_df : pd.DataFrame
+        Links with ``osm_way_id``, ``from_node_id``, ``to_node_id``, and
+        ``link_id`` columns.
+    mainline_way_ids : set[str]
+        OSM way IDs for the mainline.
+    overwrite : dict[int, str]
+        Manual ``link_id -> link_type`` overrides applied after classification.
+
+    Returns
+    -------
+    pd.DataFrame
+        ``links_df`` with the new ``link_type`` column.
+    """
     # Filter the DF for links with an osm_way_id in the mainline way IDs
     mainline_links = links_df.loc[
         links_df["osm_way_id"].isin(mainline_way_ids), :
@@ -1936,6 +2381,27 @@ def assign_link_type(
 
 
 def find_boundary_nodes(graph: nx.DiGraph, links_df: pd.DataFrame) -> tuple[int, int]:
+    """
+    Identify the unique start (in-degree 0) and end (out-degree 0) mainline nodes.
+
+    Parameters
+    ----------
+    graph : nx.DiGraph
+        Directed graph of the (sub)network.
+    links_df : pd.DataFrame
+        Link metadata with a ``link_type`` column, indexable by
+        ``from_node_id`` and ``to_node_id``.
+
+    Returns
+    -------
+    tuple[int, int]
+        ``(start_node_id, end_node_id)``.
+
+    Raises
+    ------
+    AssertionError
+        If more or fewer than one starting or ending mainline node is found.
+    """
     # Lists of possible node IDs of boundary nodes
     starting_options = [
         int(n)
@@ -1963,6 +2429,31 @@ def find_boundary_nodes(graph: nx.DiGraph, links_df: pd.DataFrame) -> tuple[int,
 
 
 def assign_direction(links_df: pd.DataFrame, nodes_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Assign a ``"N"``/``"S"`` direction to each link by comparing endpoint latitudes.
+
+    For each weakly-connected component of the link graph, the boundary nodes
+    are found via :func:`find_boundary_nodes` and the latitudes of those two
+    nodes determine the direction applied to all links in the component.
+
+    Parameters
+    ----------
+    links_df : pd.DataFrame
+        Link metadata with ``from_node_id``, ``to_node_id``, ``link_id``, and
+        ``link_type`` columns. A ``direction`` column is added/overwritten.
+    nodes_df : pd.DataFrame
+        Node metadata with ``node_id`` and ``y_coord`` columns.
+
+    Returns
+    -------
+    pd.DataFrame
+        ``links_df`` with a populated ``direction`` column.
+
+    Raises
+    ------
+    RuntimeError
+        If a component's boundary nodes have equal latitudes.
+    """
     # Add a new column to record the direction
     links_df["direction"] = ""
 
@@ -2008,6 +2499,27 @@ def assign_direction(links_df: pd.DataFrame, nodes_df: pd.DataFrame) -> pd.DataF
 def filter_network_by_way_id(
     gmns_network_directory: str, way_ids: set[str]
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Load GMNS link/node CSVs and filter them by a set of OSM way IDs.
+
+    Parameters
+    ----------
+    gmns_network_directory : str
+        Directory containing ``link.csv`` and ``node.csv``.
+    way_ids : set[str]
+        OSM way IDs to retain.
+
+    Returns
+    -------
+    tuple[pd.DataFrame, pd.DataFrame]
+        ``(links_df, nodes_df)`` restricted to the selected ways and their
+        endpoints.
+
+    Raises
+    ------
+    FileNotFoundError
+        If ``link.csv`` or ``node.csv`` cannot be located.
+    """
     # Find the filepath to the links and nodes
     link_filepath = find_file_os_walk(
         directory=gmns_network_directory, filename="link.csv"
@@ -2053,6 +2565,39 @@ def generate_net(
     id_blacklist: list[str] = [],
     link_type_assignment_overwrite: dict[int, str] = {},
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    End-to-end pipeline: download OSM, build GMNS, filter by ``ref``, and tag links.
+
+    Runs :func:`download_osm_file_by_relation_id`,
+    :func:`download_gmns_network_from_osm_file`, :func:`find_way_ids_by_ref`,
+    :func:`filter_network_by_way_id`, :func:`assign_link_type`, and
+    :func:`assign_direction` in sequence.
+
+    Parameters
+    ----------
+    relation_id : int
+        OSM relation ID to download.
+    output_dir : str, optional
+        Directory for OSM and GMNS outputs.
+    osm_filename : str, optional
+        Filename for the downloaded OSM file.
+    link_types : list[str], optional
+        OSM link types to retain when generating the GMNS network.
+    mode_types : list[str], optional
+        Travel modes to retain when generating the GMNS network.
+    ref : str, optional
+        Route reference string used to identify mainline ways.
+    id_whitelist, id_blacklist : list[str], optional
+        OSM way IDs to force-include or force-exclude in
+        :func:`find_way_ids_by_ref`.
+    link_type_assignment_overwrite : dict[int, str], optional
+        Manual ``link_id -> link_type`` overrides.
+
+    Returns
+    -------
+    tuple[pd.DataFrame, pd.DataFrame]
+        ``(links_df, nodes_df)`` for the filtered, classified network.
+    """
     osm_filepath = download_osm_file_by_relation_id(
         relation_id=relation_id, output_dir=output_dir, osm_filename=osm_filename
     )

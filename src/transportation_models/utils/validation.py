@@ -54,6 +54,25 @@ def validate_timestamp_dtype(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def slice_lanes(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Extract the station-level and active-lane columns from a PeMS DataFrame.
+
+    Drops all-NaN columns (assumed to correspond to non-existent lanes), infers
+    the lane count from the remaining ``flow_lane_*`` columns, and returns the
+    subset of columns for those lanes. The per-lane ``observed_lane_*`` flags
+    are multiplied by 100 so that "observed" rows read as 100% observed.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Raw PeMS DataFrame containing station-level and per-lane columns.
+
+    Returns
+    -------
+    pd.DataFrame
+        Subset of ``df`` containing only the station-level columns and the
+        columns for lanes that actually exist.
+    """
     # Drop empty columns – what's left is the actual lanes
     df.dropna(how="all", axis=1, inplace=True, ignore_index=True)
 
@@ -83,6 +102,26 @@ def slice_lanes(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def validate_calibration(calibrated_metadata_filepath: Path) -> dict[str, float]:
+    """
+    Sanity-check a calibrated metadata file and return summary statistics.
+
+    For mainline detectors, checks each calibrated fundamental-diagram
+    parameter (``capacity``, ``free_flow_speed``, ``congestion_wave_speed``,
+    ``jam_density``) against hard-coded reasonable bounds, flags rows that
+    fall outside, warns on high standard deviations, and reports the share of
+    stations failing each parameter's check.
+
+    Parameters
+    ----------
+    calibrated_metadata_filepath : Path
+        Path to a CSV written by the calibration pipeline.
+
+    Returns
+    -------
+    dict[str, float]
+        Summary statistics: per-parameter ``mean_*``, ``std_*``, and
+        ``*_pct_invalid`` entries.
+    """
     # Constants
     CAPACITY_LOWER_LIMIT = 100.0
     CAPACITY_UPPER_LIMIT = 10000.0
@@ -184,6 +223,17 @@ def validate_std(
         "std_jam_density": 0.0,
     },
 ) -> None:
+    """
+    Warn if any ``std_*`` entry in ``stats`` exceeds its threshold.
+
+    Parameters
+    ----------
+    stats : dict[str, float]
+        Dict of summary statistics; only keys containing "std" are checked.
+    thresholds : dict[str, float], optional
+        Mapping from std key to the maximum acceptable value; missing keys
+        default to 0.0.
+    """
     for k, v in stats.items():
         if "std" in k:
             threshold = thresholds.get(k, 0.0)
@@ -197,6 +247,28 @@ def validate_std(
 def validate_limits(
     row: pd.Series, parameter: str, lower_limit: float, upper_limit: float
 ) -> pd.Series:
+    """
+    Flag whether a parameter value in ``row`` falls within bounds.
+
+    Sets ``row[f"{parameter}_validated"]`` to True/False and logs a warning on
+    out-of-bounds values. Intended for use with ``DataFrame.apply(axis=1)``.
+
+    Parameters
+    ----------
+    row : pd.Series
+        Row containing ``parameter`` and ``Station ID`` entries.
+    parameter : str
+        Column name to validate.
+    lower_limit : float
+        Inclusive lower bound.
+    upper_limit : float
+        Inclusive upper bound.
+
+    Returns
+    -------
+    pd.Series
+        The input row with ``{parameter}_validated`` set.
+    """
     # Get the parameter and station ID
     param = row[parameter]
     station_id = row["Station ID"]
@@ -214,6 +286,23 @@ def validate_limits(
 
 
 def quantify_calibration_validity(df: pd.DataFrame, validated_col_name: str) -> float:
+    """
+    Return the share of stations whose ``validated_col_name`` flag is False.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame with a boolean ``validated_col_name`` column and a
+        ``Station ID`` column.
+    validated_col_name : str
+        Name of the boolean flag column.
+
+    Returns
+    -------
+    float
+        Percentage (0-100) of rows where the flag is False. A warning is
+        logged whenever this is non-zero.
+    """
     # Filter the DF for stations with invalid flags set
     invalid_stations = df.loc[~df[validated_col_name], "Station ID"].copy()
 
@@ -233,7 +322,17 @@ def quantify_calibration_validity(df: pd.DataFrame, validated_col_name: str) -> 
         return pct_stations_with_invalid_params
 
 
-def validate_speed(df: pd.DataFrame, speed_col) -> None:
+def validate_speed(df: pd.DataFrame, speed_col: str) -> None:
+    """
+    Warn if any station has a negative value in ``speed_col``.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame with ``speed_col`` and ``Station ID`` columns.
+    speed_col : str
+        Name of the column holding speed values to check.
+    """
     # Filter the DF for stations with a negative speed
     negative_speed_stations = df.loc[df[speed_col] < 0.0, "Station ID"].copy()  # type: ignore
 
@@ -257,6 +356,21 @@ def validate_speed(df: pd.DataFrame, speed_col) -> None:
 def calculate_calibration_statistics(
     df: pd.DataFrame, col_names: list
 ) -> dict[str, float]:
+    """
+    Compute mean and standard deviation for each column in ``col_names``.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame containing the columns to summarize.
+    col_names : list
+        Column names to compute statistics for.
+
+    Returns
+    -------
+    dict[str, float]
+        Dict with ``mean_{col}`` and ``std_{col}`` entries for each column.
+    """
     stats = {}
     for col_name in col_names:
         stats[f"mean_{col_name}"] = df[col_name].mean()
@@ -269,7 +383,31 @@ def view_flow_conservation_timeseries(
     node_id: int,
     node_id_mapper: dict[int, str] = {},
     save_path: typing.Optional[str] = None,
-):
+) -> None:
+    """
+    Plot the beta / 1-beta / total split-ratio timeseries for a node.
+
+    Used as a visual flow-conservation check: if the split ratios are
+    consistent, the ``Total`` line should stay near 1.
+
+    Parameters
+    ----------
+    splits_df : pd.DataFrame
+        DataFrame with ``beta`` and ``1-beta`` columns indexed by timestamp.
+    node_id : int
+        Node identifier being plotted (used for the title).
+    node_id_mapper : dict[int, str], optional
+        Mapping from node ID to human-readable label used in the title, by
+        default ``{}``.
+    save_path : typing.Optional[str], optional
+        If provided, save the figure to this path instead of calling
+        ``plt.show()``.
+
+    Returns
+    -------
+    None
+        Plots as a side effect.
+    """
     # Make a local copy
     df = splits_df.copy()
 
@@ -295,6 +433,22 @@ def view_flow_conservation_timeseries(
 def calculate_cdf(
     data: typing.Iterable, numbins: int = 10
 ) -> tuple[typing.Iterable, typing.Iterable]:
+    """
+    Compute an empirical CDF for ``data`` using ``scipy.stats.cumfreq``.
+
+    Parameters
+    ----------
+    data : typing.Iterable
+        Sample values.
+    numbins : int, optional
+        Number of bins used to build the CDF, by default 10.
+
+    Returns
+    -------
+    tuple[typing.Iterable, typing.Iterable]
+        ``(x, c)`` arrays of bin edges and corresponding cumulative
+        probabilities (normalized to 1 at the last bin).
+    """
     r = cumfreq(data, numbins=numbins)
     x = r.lowerlimit + np.linspace(0, r.binsize * r.cumcount.size, r.cumcount.size)
     c = r.cumcount / r.cumcount[-1]
@@ -373,6 +527,36 @@ def minutes_to_time(x, pos):
 
 
 def generate_percent_error_df(splits_df: pd.DataFrame, time_res: str) -> pd.DataFrame:
+    """
+    Build a long-form DataFrame of flow-conservation percent errors.
+
+    For each timestamp, computes two percent errors:
+
+    - ``mainline pct error``: treats the ramp detector as ground truth. A
+      positive value means the mainline detector counted too many vehicles.
+    - ``ramp pct error``: treats the mainline detector as ground truth.
+      Positive means the ramp detector counted too many vehicles.
+
+    Parameters
+    ----------
+    splits_df : pd.DataFrame
+        DataFrame with ``beta`` and ``1-beta`` columns; timestamp may be the
+        index or a column.
+    time_res : str
+        Temporal resolution for the grouping column added to the output.
+        Must be ``"hour"`` or ``"seconds"``.
+
+    Returns
+    -------
+    pd.DataFrame
+        Long-form DataFrame with columns ``[time_res, timestamp, Error Type,
+        Percent Error]``.
+
+    Raises
+    ------
+    ValueError
+        If ``time_res`` is not one of the accepted values.
+    """
     # Make a local copy
     df = splits_df.copy()
 
@@ -440,7 +624,38 @@ def view_split_ratio_cdfs(
     col_to_plot: str = "seconds",
     node_id_mapper: dict[int, str] = {},
     save_path: typing.Optional[str] = None,
-):
+) -> None:
+    """
+    Plot a 2x2 grid of CDFs of split-ratio percent errors for a node.
+
+    The four panels show, respectively: mainline overestimate / underestimate
+    (with ramp as ground truth) and ramp overestimate / underestimate (with
+    mainline as ground truth).
+
+    Parameters
+    ----------
+    splits_df : pd.DataFrame
+        DataFrame with ``beta`` and ``1-beta`` columns; rows with NaN in
+        either are dropped before plotting.
+    node_id : int
+        Node identifier being plotted (used for titles and logging).
+    numbins : int, optional
+        Number of CDF bins, by default 10.
+    col_to_plot : str, optional
+        Column from the percent-error DataFrame used as the x-axis; typically
+        ``"seconds"`` (time of day) or ``"hour"``, by default ``"seconds"``.
+    node_id_mapper : dict[int, str], optional
+        Mapping from node ID to human-readable label for titles, by default
+        ``{}``.
+    save_path : typing.Optional[str], optional
+        If provided, save the figure to this path instead of calling
+        ``plt.show()``.
+
+    Returns
+    -------
+    None
+        Plots as a side effect.
+    """
     # Print an update
     logger.info(
         f"Creating CDF plot for Node {node_id_mapper.get(node_id, f'Node {node_id}')}"
@@ -584,7 +799,31 @@ def view_split_ratio_box_plot(
     node_id: int,
     node_id_mapper: dict[int, str] = {},
     save_path: typing.Optional[str] = None,
-):
+) -> None:
+    """
+    Plot hourly box-plots of split-ratio percent errors for a node.
+
+    Produces a two-panel figure: a full-range view on top and a zoomed view
+    (clipped to the overall Q1/Q3 envelope) on the bottom.
+
+    Parameters
+    ----------
+    splits_df : pd.DataFrame
+        DataFrame with ``beta`` and ``1-beta`` columns indexed by timestamp.
+    node_id : int
+        Node identifier being plotted (used for the title and logging).
+    node_id_mapper : dict[int, str], optional
+        Mapping from node ID to human-readable label used in the title, by
+        default ``{}``.
+    save_path : typing.Optional[str], optional
+        If provided, save the figure to this path instead of calling
+        ``plt.show()``.
+
+    Returns
+    -------
+    None
+        Plots as a side effect.
+    """
     # Print an update
     logger.info(
         f"Creating box plot for Node {node_id_mapper.get(node_id, f'Node {node_id}')}"
@@ -662,7 +901,40 @@ def view_split_ratio_autocorrelation_plot(
     node_id_mapper: dict[int, str] = {},
     lag_cadence: str = "daily",
     save_path: typing.Optional[str] = None,
-):
+) -> None:
+    """
+    Plot the autocorrelation of beta, 1-beta, and their percent errors.
+
+    Computes ACF over a window whose length depends on ``lag_cadence``:
+    2 days for ``"daily"`` and 2 weeks for ``"weekly"``. Missing values are
+    handled by statsmodels' ``missing="conservative"``.
+
+    Parameters
+    ----------
+    splits_df : pd.DataFrame
+        DataFrame with ``beta`` and ``1-beta`` columns indexed by timestamp.
+    node_id : int
+        Node identifier being plotted (used for the title).
+    node_id_mapper : dict[int, str], optional
+        Mapping from node ID to human-readable label used in the title, by
+        default ``{}``.
+    lag_cadence : str, optional
+        ``"daily"`` (2-day window, 2-hour ticks) or ``"weekly"`` (2-week
+        window, 1-day ticks), by default ``"daily"``.
+    save_path : typing.Optional[str], optional
+        If provided, save the figure to this path instead of calling
+        ``plt.show()``.
+
+    Returns
+    -------
+    None
+        Plots as a side effect.
+
+    Raises
+    ------
+    ValueError
+        If ``lag_cadence`` is not one of the accepted values.
+    """
     # validate lag_cadence parameter
     if lag_cadence == "daily":
         lag_factor = 2  # 2 days
@@ -763,6 +1035,28 @@ def get_pearson_correlation(
     node_id: int,
     node_id_mapper: dict[int, str] = {},
 ) -> tuple:
+    """
+    Compute Pearson correlations for split ratios and their percent errors.
+
+    Returns two ``scipy.stats.PearsonRResult`` tuples: one for ``beta`` vs
+    ``1-beta``, one for the mainline vs ramp percent errors.
+
+    Parameters
+    ----------
+    splits_df : pd.DataFrame
+        DataFrame with ``beta`` and ``1-beta`` columns. Rows containing NaN
+        (or ±inf in the derived errors) are dropped before the computation.
+    node_id : int
+        Node identifier (used for logging).
+    node_id_mapper : dict[int, str], optional
+        Mapping from node ID to human-readable label used in log messages, by
+        default ``{}``.
+
+    Returns
+    -------
+    tuple
+        ``(res_data, res_error)`` where each element is a ``PearsonRResult``.
+    """
     # Make a local copy of the data to avoid overwriting
     df = splits_df.copy()
 
@@ -813,6 +1107,26 @@ def weighted_avg(pct: pd.Series, weights: pd.Series):
 
 
 def resample_timeseries(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Resample a 5-minute link-flow DataFrame to 15-minute bins.
+
+    Fills in any missing 5-minute rows, then aggregates with column-specific
+    rules: ``total_flow_[veh/5-min]`` is summed into
+    ``total_flow_[veh/15-min]`` (NaN if any source bin is missing),
+    ``pct_observed`` is flow-weighted-averaged, and all other metadata
+    columns are carried forward from the first row of each bin.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame indexed by timestamp at 5-minute resolution, with the flow
+        and metadata columns referenced above.
+
+    Returns
+    -------
+    pd.DataFrame
+        Resampled DataFrame at 15-minute resolution.
+    """
     # Make sure that the index is a datetime
     df.index = pd.to_datetime(df.index)
 
@@ -849,6 +1163,27 @@ def view_split_ratio_errors(
     node_id_mapper: dict[int, str] = {},
     save_path: typing.Optional[str] = None,
 ) -> None:
+    """
+    Plot calculated vs. expected beta as a scatter, with a y=x reference.
+
+    Parameters
+    ----------
+    splits_df : pd.DataFrame
+        DataFrame with ``beta`` and ``1-beta`` columns indexed by timestamp.
+    node_id : int
+        Node identifier being plotted (used for the title).
+    node_id_mapper : dict[int, str], optional
+        Mapping from node ID to human-readable label used in the title, by
+        default ``{}``.
+    save_path : typing.Optional[str], optional
+        If provided, save the figure to this path instead of calling
+        ``plt.show()``.
+
+    Returns
+    -------
+    None
+        Plots as a side effect.
+    """
     # Make a local copy
     df = splits_df.copy()
 
