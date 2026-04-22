@@ -20,6 +20,7 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 from itertools import cycle
+from datetime import datetime
 from bs4 import BeautifulSoup
 from http.cookiejar import LWPCookieJar
 
@@ -329,7 +330,7 @@ class PeMSDownloader(object):
         return data["labels"], data["form_data"]
 
 
-class DataProcessor(object):
+class PeMSExtractor(object):
     def __init__(
         self,
         zipfile_directory: str,

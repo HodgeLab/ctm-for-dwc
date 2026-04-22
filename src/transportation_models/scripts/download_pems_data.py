@@ -10,7 +10,7 @@ import pandas as pd
 from dotenv import load_dotenv
 
 # Local imports
-from transportation_models.utils.data_downloading import PeMSDownloader
+from transportation_models.utils.data_downloading import PeMSDownloader, PeMSExtractor
 
 # Load login credentials
 load_dotenv("credentials.env")
@@ -50,3 +50,9 @@ pems.download_files(
     months=MONTHS,
     save_path=SAVE_PATH,
 )
+
+# %%
+# Extract zipped files
+extractor = PeMSExtractor(SAVE_PATH)
+
+extractor.process_gz_files()
