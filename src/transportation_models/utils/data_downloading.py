@@ -20,6 +20,7 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 from itertools import cycle
+from datetime import datetime
 from bs4 import BeautifulSoup
 from http.cookiejar import LWPCookieJar
 
@@ -36,9 +37,30 @@ LOGGER.setLevel(logging.DEBUG)
 
 
 class PeMSDownloader(object):
+    """
+    Authenticate against the Caltrans PeMS website and download clearinghouse
+    files matching a user query.
 
-    def __init__(self, username, password, debug=False):
+    The constructor logs in with the supplied credentials, fetches the main
+    clearinghouse page, and parses the embedded JavaScript form data so that
+    subsequent calls to :meth:`get_files` / :meth:`download_files` know which
+    file types, districts, and months are available.
+    """
 
+    def __init__(self, username: str, password: str, debug: bool = False) -> None:
+        """
+        Log into PeMS and prime the downloader.
+
+        Parameters
+        ----------
+        username : str
+            PeMS account username.
+        password : str
+            PeMS account password.
+        debug : bool, optional
+            If True, enables mechanize HTTP / redirect / response debugging
+            output on the underlying browser, by default False.
+        """
         # Set parameters
         self.username = username
         self.password = password
@@ -221,7 +243,21 @@ class PeMSDownloader(object):
         return files_to_download[~files_to_download.isin(files_downloaded)].dropna()
 
     @staticmethod
-    def _create_data_directory(save_path):
+    def _create_data_directory(save_path: typing.Optional[str]) -> str:
+        """
+        Resolve and create the directory that downloads should be saved to.
+
+        Parameters
+        ----------
+        save_path : typing.Optional[str]
+            Explicit destination directory. If None, falls back to ``DATA_PATH``
+            from the PeMS settings module.
+
+        Returns
+        -------
+        str
+            The resolved path (created on disk if necessary).
+        """
         if save_path is None:
             save_path = DATA_PATH
         os.makedirs(save_path, exist_ok=True)
@@ -329,7 +365,16 @@ class PeMSDownloader(object):
         return data["labels"], data["form_data"]
 
 
-class DataProcessor(object):
+class PeMSExtractor(object):
+    """
+    Read raw 5-minute PeMS ``.gz`` files off disk and emit per-detector CSVs.
+
+    The extractor walks a directory of gzipped PeMS dumps, infers the lane-count
+    for each file from its column count, optionally filters by detector list
+    and/or time window, and writes one CSV per detector (appending to any
+    existing file for that detector).
+    """
+
     def __init__(
         self,
         zipfile_directory: str,
@@ -339,6 +384,34 @@ class DataProcessor(object):
         end_date: typing.Optional[str] = None,
         end_time: typing.Optional[str] = None,
     ) -> None:
+        """
+        Configure the extractor and build the start/end datetime bounds.
+
+        Parameters
+        ----------
+        zipfile_directory : str
+            Directory containing ``.gz`` PeMS files to process. Must exist.
+        detectors : typing.Optional[list[int]], optional
+            VDS station IDs to keep. If None, all detectors present in the data
+            are processed, by default None.
+        start_date : typing.Optional[str], optional
+            Lower-bound date, formatted ``YYYY-MM-DD``. If None, no lower
+            bound is applied, by default None.
+        start_time : typing.Optional[str], optional
+            Lower-bound time, formatted ``HH:MM:SS``. Defaults to start-of-day
+            if ``start_date`` is provided without a time.
+        end_date : typing.Optional[str], optional
+            Upper-bound date, formatted ``YYYY-MM-DD``. If None, no upper
+            bound is applied, by default None.
+        end_time : typing.Optional[str], optional
+            Upper-bound time, formatted ``HH:MM:SS``. Defaults to start-of-day
+            if ``end_date`` is provided without a time.
+
+        Raises
+        ------
+        RuntimeError
+            If ``zipfile_directory`` does not exist or is not a directory.
+        """
         # Object attributes
         if not os.path.isdir(zipfile_directory):
             # Ensure that the directory is a directory
@@ -381,6 +454,25 @@ class DataProcessor(object):
         time: typing.Optional[str] = None,
         format: str = "%Y-%m-%d %H:%M:%S",
     ) -> datetime:
+        """
+        Combine a date and (optional) time string into a ``datetime``.
+
+        Parameters
+        ----------
+        date : str
+            Date portion, matching the date segment of ``format``.
+        time : typing.Optional[str], optional
+            Time portion. If None, the start of the day is substituted, by
+            default None.
+        format : str, optional
+            ``strptime`` format string applied to ``"{date} {time}"``, by
+            default ``"%Y-%m-%d %H:%M:%S"``.
+
+        Returns
+        -------
+        datetime
+            Parsed datetime.
+        """
         # Use the start of the day as a default
         if time is None:
             time_format = format.split(" ")[-1]
@@ -399,6 +491,23 @@ class DataProcessor(object):
         self,
         detectors: typing.Optional[list[int]] = None,
     ) -> pd.DataFrame:
+        """
+        Load every ``.gz`` in the configured directory into one DataFrame.
+
+        Applies the detector filter (if any) and the time window bounds stored
+        on the instance, then concatenates and sorts by timestamp.
+
+        Parameters
+        ----------
+        detectors : typing.Optional[list[int]], optional
+            VDS station IDs to keep. If None, all detectors are kept, by
+            default None.
+
+        Returns
+        -------
+        pd.DataFrame
+            Combined dataframe sorted ascending by ``timestamp``.
+        """
         # Empty DataFrame to populate and return
         df = pd.DataFrame()
 
@@ -437,6 +546,15 @@ class DataProcessor(object):
         return df
 
     def _get_gz_files(self) -> list[str]:
+        """
+        List all ``.gz`` files in the configured directory.
+
+        Returns
+        -------
+        list[str]
+            Absolute paths to each ``.gz`` file at the top level of
+            ``self.zipfile_directory``.
+        """
         # Empty list of files to populate and return
         files = list()
 
@@ -452,7 +570,23 @@ class DataProcessor(object):
         return files
 
     @staticmethod
-    def _ensure_detectors_in_dataframe(df: pd.DataFrame, detectors: list[int]):
+    def _ensure_detectors_in_dataframe(df: pd.DataFrame, detectors: list[int]) -> bool:
+        """
+        Check that every detector in ``detectors`` appears in ``df``.
+
+        Parameters
+        ----------
+        df : pd.DataFrame
+            DataFrame with a ``station`` column of detector IDs.
+        detectors : list[int]
+            Detector IDs to verify.
+
+        Returns
+        -------
+        bool
+            True if all detectors are present, False otherwise (missing IDs
+            are printed to stdout as a side effect).
+        """
         # Check that each detector in the list to find is actually in the data
         detectors = set(detectors)  # type: ignore
         detectors_in_data = set(df["station"].unique())
@@ -467,6 +601,32 @@ class DataProcessor(object):
     def _infer_dataframe_columns(
         df: pd.DataFrame, base_column_names: list[str]
     ) -> pd.DataFrame:
+        """
+        Rename a headerless PeMS DataFrame using inferred lane column names.
+
+        The PeMS 5-minute format emits a fixed block of station-level columns
+        followed by five lane-level columns per lane. The number of lanes is
+        derived from the total column count; this method appends a column name
+        per lane and applies the mapping.
+
+        Parameters
+        ----------
+        df : pd.DataFrame
+            DataFrame loaded with integer column labels.
+        base_column_names : list[str]
+            The station-level column names (mutated in place with the
+            per-lane names appended).
+
+        Returns
+        -------
+        pd.DataFrame
+            The input DataFrame with string column names applied.
+
+        Raises
+        ------
+        RuntimeError
+            If the number of leftover columns is not a multiple of 5.
+        """
         # We will infer the maximum number of lanes in the data from the number of columns
         num_leftover_columns = len(df.columns) - len(base_column_names)
         num_fields_per_lane = 5
@@ -495,6 +655,22 @@ class DataProcessor(object):
         return df
 
     def _load_single_dataframe(self, file: str) -> pd.DataFrame:
+        """
+        Load a single gzipped PeMS file into a DataFrame.
+
+        Applies column-name inference, converts ``timestamp`` to datetime, and
+        clips to ``self.start_datetime`` / ``self.end_datetime`` if set.
+
+        Parameters
+        ----------
+        file : str
+            Path to a ``.gz`` PeMS file.
+
+        Returns
+        -------
+        pd.DataFrame
+            Parsed DataFrame (empty if the file could not be read).
+        """
         # Load the DataFrame from the file
         try:
             df = pd.read_csv(file, header=None)
@@ -520,6 +696,22 @@ class DataProcessor(object):
     def slice_dataframe_by_detector(
         self, df: pd.DataFrame, detectors: list[int]
     ) -> dict[int, pd.DataFrame]:
+        """
+        Partition a PeMS DataFrame into one sub-DataFrame per detector.
+
+        Parameters
+        ----------
+        df : pd.DataFrame
+            DataFrame with a ``station`` column.
+        detectors : list[int]
+            Detector IDs to partition on.
+
+        Returns
+        -------
+        dict[int, pd.DataFrame]
+            Mapping from detector ID to the rows of ``df`` where
+            ``station == detector_id``.
+        """
         dataframes_by_detector = {}
 
         for detector in detectors:  # type: ignore
@@ -535,6 +727,22 @@ class DataProcessor(object):
         return dataframes_by_detector
 
     def make_csv(self, detector_id: int, df: pd.DataFrame, csv_root_dir: Path) -> None:
+        """
+        Write (or append to) a per-detector CSV under ``csv_root_dir``.
+
+        If ``{detector_id}.csv`` already exists, it is loaded, concatenated
+        with ``df``, deduplicated, and re-sorted by timestamp before being
+        written back.
+
+        Parameters
+        ----------
+        detector_id : int
+            VDS ID used to name the output file.
+        df : pd.DataFrame
+            Rows to write.
+        csv_root_dir : Path
+            Directory the CSV is written into.
+        """
         # Skip processing if there's no data
         if df.empty:
             print(f"No data for detector: {detector_id}, skipping...")
@@ -589,6 +797,27 @@ class DataProcessor(object):
     def _validate_detector_list(
         self, df: pd.DataFrame, detectors: typing.Optional[list[int]] = None
     ) -> list[int]:
+        """
+        Resolve the effective detector list for a DataFrame.
+
+        Parameters
+        ----------
+        df : pd.DataFrame
+            DataFrame with a ``station`` column.
+        detectors : typing.Optional[list[int]], optional
+            User-supplied detector list. If None, the unique detectors in
+            ``df`` are returned, by default None.
+
+        Returns
+        -------
+        list[int]
+            Validated detector list.
+
+        Raises
+        ------
+        Warning
+            If any of the provided detectors are missing from ``df``.
+        """
         if detectors is None:
             # Use all detectors in the dataframe as a default
             detectors = list(df["station"].astype(int).unique())
@@ -603,6 +832,13 @@ class DataProcessor(object):
         return detectors
 
     def process_gz_files(self) -> None:
+        """
+        Convert every ``.gz`` in the configured directory into per-detector CSVs.
+
+        CSVs are written to a ``csv_files/`` subdirectory created inside
+        ``self.zipfile_directory``. Files for detectors that already have a
+        CSV are merged in-place by :meth:`make_csv`.
+        """
         # Get a list of all the .gz files to pull from
         gz_files = self._get_gz_files()
 

@@ -1,5 +1,10 @@
 """
-Script for preparing transportation data for deep learning prediction
+Prepare PeMS transportation data for downstream deep-learning models.
+
+Houses :class:`PeMSDataProcessor`, which wraps the standard preprocessing
+pipeline (timeseries + metadata load, unit standardization, flow/density
+normalization, fundamental-diagram calibration, timestamp deconstruction,
+feature encoding/scaling, and sequence/imputation dataset construction).
 """
 
 #####     Setup     #####
@@ -49,100 +54,6 @@ import transportation_models.utils.validation as validation
 
 # Default logger
 logger = logs.make_logger(log_prefix="data_processing")
-
-def load_timeseries_single_detector(
-    detector_timeseries_filepath: str,
-    detector_metadata: dict,
-    counts_cols: list[str] = [
-        "total_flow_[veh/5-min]",
-    ],
-    full_daterange=pd.date_range(
-        start="2022-01-01 00:00:00", end="2024-12-31 23:55:00", freq="5min"
-    ),
-) -> dict:
-    logger.info(f"Loading timeseries for Station ID: {detector_metadata['Station ID']}")
-    # Load the data
-    df = pd.read_csv(detector_timeseries_filepath, usecols=["timestamp"] + counts_cols)
-
-    # Convert the timestamp to a datetime object
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
-
-    # Reindex to force the data to cover the entire timespan (result will contain NaNs)
-    df = (
-        df.set_index("timestamp").reindex(full_daterange).reset_index(names="timestamp")
-    )
-
-    # Assign columns for minute-of-day, hour-of-day, day-of-week
-    df["minute"] = df["timestamp"].apply(lambda timestamp: timestamp.minute)
-    df["hour"] = df["timestamp"].apply(lambda timestamp: timestamp.hour)
-    df["year"] = df["timestamp"].apply(lambda timestamp: timestamp.year)
-    df["weekday"] = df["timestamp"].apply(lambda timestamp: timestamp.weekday())
-
-    # Prepare DataFrame for X vector
-    df = df.loc[:, ["minute", "hour", "weekday", "year", "timestamp"] + counts_cols]
-    for feature, value in detector_metadata.items():
-        df[feature] = value
-
-    timeseries_dict = df.to_dict(orient="list")
-
-    return timeseries_dict
-
-def load_timeseries_all_detectors(
-    detectors: list[str],
-    timeseries_directory: str = constants.CALTRANS_VDS_TIMESERIES_DIRECTORY_PATH,
-    metadata_filepath: str = constants.CALTRANS_VDS_METADATA_FILEPATH,
-    metadata_features: list[str] = [],
-    counts_cols: list[str] = ["total_flow_[veh/5-min]"],
-) -> pd.DataFrame:
-    # Initialize a list to store the dictionaries
-    timeseries_dictionaries = []
-
-    # Load the metadata
-    metadata = pd.read_csv(metadata_filepath)
-
-    # Load cleaned timeseries
-    for detector in detectors:
-        # Construct the complete filepath for the timeseries data
-        timeseries_filepath = os.path.join(timeseries_directory, f"{detector}.csv")
-
-        # Extract the metadata
-        detector_metadata = (
-            metadata.loc[metadata["Station ID"] == int(detector), metadata_features]
-            .reset_index(drop=True)
-            .iloc[0]
-            .to_dict()
-        )
-        timeseries_dict = load_timeseries_single_detector(
-            detector_timeseries_filepath=timeseries_filepath,
-            detector_metadata=detector_metadata,
-            counts_cols=counts_cols,
-        )
-        timeseries_dictionaries.append(timeseries_dict)
-
-    # Build a DataFrame from the dictionaries
-    logger.info(
-        f"Building consolidated DataFrame with {len(detectors)} unique Station IDs"
-    )
-    df = pd.DataFrame(timeseries_dictionaries)
-
-    # Explode list-valued columns
-    cols_to_explode = (
-        counts_cols
-        + [
-            "minute",
-            "hour",
-            "year",
-            "weekday",
-            "timestamp",
-        ]
-        + metadata_features
-    )
-    df = df.explode(column=cols_to_explode, ignore_index=True)
-
-    # Return packed dictionary
-    return df
-
-
 class PeMSDataProcessor:
     """
     Class for preprocessing PeMS data into suitable tensors for downstream machine learning tasks.
@@ -166,6 +77,40 @@ class PeMSDataProcessor:
         save_directory: typing.Optional[str] = None,
         target_normalization: TargetNormalization = TargetNormalization.STATION_PARAMS,
     ) -> None:
+        """
+        Configure paths, encoders, scalers, and processing parameters.
+
+        Seeds ``random`` and ``numpy`` with 42 for reproducibility and loads
+        the station metadata CSV so that ``metadata_cols`` reflects whatever
+        calibration parameters are actually present in that file.
+
+        Parameters
+        ----------
+        root_directory : str, optional
+            PeMS root directory containing ``metadata/`` and
+            ``timeseries_data/`` subdirectories, by default
+            ``constants.ROOT_PATH``.
+        metadata_filepath : typing.Optional[str], optional
+            Explicit path to the station metadata CSV. If None, defaults to
+            ``{root_directory}/metadata/station_metadata.csv``, by default
+            None.
+        imputation_threshold : float, optional
+            Minimum value of ``pct_observed`` for a row to be kept during
+            processing, by default 100.0.
+        save_transforms : bool, optional
+            If True, fitted encoders/scalers are written to disk during the
+            pipeline, by default False.
+        save_directory : typing.Optional[str], optional
+            Directory that pipeline outputs (preprocessed CSV, torch dataset,
+            fitted transforms, FD plots) are written to when no explicit path
+            is passed to the individual methods. Created if missing. If None,
+            falls back to ``{root_directory}/processed_data``, by default
+            None.
+        target_normalization : TargetNormalization, optional
+            Strategy used by :meth:`normalize_timeseries` to normalize the
+            flow and density target columns, by default
+            ``TargetNormalization.STATION_PARAMS``.
+        """
         # Set seeds for reproducibility
         random.seed(42)
         np.random.seed(42)  # For reproducibility
@@ -223,7 +168,26 @@ class PeMSDataProcessor:
         ]
 
     @staticmethod
-    def generate_mock_data(n_stations: int = 1):
+    def generate_mock_data(n_stations: int = 1) -> pd.DataFrame:
+        """
+        Generate a synthetic long-form DataFrame for testing.
+
+        Produces one year of 5-minute rows per station with random metadata
+        (capacity, densities, speeds, postmile, length) and random flow and
+        density timeseries drawn uniformly within physically reasonable
+        limits.
+
+        Parameters
+        ----------
+        n_stations : int, optional
+            Number of synthetic stations to generate, by default 1.
+
+        Returns
+        -------
+        pd.DataFrame
+            Long-form DataFrame with timeseries and metadata columns for each
+            station.
+        """
         # Generate timestamps
         n_periods = 365 * 24 * 12  # 365 days * 24 hours * 12 (5-min intervals)
         start_time = pd.Timestamp("2022-01-01 00:00:00")  # January 1
@@ -318,7 +282,24 @@ class PeMSDataProcessor:
         self,
         station_id: str
         ) -> pd.DataFrame:
+        """
+        Load the timeseries CSV for ``station_id`` and merge station metadata.
 
+        Reindexes the timeseries to a complete 5-minute grid spanning the
+        year range observed in the file (filling missing rows with NaN), then
+        inner-joins with ``self.metadata_df`` on ``Station ID``.
+
+        Parameters
+        ----------
+        station_id : str
+            VDS station ID; must correspond to ``{station_id}.csv`` in the
+            timeseries directory.
+
+        Returns
+        -------
+        pd.DataFrame
+            Merged timeseries + metadata DataFrame.
+        """
         # Build the full filepath based on the station ID
         filename = f"{station_id}.csv"
         filepath = os.path.join(self.timeseries_directory, filename)
@@ -391,6 +372,33 @@ class PeMSDataProcessor:
         colname: str,
         aggregation_type: str = "mean",
     ) -> pd.DataFrame:
+        """
+        Aggregate a timeseries column by (weekday, 5-minute-of-day).
+
+        The resulting DataFrame has one row per 5-minute block in the day and
+        one column per weekday (named with the short day-of-week label from
+        ``self.day_of_week_mapping``). The index is a timestamp anchored at
+        1970-01-01 whose time-of-day matches the block.
+
+        Parameters
+        ----------
+        df : pd.DataFrame
+            DataFrame containing a ``timestamp`` column and ``colname``.
+        colname : str
+            Column in ``df`` to aggregate.
+        aggregation_type : str, optional
+            Either ``"mean"`` or ``"std_dev"``, by default ``"mean"``.
+
+        Returns
+        -------
+        pd.DataFrame
+            Aggregated DataFrame indexed by within-day timestamp.
+
+        Raises
+        ------
+        ValueError
+            If ``aggregation_type`` is not one of the accepted values.
+        """
         # Pick out relevant columns from the df
         sub_df = df.loc[:, ["timestamp", colname]]
 
@@ -453,6 +461,28 @@ class PeMSDataProcessor:
         return agg
 
     def whiten_timeseries(self, timeseries_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Whiten flow and density against their (weekday, 5-minute) statistics.
+
+        For each row, subtracts the per-(weekday, 5-minute-block) mean and
+        divides by the per-(weekday, 5-minute-block) standard deviation for
+        flow and density. Adds the intermediate mean/stddev columns and the
+        resulting ``whitened_flow`` / ``whitened_density`` columns; these are
+        used downstream for outlier filtering and for
+        ``TargetNormalization.WHITENED``.
+
+        Parameters
+        ----------
+        timeseries_df : pd.DataFrame
+            DataFrame with ``timestamp``, ``flow_[veh/hr-lane]``, and
+            ``density_[veh/mi-lane]`` columns.
+
+        Returns
+        -------
+        pd.DataFrame
+            Copy of the input with the derived ``weekday``, ``5min_block``,
+            ``mean_*``, ``stddev_*``, and ``whitened_*`` columns added.
+        """
         # Make a local copy to avoid writing over the input dataframe
         df = timeseries_df.copy()
 
@@ -513,6 +543,27 @@ class PeMSDataProcessor:
         flow_col: str = "whitened_flow",
         iqr_multiplier: float = 1.5,
     ) -> pd.DataFrame:
+        """
+        Drop rows whose ``flow_col`` falls outside an IQR-based fence.
+
+        Computes Q1/Q3 of ``flow_col`` and keeps rows in
+        ``[Q1 - k*IQR, Q3 + k*IQR]``, where ``k = iqr_multiplier``.
+
+        Parameters
+        ----------
+        timeseries_df : pd.DataFrame
+            DataFrame containing ``flow_col``.
+        flow_col : str, optional
+            Column used to identify outliers, by default ``"whitened_flow"``.
+        iqr_multiplier : float, optional
+            Fence multiplier; larger values are more permissive, by default
+            1.5.
+
+        Returns
+        -------
+        pd.DataFrame
+            Filtered DataFrame with the index reset.
+        """
         q1 = timeseries_df[flow_col].quantile(0.25)
         q3 = timeseries_df[flow_col].quantile(0.75)
         iqr = q3 - q1
@@ -723,6 +774,27 @@ class PeMSDataProcessor:
         return df
 
     def encode_and_scale(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Ordinal-encode categorical features and min/max-scale numeric ones.
+
+        Duplicates ``Station ID``, ``free_flow_speed``, and
+        ``congestion_wave_speed`` so that each can serve as both an unscaled
+        metadata column and a scaled/encoded feature. If
+        ``self.save_transforms`` is set, the fitted encoder and scaler are
+        written to ``encoder.joblib`` and ``scaler.joblib`` in the resolved
+        save directory.
+
+        Parameters
+        ----------
+        df : pd.DataFrame
+            DataFrame already processed through :meth:`deconstruct_timestamps`.
+
+        Returns
+        -------
+        pd.DataFrame
+            DataFrame with encoded categorical features, scaled numeric
+            features, and added ``*_scaled`` / ``*_encoded`` columns.
+        """
         # Duplicate Station ID, free flow speed, and congestion wave speed
         # These columns are both metadata and useful features
         df["Station ID (encoded)"] = df.loc[:, "Station ID"]
@@ -770,6 +842,29 @@ class PeMSDataProcessor:
         critical_density_estimate: float,
         test_points: list[float],
     ) -> tuple[float, LinearRegression]:
+        """
+        Fit a no-intercept line to the free-flow regime of an FD.
+
+        Keeps rows with density ≤ ``critical_density_estimate`` and fits
+        ``flow = v_f * density`` (no intercept); the slope is the free-flow
+        speed estimate.
+
+        Parameters
+        ----------
+        timeseries_df : pd.DataFrame
+            DataFrame with ``flow_[veh/hr-lane]`` and ``density_[veh/mi-lane]``
+            columns.
+        critical_density_estimate : float
+            Density boundary below which points are considered free-flow.
+        test_points : list[float]
+            Density values at which to log the fitted model's predictions.
+
+        Returns
+        -------
+        tuple[float, LinearRegression]
+            Free-flow speed (the fitted slope) and the underlying sklearn
+            model.
+        """
 
         # 1. Filter points with density <= critical_density_estimate
         free_flow_points = timeseries_df.loc[
@@ -803,6 +898,38 @@ class PeMSDataProcessor:
         bin_size: int = 10,
         iqr_multiplier: float = 1.0,
     ) -> tuple[float, float, LinearRegression, pd.DataFrame]:
+        """
+        Fit the congestion regime of an FD via binned peak-flow regression.
+
+        Restricts to rows with density > ``critical_density_estimate``, sorts
+        by density, and partitions into non-overlapping bins of ``bin_size``
+        rows. Within each bin, drops whitened-flow outliers (above
+        ``Q3 + iqr_multiplier * IQR``) and records the bin's mean density and
+        max flow. Fits a straight line ``flow = w * density + b`` to those
+        bin points; ``w`` is the congestion-wave slope and ``-b/w`` is the
+        jam density.
+
+        Parameters
+        ----------
+        timeseries_df : pd.DataFrame
+            DataFrame with ``flow_[veh/hr-lane]``, ``density_[veh/mi-lane]``,
+            and ``whitened_flow`` columns.
+        critical_density_estimate : float
+            Density boundary above which points are considered congested.
+        test_points : list[float]
+            Density values at which to log the fitted model's predictions.
+        bin_size : int, optional
+            Number of points per non-overlapping density bin, by default 10.
+        iqr_multiplier : float, optional
+            IQR-fence multiplier applied per bin to reject high-flow
+            outliers, by default 1.0.
+
+        Returns
+        -------
+        tuple[float, float, LinearRegression, pd.DataFrame]
+            ``(wave_speed, jam_density, model, bin_df)`` where ``bin_df``
+            has columns ``BinDensity`` and ``BinFlow``.
+        """
 
         # 1. Filter points with density > critical_density_estimate (congested regime)
         congested = timeseries_df.loc[
@@ -901,6 +1028,38 @@ class PeMSDataProcessor:
         params: dict[str, float],
         save_path: typing.Optional[Path] = None,
     ) -> None:
+        """
+        Render a fundamental-diagram plot for a calibrated detector.
+
+        Overlays the raw (density, flow) scatter, the binned congestion
+        points, the fitted free-flow and congestion lines, horizontal /
+        vertical reference lines at capacity / critical / jam densities, and
+        a text box summarizing the calibrated parameters.
+
+        Parameters
+        ----------
+        timeseries_df : pd.DataFrame
+            DataFrame with ``flow_[veh/hr-lane]`` and
+            ``density_[veh/mi-lane]`` columns.
+        bin_df : pd.DataFrame
+            Binned congestion points with ``BinDensity`` and ``BinFlow``.
+        free_flow_model : LinearRegression
+            Fitted free-flow-regime model.
+        congestion_model : LinearRegression
+            Fitted congestion-regime model.
+        params : dict[str, float]
+            Calibration parameters; must contain ``Station ID``,
+            ``capacity``, ``free_flow_speed``, ``congestion_wave_speed``,
+            ``jam_density``, and ``critical_density``.
+        save_path : typing.Optional[Path], optional
+            If provided, save the figure here instead of calling
+            ``plt.show()``.
+
+        Returns
+        -------
+        None
+            Plots as a side effect.
+        """
         # Generate some prediction points using the models
         free_flow_xvals = np.linspace(
             0,
@@ -1032,6 +1191,31 @@ class PeMSDataProcessor:
         make_plots: bool = False,
         save_path: typing.Optional[Path] = None,
     ) -> dict[str, float]:
+        """
+        Derive the full set of FD parameters for a single detector.
+
+        Seeds the critical-density estimate from the row with the highest
+        observed flow, fits both regimes (free-flow and congestion), and
+        recovers the capacity and critical density from their intersection.
+
+        Parameters
+        ----------
+        timeseries_df : pd.DataFrame
+            Whitened and outlier-filtered DataFrame for a single detector.
+        detector_id : str
+            VDS station ID associated with the data.
+        make_plots : bool, optional
+            If True, call :meth:`plot_fundamental_diagram`, by default False.
+        save_path : typing.Optional[Path], optional
+            Passed through to the plotter; ignored when ``make_plots`` is
+            False, by default None.
+
+        Returns
+        -------
+        dict[str, float]
+            Dict with keys ``Station ID``, ``capacity``, ``free_flow_speed``,
+            ``congestion_wave_speed``, ``jam_density``, ``critical_density``.
+        """
         # Estimate critical density based on peak observed flow
         capacity_idx = timeseries_df["flow_[veh/hr-lane]"].idxmax()
         critical_density_estimate = timeseries_df.loc[
@@ -1090,6 +1274,41 @@ class PeMSDataProcessor:
         save_params: bool = False,
         output_metadata_path: typing.Optional[str] = None,
     ) -> None:
+        """
+        Run FD calibration for one or more detectors and optionally persist it.
+
+        For each detector, loads its timeseries, applies standardization,
+        thresholds on ``pct_observed``, whitens, filters outliers, and fits
+        the FD via
+        :meth:`extract_fundamental_diagram_params_from_timeseries`. If
+        ``save_params`` is True, the calibrated parameters are written back
+        into ``self.metadata_df`` and the metadata is saved to CSV.
+
+        Parameters
+        ----------
+        detectors : typing.Optional[list[str]], optional
+            Subset of detectors to process. Defaults to all mainline
+            detectors returned by :meth:`retrieve_detectors`.
+        filter_colname : str, optional
+            Column passed to :meth:`filter_flow_outliers`, by default
+            ``"whitened_flow"``.
+        iqr_multiplier : float, optional
+            Outlier-filter IQR multiplier, by default 1.0.
+        make_plots : bool, optional
+            If True, render and save an FD plot per detector, by default
+            False.
+        saved_plot_dir : typing.Optional[Path], optional
+            Destination directory for FD plots. If not provided and
+            ``self._save_dir`` is set, defaults to a
+            ``fundamental_diagram_plots`` subdirectory there.
+        save_params : bool, optional
+            If True, persist calibrated parameters back to metadata CSV, by
+            default False.
+        output_metadata_path : typing.Optional[str], optional
+            Explicit output path for the calibrated metadata CSV; otherwise
+            defaults to ``station_metadata_calibrated.csv`` inside the
+            resolved save directory.
+        """
         # Get a list of detectors to work on
         if detectors is None:
             detectors = self.retrieve_detectors(detector_type="Mainline")
@@ -1180,6 +1399,28 @@ class PeMSDataProcessor:
         detectors: typing.Optional[list[str]] = None,
         save_name: typing.Optional[str] = None,
     ) -> pd.DataFrame:
+        """
+        Run the full feature-building pipeline and (optionally) save the CSV.
+
+        Calls :meth:`build_long_df`, :meth:`deconstruct_timestamps`, and
+        :meth:`encode_and_scale` in sequence. Saves the resulting DataFrame
+        if a name is given explicitly or if ``self._save_dir`` is set (in
+        which case the file is named ``preprocessed_data.csv``).
+
+        Parameters
+        ----------
+        detectors : typing.Optional[list[str]], optional
+            Subset of detectors; forwarded to :meth:`build_long_df`, by
+            default None.
+        save_name : typing.Optional[str], optional
+            Filename for the output CSV. If None and no save directory is
+            set on the instance, the DataFrame is not saved.
+
+        Returns
+        -------
+        pd.DataFrame
+            The preprocessed DataFrame.
+        """
         logger.info("Running preprocessing steps on PeMS data...")
         # Execute processing steps
         df = self.build_long_df(detectors=detectors)
@@ -1209,6 +1450,32 @@ class PeMSDataProcessor:
         pred_horizon: int = 3,
         save_name: typing.Optional[str] = None,
     ) -> TensorDataset:
+        """
+        Build a rolling-window forecasting dataset from a preprocessed DF.
+
+        For each station, slides a window of ``seq_len`` input rows followed
+        by ``pred_horizon`` target rows. Sequences containing any NaN in
+        features or targets are skipped. The returned ``TensorDataset`` is
+        of shape ``(X, y, meta)``; optionally persists a dict to disk via
+        :meth:`_build_dataset_save_dict`.
+
+        Parameters
+        ----------
+        df : pd.DataFrame
+            DataFrame produced by :meth:`preprocess_data`.
+        seq_len : int, optional
+            Number of rows used as input per sample, by default 12.
+        pred_horizon : int, optional
+            Number of rows predicted per sample, by default 3.
+        save_name : typing.Optional[str], optional
+            Filename for the saved ``.pt`` dataset. If None and
+            ``self._save_dir`` is set, defaults to ``sequence_dataset.pt``.
+
+        Returns
+        -------
+        TensorDataset
+            Dataset yielding ``(features, targets, metadata)`` tuples.
+        """
         # Columns to include in meta tensor
         meta_columns = [
             "Station ID",
@@ -1303,6 +1570,33 @@ class PeMSDataProcessor:
         missing_rate: float = 0.1,
         save_name: typing.Optional[str] = None,
     ) -> TensorDataset:
+        """
+        Build a masked-sequence imputation dataset from a preprocessed DF.
+
+        For each station, partitions the timeseries into non-overlapping
+        windows of length ``seq_len``. Sequences with any NaN are skipped.
+        For each retained sequence, a random ``missing_rate`` fraction of
+        rows is masked (indicated by a new ``observed`` metadata column).
+
+        Parameters
+        ----------
+        df : pd.DataFrame
+            DataFrame produced by :meth:`preprocess_data`.
+        seq_len : int, optional
+            Length of each non-overlapping window, by default 36.
+        missing_rate : float, optional
+            Fraction of rows to mask within each window, by default 0.1.
+        save_name : typing.Optional[str], optional
+            Filename for the saved ``.pt`` dataset. If None and
+            ``self._save_dir`` is set, defaults to
+            ``imputation_dataset.pt``.
+
+        Returns
+        -------
+        TensorDataset
+            Dataset yielding ``(features, targets, metadata)`` tuples; the
+            last channel of the metadata tensor is the ``observed`` mask.
+        """
         # ----- Column definitions -----
         # Each tensor's columns are listed explicitly here so that the
         # mapping from DataFrame to tensor is easy to audit and update.

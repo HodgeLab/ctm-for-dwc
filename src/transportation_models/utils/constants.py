@@ -1,3 +1,14 @@
+"""
+Project-wide constants.
+
+Centralizes filesystem paths, geographic bounds, and hand-curated mappings used
+across the codebase. Paths point to local data stores (PeMS timeseries and
+metadata, GMNS links/nodes, California postmile shapefiles, SMART-DS bounding
+polygons); the override dictionaries pin specific GMNS link IDs to the PeMS
+station IDs that measure them (used when automated link-to-station matching
+produces the wrong result).
+"""
+
 from pathlib import Path
 
 # Define constants
@@ -5,7 +16,7 @@ ROOT_PATH = Path("/Volumes/easystore/work/boulder/Caltrans/PeMS")
 GMNS_LINKS_FILEPATH = Path("/Volumes/easystore/work/boulder/GMNS/links_modified.csv")
 GMNS_NODES_FILEPATH = Path("/Volumes/easystore/work/boulder/GMNS/nodes_modified.csv")
 CALTRANS_VDS_METADATA_FILEPATH = Path(
-    "/Volumes/easystore/work/boulder/Caltrans/PeMS/metadata/station_metadata_CALIBRATED.csv"
+    "/Volumes/easystore/work/boulder/Caltrans/PeMS/metadata/station_metadata_calibrated.csv"
 )
 CALTRANS_VDS_TIMESERIES_DIRECTORY_PATH = Path(
     "/Volumes/easystore/work/boulder/Caltrans/PeMS/timeseries_data"
@@ -16,15 +27,27 @@ POSTMILE_FILEPATH = Path(
 BOUNDING_FILEPATH = Path(
     "/Volumes/easystore/work/boulder/SMART-DS/v1.0/GIS/SFO/P31U/DistribTransf_N.shp"
 )
+
+# Bounds of the study corridor, in absolute postmiles along the freeway.
 POSTMILE_START = 6.7
 POSTMILE_END = 13.7
 
+# GMNS nodes that should be treated as ramps even though the automated classifier
+# missed them. IDs are GMNS node IDs (with the OSM node ID in a trailing comment).
 ADDITIONAL_OFFRAMP_NODE_IDS = [2234]  # OSM Node ID: 258131276
 ADDITIONAL_ONRAMP_NODE_IDS = [2498]  # OSM Node ID: 568983599
+
+# Mainline GMNS nodes that should be dropped from the corridor (e.g., spurious
+# junction nodes introduced by the OSM-to-GMNS conversion).
 MAINLINE_NODE_IDS_TO_EXCLUDE = [
     2235,  # OSM Node ID: 258132827
     2251,  # OSM Node ID: 370488795
 ]
+
+# Manual overrides mapping a northbound GMNS link ID to the PeMS station (VDS)
+# that actually measures that link. Used when the spatial link-to-station
+# matcher picks the wrong station (e.g., because a 5th lane is an on-ramp, or
+# because the nearest detector is on the opposite direction of travel).
 NB_LINK_TO_STATION_OVERRIDE = {
     1973: 420001,  # Warren Ave Off
     3203: 402802,  # N of Warren Ave (mainline detector with 5th lane as on-ramp from Warren Ave)
@@ -46,6 +69,7 @@ NB_LINK_TO_STATION_OVERRIDE = {
     "collapsed_97_2436": 400536,  # Alvarado-Niles Rd rm-n-diag (5th lane is the on-ramp from Alvarado-Niles Road)
 }
 
+# Manual overrides for southbound GMNS links; see NB_LINK_TO_STATION_OVERRIDE.
 SB_LINK_TO_STATION_OVERRIDE = {
     1934: 402983,  # Off-ramp to Alvarado-Niles Rd
     230: 402984,  # Loop on-ramp from Alvarado-Niles Rd

@@ -10,6 +10,28 @@ from datetime import datetime
 def make_logger(
     include_stdout: bool = False, log_prefix: str = "logs", log_level: int = logging.DEBUG
 ) -> logging.Logger:
+    """
+    Configure and return the root logger with a timestamped file handler.
+
+    Creates a ``logs/`` directory under the current working directory (if
+    missing) and writes to ``logs/{log_prefix}_{YYYY-MM-DD_HH-MM-SS}.log``.
+    Optionally also streams records to stdout.
+
+    Parameters
+    ----------
+    include_stdout : bool, optional
+        If True, also attach a StreamHandler so records are printed to stdout,
+        by default False.
+    log_prefix : str, optional
+        Filename prefix for the log file, by default "logs".
+    log_level : int, optional
+        Minimum log level for the logger, by default ``logging.DEBUG``.
+
+    Returns
+    -------
+    logging.Logger
+        The configured root logger.
+    """
     # Create a logger
     logger = logging.getLogger()
 

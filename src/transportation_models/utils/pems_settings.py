@@ -1,3 +1,10 @@
+"""
+Settings for interacting with the Caltrans PeMS clearinghouse.
+
+Defines the base URL and query template used by the downloader, plus the list
+of district IDs that PeMS publishes data for.
+"""
+
 # Import 3rd party libraries
 import os
 
