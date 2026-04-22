@@ -1,3 +1,11 @@
+"""
+Prototyping script for training a GRU-based neural network on PeMS data.
+
+Trains a sequence model to impute masked traffic flow and density values,
+combining MSE loss with a fundamental-diagram-based physics loss. Logs
+metrics, predictions, and model artifacts to Weights and Biases.
+"""
+
 # ----- Setup -----#
 
 # 3rd party imports
@@ -32,8 +40,28 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # ----- Model & function definitions -----#
 # Basic GRU model
 class simpleGRU(nn.Module):
+    """
+    Single-layer GRU followed by a linear head producing a fixed-length sequence.
+
+    The final GRU hidden state is projected to ``output_steps * output_size``
+    values and reshaped to ``[batch, output_steps, output_size]``.
+    """
 
     def __init__(self, input_size=16, hidden_size=128, output_steps=36, output_size=2):
+        """
+        Build the GRU and output projection layers.
+
+        Parameters
+        ----------
+        input_size : int, optional
+            Number of input features per timestep, by default 16.
+        hidden_size : int, optional
+            Hidden state size of the GRU, by default 128.
+        output_steps : int, optional
+            Number of timesteps to emit, by default 36.
+        output_size : int, optional
+            Number of features per output timestep, by default 2.
+        """
         super(simpleGRU, self).__init__()
         self.hidden_size = hidden_size
         self.output_steps = output_steps
@@ -43,6 +71,22 @@ class simpleGRU(nn.Module):
         self.fc = nn.Linear(hidden_size, output_steps * output_size)
 
     def forward(self, x, hidden=None):
+        """
+        Run a forward pass and reshape the projection to a sequence.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            Input of shape ``[batch, seq_len, input_size]``.
+        hidden : torch.Tensor, optional
+            Initial GRU hidden state. Zeros are used if None.
+
+        Returns
+        -------
+        tuple[torch.Tensor, torch.Tensor]
+            ``(output, hidden)`` where ``output`` has shape
+            ``[batch, output_steps, output_size]``.
+        """
         # x: [batch, 12, 16]
         batch_size = x.size(0)
 
@@ -126,7 +170,13 @@ class TotalLoss(nn.Module):
 
 
 class PhysicsLoss(nn.Module):
+    """
+    Fundamental-diagram-based loss comparing predicted flow against the value
+    expected from predicted density and per-station calibration parameters.
+    """
+
     def __init__(self):
+        """Initialize the module (no learnable parameters)."""
         super(PhysicsLoss, self).__init__()
 
     def forward(
@@ -324,6 +374,43 @@ def run_epoch(
     target_minmax_scaler: MinMaxScaler | None = None,
     train: bool = True,
 ) -> tuple[float, dict[str, float], tuple[torch.Tensor, torch.Tensor] | None]:
+    """
+    Run one training or validation epoch and report physical-space metrics.
+
+    Errors are computed only at masked positions and after inverting the
+    target normalization so flow is in [veh/hr-lane] and density is in
+    [veh/mi-lane]. Speed is derived as ``flow / density``.
+
+    Parameters
+    ----------
+    model : nn.Module
+        Sequence model returning ``(output, hidden)``.
+    loader : DataLoader
+        Yields ``(x, y, meta)`` batches; ``meta``'s last column is the
+        observed mask (1 = observed, 0 = masked).
+    device : torch.device
+        Device to run on.
+    criterion : nn.Module
+        Loss function called as ``criterion(output, y, meta, observed_mask)``.
+    optimizer : optim.Optimizer
+        Optimizer (zeroed every batch; only stepped when ``train=True``).
+    target_normalization : TargetNormalization, optional
+        Strategy used to normalize the targets, by default
+        ``STATION_PARAMS``.
+    target_minmax_scaler : MinMaxScaler or None, optional
+        Required when ``target_normalization == MIN_MAX``.
+    train : bool, optional
+        If True, run in training mode with backprop; otherwise run in eval
+        mode and collect predictions.
+
+    Returns
+    -------
+    tuple[float, dict[str, float], tuple[torch.Tensor, torch.Tensor] | None]
+        ``(avg_batch_loss, metrics, preds_with_meta)``. ``metrics`` holds
+        per-target MAE/MSE/RMSE/MAPE for flow and speed.
+        ``preds_with_meta`` is None during training and ``(preds, meta)``
+        during validation.
+    """
     # Make sure we're on the correct device
     model = model.to(device)
 
@@ -465,6 +552,51 @@ def train_model(
     target_normalization: TargetNormalization = TargetNormalization.STATION_PARAMS,
     target_minmax_scaler: MinMaxScaler | None = None,
 ) -> None:
+    """
+    Train ``model`` with optional early stopping and W&B logging.
+
+    Per epoch: runs training and validation epochs, logs losses and metrics
+    to W&B, saves validation predictions to ``{results_dir}/{run_name}/val_predictions``,
+    and (if early stopping is enabled) tracks the best validation loss to
+    restore those weights at the end. The final model is saved as
+    ``{model_name}.pt`` and uploaded as a W&B artifact.
+
+    Parameters
+    ----------
+    model : nn.Module
+        Model to train.
+    train_loader, val_loader : DataLoader
+        Dataloaders for the training and validation splits.
+    device : torch.device
+        Device for training.
+    criterion : nn.Module
+        Loss function.
+    optimizer : optim.Optimizer
+        Optimizer.
+    n_epochs : int, optional
+        Maximum number of epochs, by default 1500.
+    early_stopping : bool, optional
+        Whether to track and restore the best-validation-loss weights.
+    patience : int, optional
+        Epochs to wait without improvement before stopping, by default 100.
+    min_delta : float, optional
+        Minimum improvement in validation loss that counts as progress,
+        by default 1e-2.
+    wandb_config : dict, optional
+        Extra config dict for the W&B run; training-loop fields are added.
+    wandb_tags : list[str], optional
+        Tags applied to the W&B run.
+    wandb_notes : str, optional
+        Notes recorded on the W&B run.
+    model_name : str, optional
+        Filename stem for the saved model artifact, by default ``"baseline"``.
+    results_dir : str, optional
+        Root directory for run outputs.
+    target_normalization : TargetNormalization, optional
+        Forwarded to :func:`run_epoch`.
+    target_minmax_scaler : MinMaxScaler or None, optional
+        Forwarded to :func:`run_epoch` when MIN_MAX normalization is in use.
+    """
     # Early stopping setup
     best_val_loss = float('inf')
     best_model_weights = copy.deepcopy(model.state_dict())

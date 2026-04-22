@@ -1,3 +1,11 @@
+"""
+Script for calibrating fundamental-diagram parameters from PeMS detector data.
+
+Runs :class:`PeMSDataProcessor.calibrate_fundamental_diagrams` over every
+station in the configured root directory and writes the calibrated metadata
+CSV.
+"""
+
 # 3rd party imports
 from pathlib import Path
 
