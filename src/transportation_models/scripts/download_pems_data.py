@@ -26,7 +26,7 @@ START_YEAR = 2022
 END_YEAR = 2023
 DISTRICTS = ["4"]
 FILE_TYPES = ["station_5min"]
-MONTHS = None  # Use None to download data from all months
+MONTHS = ["January"]  # Use None to download data from all months
 SAVE_PATH = os.path.join(os.getcwd(), "zipped_downloads")
 
 # View summary of available files for (start_year, end_year, districts, file_types) query
@@ -53,6 +53,8 @@ pems.download_files(
 
 # %%
 # Extract zipped files
-extractor = PeMSExtractor(SAVE_PATH)
+extractor = PeMSExtractor(SAVE_PATH, detectors=[400839])
 
 extractor.process_gz_files()
+
+# %%
