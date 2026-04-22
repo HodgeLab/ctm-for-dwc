@@ -6,6 +6,7 @@ build-backend = "hatchling.build"
 name = "transportation-models"
 version = "0.1.0"
 dependencies = [
+    "beautifulsoup4",
     "geopandas",
     "ipykernel",
     "ipython",
