@@ -917,7 +917,18 @@ class PeMSDataProcessor:
             + params["capacity"]
         )
 
-        fig, ax = plt.subplots(figsize=(9, 6))
+        plt.rcParams.update(
+            {
+                "font.size": 32,
+                "axes.titlesize": 32,
+                "axes.labelsize": 28,
+                "xtick.labelsize": 22,
+                "ytick.labelsize": 22,
+                "legend.fontsize": 20,
+            }
+        )
+
+        fig, ax = plt.subplots(figsize=(20, 13))
 
         # Plot the data points
         plt.scatter(
@@ -983,11 +994,20 @@ class PeMSDataProcessor:
         plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
         plt.tight_layout()
 
-        params_as_text = f"q_max = {params['capacity']:.2f} vphpl\nrho_jam = {params['jam_density']:.2f} vpmpl\nrho_crit = {params['critical_density']:.2f} vpmpl\nv_f = {params['free_flow_speed']:.2f} mph\nw = {(params['congestion_wave_speed']):.2f} mph"
+        params_as_text = "\n".join(
+            [
+                rf"$q_{{\max}}$ = {params['capacity']:.2f} vphpl",
+                rf"$\rho_{{\mathrm{{jam}}}}$ = {params['jam_density']:.2f} vpmpl",
+                rf"$\rho_{{\mathrm{{crit}}}}$ = {params['critical_density']:.2f} vpmpl",
+                rf"$v_f$ = {params['free_flow_speed']:.2f} mph",
+                rf"$w$ = {params['congestion_wave_speed']:.2f} mph",
+            ]
+        )
         plt.annotate(
             text=params_as_text,
             xy=(0.77, 0.25),
             xycoords="figure fraction",
+            fontsize=24,
             bbox=dict(boxstyle="square,pad=0.5", fc="lightgray", ec="black", lw=2),
         )
 
