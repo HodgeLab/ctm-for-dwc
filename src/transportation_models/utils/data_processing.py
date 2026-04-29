@@ -623,8 +623,11 @@ class PeMSDataProcessor:
             # Drop unnecessary columns
             df = df.drop(columns=["flow_[veh/hr-lane]", "density_[veh/mi-lane]"])
         elif self.target_normalization == TargetNormalization.WHITENED:
-            # Whiten timeseries
-            df = self.whiten_timeseries(timeseries_df=df)
+            # Whiten per station so the (weekday, 5-minute) mean/stddev are
+            # specific to each station rather than pooled across all of them.
+            df = df.groupby("Station ID", group_keys=False).apply(
+                self.whiten_timeseries
+            )
 
             # Set flow, density to the whitened values
             df["flow"] = df["whitened_flow"]
