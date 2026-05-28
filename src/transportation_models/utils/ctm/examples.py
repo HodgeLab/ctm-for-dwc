@@ -33,6 +33,70 @@ def example_1_freeway() -> Freeway:
     ).validate()
 
 
+def four_cell_freeway() -> Freeway:
+    """Four-cell freeway from Kurzhanskiy diss. §3.4 (p. 54, Fig. 3.10).
+
+    Identical cells share the dissertation's standard FD (v_f = 60, w = 20,
+    rho_crit = 100, rho_jam = 400, q_max = 6000). On-ramps live on cells 0,
+    1, and 3 (the example's r_1, r_2, r_4); cell 2 has none (r_3 = 0). All
+    upstream cells carry an off-ramp with split beta = 0.2 in the scenario;
+    cell 3 has no off-ramp (the dissertation's beta_N = 0 convention, which
+    is what makes f_4 = (f_3 + r_4) instead of 0.8*(f_3 + r_4)).
+    """
+
+    def cell(**overrides) -> Cell:
+        return Cell(
+            length=1.0,
+            q_max=6000.0,
+            v_f=60.0,
+            w=20.0,
+            rho_jam=400.0,
+            rho_crit=100.0,
+            **overrides,
+        )
+
+    return Freeway(
+        dt=1.0 / 120.0,
+        cells=[
+            cell(on_ramp=True, off_ramp=True),    # cell 0: r_1 = 2000, beta = 0.2
+            cell(on_ramp=True, off_ramp=True),    # cell 1: r_2 = 2700, beta = 0.2
+            cell(on_ramp=False, off_ramp=True),   # cell 2: no on-ramp, beta = 0.2
+            cell(on_ramp=True, off_ramp=False),   # cell 3: r_4 (1200 / 1300), beta_N = 0
+        ],
+    ).validate()
+
+
+def four_cell_scenario(steps: int, *, r_4: float = 1200.0) -> Scenario:
+    """Scenario for the §3.4 example: feasible by default, infeasible at r_4 = 1300.
+
+    Demand pattern follows Fig. 3.10:
+        boundary inflow r_0 = 4000;
+        on-ramps   r_1 = 2000  (cell 0)
+                   r_2 = 2700  (cell 1)
+                   r_3 = 0     (cell 2 has no on-ramp)
+                   r_4 = `r_4` (cell 3, default 1200 = feasible; 1300 = infeasible)
+        off-ramps  beta = 0.2 on cells 0, 1, 2;  beta_N = 0 on cell 3.
+
+    Starts from an empty freeway.
+    """
+    fwy = four_cell_freeway()
+    n = fwy.n_cells
+    demand = np.zeros((n, steps))
+    demand[0, :] = 2000.0
+    demand[1, :] = 2700.0
+    demand[3, :] = r_4
+    beta = np.zeros((n, steps))
+    beta[0:3, :] = 0.2
+    return Scenario.build(
+        fwy,
+        steps=steps,
+        rho0=0.0,
+        inflow=4000.0,
+        demand=demand,
+        beta=beta,
+    )
+
+
 def example_1_scenario(steps: int, start: str = "empty") -> Scenario:
     """Constant-demand scenario for Example 1.
 

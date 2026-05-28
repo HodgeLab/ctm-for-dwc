@@ -108,6 +108,64 @@ def test_congestion_wave_propagates_at_w():
     np.testing.assert_allclose(res.density[:, n], 100.0, atol=1e-9)
 
 
+def test_section_3_4_feasible_demand_reproduces_equilibrium_flows():
+    """Diss. §3.4 example (p. 54, Fig. 3.10) with feasible demand r_4 = 1200.
+
+    Expected equilibrium mainline flows: ``phi = (phi_0=4000 boundary,
+    f_0=4800, f_1=6000, f_2=4800, f_3=6000)``. Cells 1 and 3 are bottlenecks
+    (their flows hit q_max). Off-ramps discharge alpha * phi_i with
+    alpha = beta / (1-beta) = 0.25.
+    """
+    fwy = examples.four_cell_freeway()
+    steps = 1200  # 10 h: well past the free-flow convergence
+    res = simulate(fwy, examples.four_cell_scenario(steps=steps, r_4=1200.0))
+
+    # Boundary inflow stays at the demanded r_0 = 4000 (no cap, no rejection).
+    np.testing.assert_allclose(res.boundary_inflow[-1], 4000.0, atol=1e-6)
+    # Mainline flows match the dissertation's phi.
+    np.testing.assert_allclose(res.mainline_flow[:, -1], [4800.0, 6000.0, 4800.0, 6000.0],
+                               atol=1e-6)
+    # Off-ramp flows are alpha * phi (alpha = 0.25); cell 3 has no off-ramp.
+    np.testing.assert_allclose(res.off_ramp[:, -1], [1200.0, 1500.0, 1200.0, 0.0], atol=1e-6)
+
+
+def test_section_3_4_infeasible_demand_propagates_congestion():
+    """Diss. §3.4 (p. 54-55), Theorem 3.4.1: infeasible r_4 = 1300 forces the
+    trajectory onto the most congested equilibrium of E(r-tilde), where
+    r-tilde reduces the upstream inflow from r_0 = 4000 to r-tilde_0 =
+    3804.6875 vph. Every cell becomes congested and the upstream-queue (in
+    our model: rejected boundary inflow) grows at the rate
+    r_0 - r-tilde_0 = 195.3125 vph.
+
+    Algebraic phi-tilde (working backward from the saturated downstream
+    cell): phi_4 = q_max = 6000, phi-tilde_3 = 4700, phi-tilde_2 = 5875,
+    phi-tilde_1 = 4643.75, phi-tilde_0 = 3804.6875. The dissertation text
+    prints phi-tilde_1 = 4673.75, which is the unique inconsistency in its
+    own quoted figures (cf. r-tilde_0 = 3804.6875); we assert against the
+    algebraically correct value.
+    """
+    fwy = examples.four_cell_freeway()
+    steps = 7200  # 60 h: long enough for the congestion wave to fill all four cells
+    scn = examples.four_cell_scenario(steps=steps, r_4=1300.0)
+    res = simulate(fwy, scn)
+
+    # Steady-state mainline flows match phi-tilde.
+    np.testing.assert_allclose(res.mainline_flow[:, -1],
+                               [4643.75, 5875.0, 4700.0, 6000.0], atol=1e-3)
+    # Boundary admits only r-tilde_0 at steady state.
+    np.testing.assert_allclose(res.boundary_inflow[-1], 3804.6875, atol=1e-3)
+
+    # All four cells are congested (rho > rho_crit) at the end.
+    rho_crit = np.array([c.rho_crit for c in fwy.cells])
+    assert (res.density[:, -1] > rho_crit).all()
+
+    # Upstream-queue growth rate: average rejected boundary flow over the last
+    # hour should equal r_0 - r-tilde_0 = 195.3125 vph (Theorem 3.4.1 part ii).
+    rejected_per_step = scn.inflow - res.boundary_inflow
+    steady_rate = rejected_per_step[-120:].mean()
+    np.testing.assert_allclose(steady_rate, 4000.0 - 3804.6875, atol=1e-3)
+
+
 def test_strictly_feasible_demand_yields_unique_equilibrium():
     """Theorem 3.3.1: strictly feasible demand yields a single equilibrium n^u.
 
