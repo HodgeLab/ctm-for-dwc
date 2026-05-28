@@ -7,6 +7,7 @@ dimensional units: length [mi], time [h], speed [mi/h], flow [veh/h], density
 """
 
 from .engine import StepResult, simulate, step
+from .metrics import Metrics, compute_metrics
 from .model import Cell, Freeway, FreewayArrays, Scenario
 from .results import SimulationResult
 from . import examples
@@ -20,5 +21,7 @@ __all__ = [
     "StepResult",
     "simulate",
     "SimulationResult",
+    "Metrics",
+    "compute_metrics",
     "examples",
 ]
