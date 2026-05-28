@@ -14,12 +14,18 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .model import FreewayArrays
+from .model import Freeway, FreewayArrays, Scenario
+from .results import SimulationResult
 
 
 @dataclass
 class StepResult:
-    """State and flows produced by one :func:`step` (all arrays shaped (n_cells,))."""
+    """State and flows produced by one :func:`step`.
+
+    Per-cell arrays are shaped ``(n_cells,)``; ``boundary_inflow`` is the
+    scalar flow ``f_0`` actually admitted into cell 0 this step (which can be
+    less than the scenario's ``inflow`` when cell 0's receiving binds).
+    """
 
     rho: np.ndarray            # density at k+1 [veh/mi]
     queue: np.ndarray          # on-ramp queue at k+1 [veh]
@@ -27,6 +33,7 @@ class StepResult:
     off_ramp: np.ndarray       # s_i [veh/h]
     on_ramp: np.ndarray        # r_i [veh/h]
     speed: np.ndarray          # V_i mean speed [mi/h]
+    boundary_inflow: float     # admitted f_0 [veh/h]
 
 
 def step(
@@ -97,9 +104,10 @@ def step(
     s = np.where(beta < 1.0, s_split, s_full)
 
     # 5. Density (eq. 4.7). Upstream boundary admits min(inflow, cell-0 receiving)
-    #    (standard CTM source; no upstream queue yet -- see docs Open items).
+    #    (standard CTM source; no upstream queue -- rejected demand is dropped).
+    boundary_inflow = min(float(inflow), float(recv[0]))
     f_up = np.empty_like(rho)
-    f_up[0] = min(float(inflow), float(recv[0]))
+    f_up[0] = boundary_inflow
     if rho.size > 1:
         f_up[1:] = f[:-1]
     rho_new = rho + dt / length * (f_up + r - f - s)
@@ -115,4 +123,58 @@ def step(
         off_ramp=s,
         on_ramp=r,
         speed=speed,
+        boundary_inflow=boundary_inflow,
+    )
+
+
+def simulate(freeway: Freeway, scenario: Scenario) -> SimulationResult:
+    """Loop :func:`step` over the scenario horizon and pack the trajectory.
+
+    Re-validates ``freeway`` and ``scenario`` (cheap, surfaces bad inputs) before
+    running. Returns a :class:`SimulationResult` whose state arrays include the
+    initial values at column 0 and the post-step values at columns ``1..T``.
+    """
+    freeway.validate()
+    scenario.validate(freeway)
+
+    arr = freeway.arrays()
+    n = freeway.n_cells
+    T = scenario.n_steps
+
+    density = np.empty((n, T + 1))
+    queue = np.empty((n, T + 1))
+    mainline_flow = np.empty((n, T))
+    off_ramp = np.empty((n, T))
+    on_ramp = np.empty((n, T))
+    speed = np.empty((n, T))
+    boundary_inflow = np.empty(T)
+
+    density[:, 0] = scenario.rho0
+    queue[:, 0] = scenario.q0
+    rho = scenario.rho0.copy()
+    q = scenario.q0.copy()
+    for k in range(T):
+        res = step(
+            arr, freeway.dt, rho, q,
+            scenario.demand[:, k], scenario.beta[:, k], scenario.inflow[k],
+        )
+        rho, q = res.rho, res.queue
+        density[:, k + 1] = rho
+        queue[:, k + 1] = q
+        mainline_flow[:, k] = res.mainline_flow
+        off_ramp[:, k] = res.off_ramp
+        on_ramp[:, k] = res.on_ramp
+        speed[:, k] = res.speed
+        boundary_inflow[k] = res.boundary_inflow
+
+    return SimulationResult(
+        freeway=freeway,
+        scenario=scenario,
+        density=density,
+        queue=queue,
+        mainline_flow=mainline_flow,
+        off_ramp=off_ramp,
+        on_ramp=on_ramp,
+        speed=speed,
+        boundary_inflow=boundary_inflow,
     )
