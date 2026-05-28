@@ -42,6 +42,36 @@ def test_invalid_cell_raises(kwargs):
         Cell(**kwargs)
 
 
+def test_cell_rejects_finite_on_ramp_capacity_without_on_ramp_flag():
+    # A finite capacity is meaningless if the cell has no on-ramp; catch it loudly.
+    with pytest.raises(ValueError, match="on_ramp_capacity"):
+        Cell(1.0, 6000.0, 60.0, 20.0, 400.0, 100.0, on_ramp_capacity=600.0)
+    # Pairing the flag with the capacity is fine.
+    Cell(1.0, 6000.0, 60.0, 20.0, 400.0, 100.0, on_ramp=True, on_ramp_capacity=600.0)
+
+
+def test_cell_rejects_finite_off_ramp_capacity_without_off_ramp_flag():
+    with pytest.raises(ValueError, match="off_ramp_capacity"):
+        Cell(1.0, 6000.0, 60.0, 20.0, 400.0, 100.0, off_ramp_capacity=800.0)
+    Cell(1.0, 6000.0, 60.0, 20.0, 400.0, 100.0, off_ramp=True, off_ramp_capacity=800.0)
+
+
+def test_scenario_rejects_demand_on_cell_without_on_ramp():
+    fwy = examples.example_1_freeway()  # cell 0: no on-ramp; cell 1: has on-ramp
+    demand = np.zeros((2, 5))
+    demand[0, :] = 100.0  # demand on the no-ramp cell
+    with pytest.raises(ValueError, match="cells without an on-ramp"):
+        Scenario.build(fwy, steps=5, inflow=4800.0, demand=demand, beta=0.0)
+
+
+def test_scenario_rejects_beta_on_cell_without_off_ramp():
+    fwy = examples.example_1_freeway()  # neither cell has an off-ramp
+    beta = np.zeros((2, 5))
+    beta[1, :] = 0.1  # split on a no-off-ramp cell
+    with pytest.raises(ValueError, match="cells without an off-ramp"):
+        Scenario.build(fwy, steps=5, inflow=4800.0, demand=0.0, beta=beta)
+
+
 def test_fd_inconsistency_detected():
     # v_f*rho_crit = 6000 (consistent) but w*(rho_jam-rho_crit) = 20*200 = 4000 != 6000
     c = Cell(length=1.0, q_max=6000.0, v_f=60.0, w=20.0, rho_jam=300.0, rho_crit=100.0)

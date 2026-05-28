@@ -74,7 +74,7 @@ def test_on_ramp_flow_capped_by_R_grows_queue():
         dt=dt,
         cells=[
             Cell(1.0, 6000.0, 60.0, 20.0, 400.0, 100.0),
-            Cell(1.0, 6000.0, 60.0, 20.0, 400.0, 100.0, on_ramp_capacity=600.0),
+            Cell(1.0, 6000.0, 60.0, 20.0, 400.0, 100.0, on_ramp=True, on_ramp_capacity=600.0),
         ],
     ).validate()
     res = step(

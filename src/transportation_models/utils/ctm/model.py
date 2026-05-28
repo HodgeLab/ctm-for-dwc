@@ -43,6 +43,8 @@ class Cell:
     w: float                # w_i       congestion-wave speed [mi/h]
     rho_jam: float          # rho_jam,i jam density [veh/mi]
     rho_crit: float | None = None      # rho_crit,i critical density [veh/mi]
+    on_ramp: bool = False              # whether the cell has an on-ramp
+    off_ramp: bool = False             # whether the cell has an off-ramp
     on_ramp_capacity: float = np.inf   # R_i [veh/h]
     off_ramp_capacity: float = np.inf  # S_i [veh/h]
     gamma: float = 0.0      # gamma_i   on-ramp blending factor [-]
@@ -71,6 +73,18 @@ class Cell:
             problems.append(f"on_ramp_capacity must be > 0 (got {self.on_ramp_capacity})")
         if self.off_ramp_capacity <= 0:
             problems.append(f"off_ramp_capacity must be > 0 (got {self.off_ramp_capacity})")
+        # Capacity must be left at the default (inf) when the corresponding ramp
+        # is absent; otherwise the config is contradictory.
+        if not self.on_ramp and np.isfinite(self.on_ramp_capacity):
+            problems.append(
+                f"on_ramp_capacity={self.on_ramp_capacity} given but on_ramp=False; "
+                "set on_ramp=True or leave on_ramp_capacity at its default (inf)"
+            )
+        if not self.off_ramp and np.isfinite(self.off_ramp_capacity):
+            problems.append(
+                f"off_ramp_capacity={self.off_ramp_capacity} given but off_ramp=False; "
+                "set off_ramp=True or leave off_ramp_capacity at its default (inf)"
+            )
         if problems:
             raise ValueError("Invalid Cell: " + "; ".join(problems))
 
@@ -235,6 +249,26 @@ class Scenario:
         rho_jam = np.array([c.rho_jam for c in freeway.cells])
         if self.rho0.shape == (n,) and np.any(self.rho0 > rho_jam):
             problems.append("rho0 must be <= rho_jam")
+        # Ramp-presence cross-check: a cell without an on-ramp cannot receive
+        # demand; a cell without an off-ramp cannot have a non-zero split.
+        if self.demand.shape == (n, t):
+            bad_on = [
+                i for i, c in enumerate(freeway.cells)
+                if not c.on_ramp and np.any(self.demand[i, :] != 0)
+            ]
+            if bad_on:
+                problems.append(
+                    f"demand must be 0 for cells without an on-ramp; offending cells: {bad_on}"
+                )
+        if self.beta.shape == (n, t):
+            bad_off = [
+                i for i, c in enumerate(freeway.cells)
+                if not c.off_ramp and np.any(self.beta[i, :] != 0)
+            ]
+            if bad_off:
+                problems.append(
+                    f"beta must be 0 for cells without an off-ramp; offending cells: {bad_off}"
+                )
         if problems:
             raise ValueError("Invalid Scenario:\n  " + "\n  ".join(problems))
         return self

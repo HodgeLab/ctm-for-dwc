@@ -14,13 +14,14 @@ Run from the repo root:
 
 from __future__ import annotations
 
-from transportation_models.utils.ctm import examples, simulate
+from transportation_models.utils.ctm import compute_metrics, examples, simulate
 
 
 def report(start: str, steps: int = 2400) -> None:
     fwy = examples.example_1_freeway()
     scn = examples.example_1_scenario(steps=steps, start=start)
     res = simulate(fwy, scn)
+    metrics = compute_metrics(res)
     expected = {"empty": (80.0, 100.0), "jam": (160.0, 160.0)}[start]
 
     print(f"\n=== Example 1: start='{start}', dt={fwy.dt * 3600:.0f}s, "
@@ -40,6 +41,14 @@ def report(start: str, steps: int = 2400) -> None:
     err0 = abs(res.density[0, -1] - expected[0])
     err1 = abs(res.density[1, -1] - expected[1])
     print(f"\n  |rho_final - rho_expected| = ({err0:.4g}, {err1:.4g}) veh/mi")
+
+    # Final-step performance metrics (eqs. 4.9-4.17).
+    print(f"\n  Final-step metrics (eqs. 4.9-4.17):")
+    print(f"    travel_time      = {metrics.travel_time[-1] * 60:8.4f}  min")
+    print(f"    VHT              = {metrics.vht[-1]:8.4f}  veh*h")
+    print(f"    VMT              = {metrics.vmt[-1]:8.4f}  veh*mi")
+    print(f"    delay            = {metrics.delay[-1]:8.4f}  veh*h")
+    print(f"    productivity_loss= {metrics.productivity_loss[-1]:8.4f}  mi*h")
 
 
 if __name__ == "__main__":

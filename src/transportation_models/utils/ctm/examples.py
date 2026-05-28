@@ -14,7 +14,7 @@ def example_1_freeway() -> Freeway:
     6000 veh/h. dt = 1/120 h (30 s) satisfies the CFL rule (v_f*dt = 0.5 mi <= 1).
     """
 
-    def cell() -> Cell:
+    def cell(**overrides) -> Cell:
         return Cell(
             length=1.0,
             q_max=6000.0,
@@ -22,9 +22,15 @@ def example_1_freeway() -> Freeway:
             w=20.0,
             rho_jam=400.0,
             rho_crit=100.0,
+            **overrides,
         )
 
-    return Freeway(dt=1.0 / 120.0, cells=[cell(), cell()]).validate()
+    # Cell 0 has no ramps (it receives the upstream boundary inflow); cell 1
+    # carries the on-ramp r_2 = 1200 veh/h from Example 1.
+    return Freeway(
+        dt=1.0 / 120.0,
+        cells=[cell(), cell(on_ramp=True)],
+    ).validate()
 
 
 def example_1_scenario(steps: int, start: str = "empty") -> Scenario:
