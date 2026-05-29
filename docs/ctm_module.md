@@ -217,9 +217,22 @@ projection within 0.5 mi of PeMS's reported `Abs_PM` for most stations.
 `transportation_models.utils.data_downloading` includes two classes,
 `PeMSDownloader` and `PeMSExtractor` for interfacing with the PeMS database
 and downloading per-VDS 5-minute timeseries data (mainline flow / speed /
-occupancy `.gz` files from the clearinghouse). Step 2 has already pinned a
-specific `vds_id` to every cell, so this step only needs to fetch — and the
-union of cells' `vds_id`s gives the exact list to query.
+occupancy `.gz` files from the clearinghouse). The downloader queries the
+clearinghouse for `station_5min` files matching a district / year / month
+filter; the extractor walks the resulting `.gz` files file-by-file (so
+memory stays bounded), splits by VDS, and writes per-detector CSVs that
+later runs append to deterministically.
+
+`scripts/download_pems_timeseries.py` is the demo CLI: it accepts
+`--district`, `--year` (or `--year-start`/`--year-end`), `--month`,
+`--detectors`, optional `--start-date`/`--end-date` clipping, and
+`--out-dir` (default: `<repo>/data/pems/timeseries/`, gitignored). Step 2
+has already pinned a specific `vds_id` to every cell, so this step only
+needs to fetch — the union of cells' `vds_id`s is the exact list to pass
+as `--detectors`. Credentials come from `PEMS_USERNAME` / `PEMS_PASSWORD`
+(auto-loaded from `.env`); pass `--extract-only` to re-run the extractor
+over `.gz` files already on disk (useful when the file was downloaded
+manually from `https://pems.dot.ca.gov/?dnode=Clearinghouse&type=station_5min`).
 
 (Station metadata downloads — the *spatial* side of "VDS identification" —
 live in Step 2 as `download_pems_station_metadata`; this step is
