@@ -1,6 +1,6 @@
 """Performance-metric tests (P4): VHT, VMT, delay, productivity loss.
 
-Hand-computes the eqs. 4.9-4.17 quantities at the dissertation's Example 1
+Hand-computes the eqs. 4.9-4.17 quantities at Kurzhanskiy 2007's Example 1
 equilibria (uncongested and most congested) and asserts the engine reproduces
 them. Both equilibria support the same throughput (cell 1 at capacity), so
 VMT matches across them; VHT, delay, productivity loss, and travel time

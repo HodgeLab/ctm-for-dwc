@@ -4,11 +4,11 @@ Loads the cached OSM graph (``tests/fixtures/osm/i210_bbox.graphml``) and the
 cached PeMS District 7 station metadata snapshot
 (``tests/fixtures/pems/d07_meta_2023_12_22.txt``), threads them through
 Stage-3 corridor extraction and Stage-4 VDS-to-cell assignment, and asserts
-the result is structurally consistent with the Kurzhanskiy 2007 I-210W
-dissertation layout (encoded in ``ctmsim_configs/w060412.mat``).
+the result is structurally consistent with Kurzhanskiy 2007's I-210W
+layout (encoded in ``ctmsim_configs/w060412.mat``).
 
-Like the Step-3 I-210 golden test, this is a *structural* check: PeMS and
-the dissertation use different snapshots and Caltrans postmile equations
+Like the Step-1 I-210 golden test, this is a *structural* check: PeMS and
+Kurzhanskiy 2007 use different snapshots and Caltrans postmile equations
 introduce small offsets, so we verify counts, density, and rough postmile
 alignment rather than exact per-cell matches.
 """
@@ -136,7 +136,8 @@ def test_projection_lateral_distance_is_small_for_real_mainline_vds(projected):
 
 
 def test_every_cell_gets_a_vds_with_upstream_fallback(assigned):
-    """The M&H 2014 fallback should fill in any gap left by the direct pass."""
+    """The Dervisoglu et al. 2014 fallback should fill in any gap left by the
+    direct pass."""
     sources = assigned["vds_source"].unique().tolist()
     assert "direct" in sources
     # No "missing" anywhere if we have VDSs throughout the I-210 corridor
@@ -150,7 +151,7 @@ def test_direct_vds_coverage_matches_pems_spacing(assigned, projected, corridor)
     """Cells with their own VDS should roughly match the corridor's VDS supply.
 
     CTMSIM's "40 cells, one VDS each" isn't directly comparable -- those
-    cells were *drawn around* the dissertation's VDS positions, while ours
+    cells were *drawn around* Kurzhanskiy 2007's VDS positions, while ours
     come from ramp gores + lane changes. The meaningful invariant is that
     most in-corridor VDSs land cleanly in a cell (only a handful collide
     into tiebreakers) and that the total VDS-bearing cell count tracks the
@@ -167,7 +168,7 @@ def test_direct_vds_coverage_matches_pems_spacing(assigned, projected, corridor)
     # And the corridor's VDS coverage shouldn't be wildly different from
     # CTMSIM's density of ~2.8 VDS / mi. With our 12.6 mi crop that's
     # ~35 expected VDSs; we get ~26 (modern PeMS spacing is somewhat
-    # sparser than the 2007 dissertation's snapshot).
+    # sparser than Kurzhanskiy 2007's snapshot).
     vds_per_mi = n_in_corridor_vds / corridor.total_length
     assert 1.0 < vds_per_mi < 4.0, (
         f"VDS density {vds_per_mi:.2f}/mi outside expected range"

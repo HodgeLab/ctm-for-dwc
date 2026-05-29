@@ -13,7 +13,7 @@ from transportation_models.utils.ctm.model import Cell, Freeway
 
 
 def _two_identical_cells(dt: float = 1.0 / 120.0) -> Freeway:
-    """Two cells with the dissertation Example-1 FD; default dt = 30 s."""
+    """Two cells with the Kurzhanskiy 2007 Example-1 FD; default dt = 30 s."""
     cell = lambda: Cell(  # noqa: E731
         length=1.0, q_max=6000.0, v_f=60.0, w=20.0, rho_jam=400.0, rho_crit=100.0
     )

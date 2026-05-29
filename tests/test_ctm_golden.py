@@ -1,11 +1,11 @@
-"""Golden tests: the engine vs. published behavior from the dissertation (P3).
+"""Golden tests: the engine vs. published behavior from Kurzhanskiy 2007 (P3).
 
 These tests cover behaviors that single-step hand-calcs (P1) and structural
 invariants (P2) can't verify on their own: the time-dependent propagation of
 density waves at the LWR characteristic speeds, and the global structure of
 the equilibrium set under strictly feasible demand (Theorem 3.3.1).
 
-Targets are stated in the dissertation, not derived from our implementation,
+Targets are stated in Kurzhanskiy 2007, not derived from our implementation,
 so any match is genuinely independent verification.
 
 Source: A. Kurzhanskiy, "Modeling and Software Tools for Freeway Operational
@@ -122,7 +122,7 @@ def test_section_3_4_feasible_demand_reproduces_equilibrium_flows():
 
     # Boundary inflow stays at the demanded r_0 = 4000 (no cap, no rejection).
     np.testing.assert_allclose(res.boundary_inflow[-1], 4000.0, atol=1e-6)
-    # Mainline flows match the dissertation's phi.
+    # Mainline flows match Kurzhanskiy 2007's phi.
     np.testing.assert_allclose(res.mainline_flow[:, -1], [4800.0, 6000.0, 4800.0, 6000.0],
                                atol=1e-6)
     # Off-ramp flows are alpha * phi (alpha = 0.25); cell 3 has no off-ramp.
@@ -139,7 +139,7 @@ def test_section_3_4_infeasible_demand_propagates_congestion():
 
     Algebraic phi-tilde (working backward from the saturated downstream
     cell): phi_4 = q_max = 6000, phi-tilde_3 = 4700, phi-tilde_2 = 5875,
-    phi-tilde_1 = 4643.75, phi-tilde_0 = 3804.6875. The dissertation text
+    phi-tilde_1 = 4643.75, phi-tilde_0 = 3804.6875. Kurzhanskiy 2007's text
     prints phi-tilde_1 = 4673.75, which is the unique inconsistency in its
     own quoted figures (cf. r-tilde_0 = 3804.6875); we assert against the
     algebraically correct value.

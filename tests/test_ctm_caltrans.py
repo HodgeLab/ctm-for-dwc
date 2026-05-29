@@ -6,7 +6,7 @@ The unit tests build a synthetic in-memory ``MultiDiGraph`` (so we don't need
 osmnx file IO) plus a synthetic postmile GeoDataFrame (so we don't ship a
 Caltrans shapefile) and assert that the projected postmiles match what we
 analytically expect. The I-210 integration test pulls a real osmnx fixture
-and a synthetic Caltrans-style GDF anchored to the dissertation's two named
+and a synthetic Caltrans-style GDF anchored to Kurzhanskiy 2007's two named
 landmarks (Vernon Ave at PM 38.97, SR-134 split at PM 24.94) and checks that
 the resulting Caltrans PMs straddle that span.
 """
@@ -261,8 +261,8 @@ def i210_graph():
     return ox.load_graphml(GRAPHML)
 
 
-def _i210_dissertation_postmiles() -> gpd.GeoDataFrame:
-    """Two-point Caltrans-style fixture anchoring the dissertation's named landmarks.
+def _i210_kurzhanskiy_2007_postmiles() -> gpd.GeoDataFrame:
+    """Two-point Caltrans-style fixture anchoring Kurzhanskiy 2007's named landmarks.
 
     Vernon Ave / I-210 interchange (Glendora): PM 38.97 at approx (-117.864, 34.137)
     I-210 / SR-134 split (Pasadena):           PM 24.94 at approx (-118.149, 34.150)
@@ -273,15 +273,15 @@ def _i210_dissertation_postmiles() -> gpd.GeoDataFrame:
     })
 
 
-def test_i210w_caltrans_postmiles_span_dissertation_range(i210_graph):
+def test_i210w_caltrans_postmiles_span_kurzhanskiy_2007_range(i210_graph):
     corridor = corridor_from_graph(
         i210_graph, ref="I 210", direction="W",
-        postmiles=_i210_dissertation_postmiles(),
+        postmiles=_i210_kurzhanskiy_2007_postmiles(),
     )
     assert corridor.caltrans_postmiles is not None
     pms = list(corridor.caltrans_postmiles.values())
     # WB I-210 -> PMs should decrease along travel; range should cover
-    # roughly the dissertation's PM 24-39 span.
+    # roughly Kurzhanskiy 2007's PM 24-39 span.
     assert max(pms) > 35.0, f"max PM {max(pms):.2f} unexpectedly low"
     assert min(pms) < 28.0, f"min PM {min(pms):.2f} unexpectedly high"
     # Travel direction (upstream -> downstream) -> PMs strictly decreasing.
@@ -441,11 +441,11 @@ def test_download_live_filtered_round_trip(tmp_path):
     assert str(gdf.crs).endswith(":4326")
 
 
-def test_i210w_caltrans_pm_total_close_to_dissertation(i210_graph):
+def test_i210w_caltrans_pm_total_close_to_kurzhanskiy_2007(i210_graph):
     """Sum of Caltrans PM deltas along the corridor should match CTMSIM's 14.03 mi."""
     corridor = corridor_from_graph(
         i210_graph, ref="I 210", direction="W",
-        postmiles=_i210_dissertation_postmiles(),
+        postmiles=_i210_kurzhanskiy_2007_postmiles(),
     )
     nodes = [corridor.mainline_segments[0].u] + [
         seg.v for seg in corridor.mainline_segments

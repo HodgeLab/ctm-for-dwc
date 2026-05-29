@@ -9,10 +9,10 @@ Three thin layers, each independently testable, mirroring the Step-3 layout:
   corridor's mainline LineStrings and report ``(pm_cum, pm_caltrans,
   seg_index, lateral_distance_m)`` per VDS.
 * :func:`assign_vds_to_cells`         -- attach a VDS to every cell using the
-  CTMSIM convention (VDS inside the cell wins) with the Muralidharan &
-  Horowitz 2014 nearest-upstream fallback for cells without their own VDS.
+  CTMSIM convention (VDS inside the cell wins) with the Dervisoglu et al.
+  2014 nearest-upstream fallback for cells without their own VDS.
 
-The dissertation's I-210 case study has one mainline VDS per cell; this
+Kurzhanskiy 2007's I-210 case study has one mainline VDS per cell; this
 module's output is the data ``cells_from_corridor`` needs to honor that
 convention end-to-end. Step 4 (FD calibration) consumes the resulting
 ``vds_id`` column to look up the matching time-series file per cell.
@@ -425,7 +425,7 @@ def assign_vds_to_cells(
     tiebreaker: _TIEBREAKER = "midpoint",
     min_lane_match: bool = False,
 ) -> pd.DataFrame:
-    """Attach a VDS to every cell, with Muralidharan & Horowitz 2014 fallback.
+    """Attach a VDS to every cell, with Dervisoglu et al. 2014 fallback.
 
     Algorithm:
 
@@ -446,8 +446,12 @@ def assign_vds_to_cells(
        consumers can choose to inspect the displaced candidates.
     4. If zero direct VDSs and ``fallback == "upstream"``, inherit the
        ``vds_id`` from the closest cell upstream that *does* have a direct
-       (or upstream-inherited) VDS. ``vds_source == "nearest_upstream"``;
-       ``vds_distance_mi`` measures how far upstream the inherited VDS is.
+       (or upstream-inherited) VDS -- this is the downstream-assignment
+       scheme from Dervisoglu, Kurzhanskiy, Gomes & Horowitz, "Macroscopic
+       Freeway Model Calibration with Partially Observed Data, a Case
+       Study," American Control Conference 2014, §III. ``vds_source ==
+       "nearest_upstream"``; ``vds_distance_mi`` measures how far upstream
+       the inherited VDS is.
     5. If still no VDS available (cell upstream of every detector):
        ``vds_source == "missing"``.
 
@@ -458,7 +462,9 @@ def assign_vds_to_cells(
     vds_projected : pd.DataFrame
         Output of :func:`project_vds_to_corridor`.
     fallback : {"upstream", "none"}, default "upstream"
-        ``"upstream"`` enables the M&H 2014 nearest-upstream inheritance;
+        ``"upstream"`` enables the Dervisoglu et al. 2014 nearest-upstream
+        inheritance (downstream-assignment scheme: each detector's FD is
+        assigned downstream until another detector is encountered);
         ``"none"`` leaves cells without a direct VDS marked as ``"missing"``.
     tiebreaker : {"midpoint", "highest_pm_observed", "lowest_id"}, default "midpoint"
         How to pick when multiple VDSs land in the same cell.

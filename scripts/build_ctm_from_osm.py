@@ -422,7 +422,8 @@ def main() -> None:
     cells_df = cells_from_corridor(corridor)
 
     # Step 2 (optional): load PeMS station metadata, project VDSs onto the
-    # corridor, and assign them to cells with the M&H 2014 upstream fallback.
+    # corridor, and assign them to cells with the Dervisoglu et al. 2014
+    # downstream-assignment fallback for cells that lack their own detector.
     pems_path = _resolve_pems_metadata_arg(args.pems_metadata, args.district)
     if pems_path is not None:
         vds_gdf = load_pems_station_metadata(

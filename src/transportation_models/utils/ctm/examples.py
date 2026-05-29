@@ -41,17 +41,17 @@ def example_1_freeway() -> Freeway:
 def four_cell_freeway() -> Freeway:
     """Four-cell freeway from Kurzhanskiy diss. §3.4 (p. 54, Fig. 3.10).
 
-    Identical cells share the dissertation's standard FD (v_f = 60, w = 20,
+    Identical cells share Kurzhanskiy 2007's standard FD (v_f = 60, w = 20,
     rho_crit = 100, rho_jam = 400, q_max = 6000). On-ramps live on cells 0,
     1, and 3 (the example's r_1, r_2, r_4); cell 2 has none (r_3 = 0). All
     upstream cells carry an off-ramp with split beta = 0.2 in the scenario;
-    cell 3 has no off-ramp (the dissertation's beta_N = 0 convention, which
+    cell 3 has no off-ramp (Kurzhanskiy 2007's beta_N = 0 convention, which
     is what makes f_4 = (f_3 + r_4) instead of 0.8*(f_3 + r_4)).
     """
 
     def cell(**overrides) -> Cell:
         # §3.4 example also follows Gomes & Horowitz (gamma = 0); pin it so
-        # the golden test's feasible / infeasible flows match the dissertation.
+        # the golden test's feasible / infeasible flows match Kurzhanskiy 2007.
         return Cell(
             length=1.0,
             q_max=6000.0,

@@ -11,7 +11,7 @@ Caltrans postmiles run in a route-specific direction (typically increasing
 from the southern / western terminus), so for a westbound or southbound
 corridor they will *decrease* along the direction of travel. The lookup
 helpers here preserve that sign convention: callers downstream (e.g. the
-golden tests that compare against the dissertation's PM 24-39 span on
+golden tests that compare against Kurzhanskiy 2007's PM 24-39 span on
 I-210W) can compare directly.
 
 The integration with :func:`corridor_from_graph` is purely additive: when

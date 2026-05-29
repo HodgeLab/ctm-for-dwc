@@ -173,12 +173,16 @@ upstream cell:
    `"highest_pm_observed"` — placeholder for the future Step-2 data-
    quality hook). The cell is flagged `direct_tiebreak` and
    `vds_n_candidates >= 2` so downstream consumers can inspect.
-3. **M&H 2014 fallback.** If no VDS lives in the cell and
-   `fallback="upstream"`, the cell inherits the `vds_id` from the closest
-   *upstream* cell that has one (Muralidharan & Horowitz 2014, IEEE
-   #6859026). The cell is flagged `nearest_upstream` and
-   `vds_distance_mi` records the signed gap (negative = how far upstream
-   the inherited VDS is).
+3. **Downstream-assignment fallback (Dervisoglu et al. 2014).** If no VDS
+   lives in the cell and `fallback="upstream"`, the cell inherits the
+   `vds_id` from the closest *upstream* cell that has one. This is the
+   scheme described in Dervisoglu, Kurzhanskiy, Gomes & Horowitz,
+   "Macroscopic Freeway Model Calibration with Partially Observed Data, a
+   Case Study," American Control Conference 2014 (IEEE Xplore #6859026),
+   §III: each detector's calibrated FD is assigned to the cell it sits in
+   and then assigned downstream until another detector is encountered.
+   The cell is flagged `nearest_upstream` and `vds_distance_mi` records
+   the signed gap (negative = how far upstream the inherited VDS is).
 4. **Missing.** Cells upstream of every VDS in the corridor stay
    `missing` (no inherit-from-future), with `vds_id` set to `<NA>`.
 

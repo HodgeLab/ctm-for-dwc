@@ -54,7 +54,7 @@ class Cell:
     # (on-ramps live at the *upstream* edge of their cell, so on-ramp arrivals
     # have a full ΔT to traverse the cell at free-flow speed and contribute to
     # this step's sending function). Set gamma=0.0 explicitly to recover the
-    # Gomes & Horowitz / four-mode form used in the dissertation's Examples.
+    # Gomes & Horowitz / four-mode form used in Kurzhanskiy 2007's Examples.
 
     def __post_init__(self) -> None:
         if self.rho_crit is None:

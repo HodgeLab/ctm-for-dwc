@@ -2,7 +2,7 @@
 
 Implements the per-step metrics from Kurzhanskiy diss. §4.2.1 (eqs. 4.9-4.17,
 p. 86-87). Each metric at step index ``k`` (``k = 0..T-1``) corresponds to
-the dissertation's "period k+1" value: it is computed from the *post-step*
+Kurzhanskiy 2007's "period k+1" value: it is computed from the *post-step*
 state (``rho_i(k+1)``, ``q_i(k+1)``, ``V_i(k+1)``) and the step's mainline
 flow ``f_i(k+1)``.
 

@@ -4,7 +4,7 @@ Two identical cells (v_f=60, w=20, rho_crit=100, rho_jam=400, q_max=6000) with
 upstream inflow r_0 = 4800 veh/h and an on-ramp r_2 = 1200 veh/h at the
 downstream cell. Cell 2 is the only bottleneck (f_2 = q_max).
 
-Expected steady states (from the dissertation):
+Expected steady states (from Kurzhanskiy 2007):
     start="empty"  ->  uncongested equilibrium rho^u   = (80, 100)
     start="jam"    ->  most congested equilibrium rho^c = (160, 160)
 

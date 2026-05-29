@@ -1,11 +1,11 @@
 """Golden test: extracting I-210 West from OSM produces a CTM-ready cell layout
-that's structurally faithful to the Kurzhanskiy dissertation's manual layout
+that's structurally faithful to the Kurzhanskiy 2007 manual layout
 (as encoded in ``ctmsim_configs/w060412.mat``).
 
-We don't expect pixel-perfect agreement: the dissertation uses Caltrans
+We don't expect pixel-perfect agreement: Kurzhanskiy 2007 uses Caltrans
 postmiles (centerline-based, 14.03 mi end to end) while we project geodesic
-length along an OSM-derived polyline, and the bbox we cache is wider than the
-dissertation's PM 24.95-38.97 span. So the golden test checks *structural*
+length along an OSM-derived polyline, and the bbox we cache is wider than
+Kurzhanskiy 2007's PM 24.95-38.97 span. So the golden test checks *structural*
 properties -- corridor extracts cleanly, cell DataFrame is well-formed, ramp
 counts/density agree with CTMSIM to a coarse tolerance -- not specific
 postmile values.
@@ -88,7 +88,7 @@ def test_corridor_total_length_in_expected_range(corridor):
     assert 10.0 < corridor.total_length < 16.0
 
 
-def test_corridor_ramp_density_matches_dissertation(corridor, ctmsim):
+def test_corridor_ramp_density_matches_kurzhanskiy_2007(corridor, ctmsim):
     """On- and off-ramp density (per mile) should be in the same ballpark."""
     our_on_density = len(corridor.on_ramp_postmiles) / corridor.total_length
     our_off_density = len(corridor.off_ramp_postmiles) / corridor.total_length
@@ -129,12 +129,12 @@ def test_cell_lengths_sum_to_corridor_total(cells, corridor):
     assert cells["length"].sum() == pytest.approx(corridor.total_length, abs=1e-4)
 
 
-def test_off_ramp_count_close_to_dissertation(cells, ctmsim):
-    """Off-ramps stay in the dissertation's order-of-magnitude.
+def test_off_ramp_count_close_to_kurzhanskiy_2007(cells, ctmsim):
+    """Off-ramps stay in Kurzhanskiy 2007's order-of-magnitude.
 
     Exact match isn't expected: the tight bbox crop trims a few ramps near
     the edges, and OSM occasionally tags multi-exit interchanges differently
-    from the dissertation. The density check below is the load-bearing one.
+    from Kurzhanskiy 2007. The density check below is the load-bearing one.
     """
     n_off = int(cells["off_ramp"].sum())
     assert ctmsim["n_off"] - 6 <= n_off <= ctmsim["n_off"] + 5, (
@@ -142,16 +142,16 @@ def test_off_ramp_count_close_to_dissertation(cells, ctmsim):
     )
 
 
-def test_on_ramp_count_close_to_dissertation(cells, ctmsim):
-    """On-ramps stay in the dissertation's order-of-magnitude (see off-ramp comment)."""
+def test_on_ramp_count_close_to_kurzhanskiy_2007(cells, ctmsim):
+    """On-ramps stay in Kurzhanskiy 2007's order-of-magnitude (see off-ramp comment)."""
     n_on = int(cells["on_ramp"].sum())
     assert ctmsim["n_on"] - 8 <= n_on <= ctmsim["n_on"] + 5, (
         f"on-ramp count {n_on} far from CTMSIM {ctmsim['n_on']}"
     )
 
 
-def test_lane_count_distribution_overlaps_dissertation(cells, ctmsim):
-    """Mainline cells should mostly be 3-, 4-, or 5-lane (matches the dissertation)."""
+def test_lane_count_distribution_overlaps_kurzhanskiy_2007(cells, ctmsim):
+    """Mainline cells should mostly be 3-, 4-, or 5-lane (matches Kurzhanskiy 2007)."""
     ctm_set = set(ctmsim["lane_counts"])
     our_set = set(int(n) for n in cells["lanes"].unique())
     overlap = ctm_set & our_set
