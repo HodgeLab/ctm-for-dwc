@@ -47,3 +47,7 @@ Repository = "https://github.com/HodgeLab/transportation-models"
 testpaths = ["tests"]
 log_cli = true
 log_cli_level = "INFO"
+markers = [
+    "network: hits a live external service (default-skip in CI; run with `pytest -m network`)",
+]
+addopts = "-m 'not network'"

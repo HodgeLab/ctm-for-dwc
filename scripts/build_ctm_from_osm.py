@@ -7,11 +7,14 @@ osmnx download), runs the corridor extraction in
 
 * ``cells.csv``            -- the freeway-schema cell table (Step 2/4 fill in
                               the FD parameters before this can be passed to
-                              ``io.freeway_from_dataframe``)
+                              ``io.freeway_from_dataframe``). Includes
+                              ``caltrans_pm_start``/``caltrans_pm_end`` when
+                              ``--postmiles`` is supplied.
 * ``corridor_map.png``     -- folium-free matplotlib overlay of mainline +
                               ramps, colored by lane count
 * ``cell_layout.png``      -- strip plot of cells along the corridor with
-                              ramp markers
+                              ramp markers (secondary axis shows Caltrans
+                              PM when available)
 
 Run from the repo root::
 
@@ -19,6 +22,20 @@ Run from the repo root::
     python scripts/build_ctm_from_osm.py \\
         --graphml tests/fixtures/osm/i210_bbox.graphml \\
         --ref "I 210" --direction W
+
+    # Same, but anchored to Caltrans postmiles (auto-downloads the SHN
+    # Postmiles Tenth dataset for Route 210 only, ~900 KB):
+    python scripts/build_ctm_from_osm.py \\
+        --graphml tests/fixtures/osm/i210_bbox.graphml \\
+        --ref "I 210" --direction W \\
+        --postmiles auto
+
+    # Or point at a pre-downloaded SHN file (see
+    # `transportation_models.utils.ctm.caltrans` for the source):
+    python scripts/build_ctm_from_osm.py \\
+        --graphml tests/fixtures/osm/i210_bbox.graphml \\
+        --ref "I 210" --direction W \\
+        --postmiles data/caltrans/shn_postmiles_tenth.geojson
 
     # Fresh osmnx download (network required):
     python scripts/build_ctm_from_osm.py \\
@@ -41,11 +58,36 @@ import numpy as np
 import osmnx as ox
 from matplotlib.collections import LineCollection
 
+from transportation_models.utils.ctm.caltrans import (
+    download_caltrans_postmiles,
+    extract_route_number,
+)
 from transportation_models.utils.ctm.cells import cells_from_corridor
 from transportation_models.utils.ctm.osm import Corridor, corridor_from_graph
 
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_OUT = REPO / "scripts/output/ctm_corridor"
+
+
+# ---- Argument resolvers ---------------------------------------------------
+
+
+def _resolve_postmiles_arg(value: str | None, ref: str):
+    """Translate the ``--postmiles`` CLI value into what corridor_from_graph wants.
+
+    * ``None``    -> ``None`` (no Caltrans annotation).
+    * ``"auto"``  -> filtered download for the route parsed from ``--ref``
+                     (uses the in-repo cache if it already exists).
+    * any other   -> treated as a filesystem path that ``load_postmiles``
+                     reads directly.
+    """
+    if value is None:
+        return None
+    if value == "auto":
+        route = extract_route_number(ref)
+        path = download_caltrans_postmiles(routes=[route], progress=True)
+        return path
+    return Path(value).expanduser().resolve()
 
 
 # ---- Graph loaders --------------------------------------------------------
@@ -204,6 +246,26 @@ def plot_cell_layout(corridor: Corridor, cells_df, out_path: Path) -> None:
         f"upstream → downstream"
     )
     ax.grid(axis="x", alpha=0.3)
+
+    # Secondary x-axis showing Caltrans postmiles when available. They run in
+    # the route's own direction, so for a westbound corridor they decrease
+    # along travel -- which is exactly what we want to communicate.
+    if "caltrans_pm_start" in cells_df.columns:
+        pm_start_local = corridor.pm_start
+        pm_end_local = corridor.pm_end
+        cal_start = cells_df["caltrans_pm_start"].iloc[0]
+        cal_end = cells_df["caltrans_pm_end"].iloc[-1]
+        slope = (cal_end - cal_start) / (pm_end_local - pm_start_local)
+
+        def local_to_cal(x):
+            return cal_start + (x - pm_start_local) * slope
+
+        def cal_to_local(c):
+            return pm_start_local + (c - cal_start) / slope
+
+        secax = ax.secondary_xaxis("top", functions=(local_to_cal, cal_to_local))
+        secax.set_xlabel("Caltrans postmile [mi]")
+
     fig.tight_layout()
     fig.savefig(out_path, dpi=120)
     plt.close(fig)
@@ -232,6 +294,13 @@ def print_summary(corridor: Corridor, cells_df) -> None:
     print(f"  lanes histogram   : "
           + ", ".join(f"{int(n)} lanes -> {c}"
                        for n, c in cells_df.lanes.value_counts().sort_index().items()))
+    if "caltrans_pm_start" in cells_df.columns:
+        cal_start = cells_df["caltrans_pm_start"].iloc[0]
+        cal_end = cells_df["caltrans_pm_end"].iloc[-1]
+        print(
+            f"  Caltrans PM range : {cal_start:.3f} -> {cal_end:.3f} "
+            f"(span {abs(cal_end - cal_start):.3f} mi)"
+        )
 
 
 # ---- main -----------------------------------------------------------------
@@ -248,6 +317,18 @@ def main() -> None:
                         help="N/S/E/W or numeric bearing in degrees")
     parser.add_argument("--pm-range", default=None,
                         help="optional 'pm_start,pm_end' crop in cumulative mi")
+    parser.add_argument(
+        "--postmiles",
+        default=None,
+        help=(
+            "Caltrans SHN postmile source. Either 'auto' (downloads the "
+            "single-route subset of the SHN Postmiles Tenth dataset using "
+            "the route parsed from --ref, ~1 MB), or a filesystem path to "
+            "a pre-downloaded postmile shapefile / geojson. Omitting this "
+            "leaves Caltrans PMs unset and the cells.csv only carries "
+            "cumulative-length postmiles."
+        ),
+    )
     parser.add_argument("--out-dir", type=Path, default=None,
                         help=f"output directory (default: {DEFAULT_OUT}/<ref>_<dir>)")
     args = parser.parse_args()
@@ -263,13 +344,22 @@ def main() -> None:
         lo, hi = (float(v) for v in args.pm_range.split(","))
         pm_range = (lo, hi)
 
+    # Resolve --postmiles into something corridor_from_graph accepts (Path or
+    # None). 'auto' triggers a route-filtered Caltrans download; an explicit
+    # path is passed through.
+    postmiles_arg = _resolve_postmiles_arg(args.postmiles, args.ref)
+
     slug = f"{args.ref.replace(' ', '_')}_{args.direction}"
     out_dir = (args.out_dir or DEFAULT_OUT / slug).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
     graph = load_graph(args)
     corridor = corridor_from_graph(
-        graph, ref=args.ref, direction=direction, pm_range=pm_range,
+        graph,
+        ref=args.ref,
+        direction=direction,
+        pm_range=pm_range,
+        postmiles=postmiles_arg,
     )
     cells_df = cells_from_corridor(corridor)
 

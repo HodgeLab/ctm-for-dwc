@@ -22,6 +22,10 @@ from pathlib import Path
 from shapely.geometry import LineString, Point
 
 from transportation_models.utils.ctm.caltrans import (
+    DEFAULT_POSTMILE_DIR,
+    DEFAULT_POSTMILE_FILE,
+    _resolve_out_path,
+    download_caltrans_postmiles,
     extract_route_number,
     load_postmiles,
 )
@@ -288,6 +292,153 @@ def test_i210w_caltrans_postmiles_span_dissertation_range(i210_graph):
     assert decreasing / max(1, len(seq) - 1) > 0.9, (
         f"only {decreasing}/{len(seq)-1} consecutive node pairs have decreasing PM"
     )
+
+
+# ---- download_caltrans_postmiles ------------------------------------------
+
+
+def test_resolve_out_path_explicit_path_wins(tmp_path):
+    """An explicit ``out_path`` overrides both defaults regardless of routes."""
+    target = tmp_path / "custom.geojson"
+    assert _resolve_out_path(target, None) == target.resolve()
+    assert _resolve_out_path(target, [210]) == target.resolve()
+
+
+def test_resolve_out_path_default_for_statewide():
+    assert _resolve_out_path(None, None) == DEFAULT_POSTMILE_FILE
+
+
+def test_resolve_out_path_tags_filename_with_routes():
+    """A filtered download should not shadow the statewide default file."""
+    path = _resolve_out_path(None, [210, 880])
+    assert path.parent == DEFAULT_POSTMILE_DIR
+    # Routes sorted + uniqued -> tag is deterministic regardless of input order.
+    assert path.name == "shn_postmiles_tenth_routes_210_880.geojson"
+    # And input order shouldn't matter.
+    assert _resolve_out_path(None, [880, 210]) == path
+
+
+def test_download_cache_hit_skips_network(tmp_path, monkeypatch):
+    """If the target file exists and overwrite=False, no HTTP call is made."""
+    target = tmp_path / "pretend_already_downloaded.geojson"
+    target.write_text('{"type":"FeatureCollection","features":[]}')
+
+    def _explode(*_args, **_kwargs):
+        raise AssertionError("download attempted despite cache hit")
+
+    monkeypatch.setattr(
+        "transportation_models.utils.ctm.caltrans.requests.get", _explode
+    )
+    out = download_caltrans_postmiles(out_path=target, progress=False)
+    assert out == target
+    # And the file wasn't modified.
+    assert out.read_text() == '{"type":"FeatureCollection","features":[]}'
+
+
+def test_download_filtered_uses_featureserver_query(tmp_path, monkeypatch):
+    """Without a cache hit, a filtered download hits the FeatureServer ``query``
+    endpoint with a ``Route IN (...)`` filter and writes a GeoJSON to disk."""
+
+    target = tmp_path / "out.geojson"
+    seen: list[dict] = []
+
+    class _Resp:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self._payload
+
+    def _fake_get(url, params=None, timeout=None, **kw):
+        seen.append({"url": url, "params": params})
+        # First page: 2 features (less than resultRecordCount -> loop ends).
+        return _Resp({
+            "features": [
+                {"type": "Feature",
+                 "geometry": {"type": "Point", "coordinates": [-118.4, 34.05]},
+                 "properties": {"Route": 210, "PM": 38.0}},
+                {"type": "Feature",
+                 "geometry": {"type": "Point", "coordinates": [-118.5, 34.05]},
+                 "properties": {"Route": 210, "PM": 37.0}},
+            ]
+        })
+
+    monkeypatch.setattr(
+        "transportation_models.utils.ctm.caltrans.requests.get", _fake_get
+    )
+    out = download_caltrans_postmiles(
+        out_path=target, routes=[210], progress=False,
+    )
+    assert out == target.resolve()
+    assert target.exists()
+    assert len(seen) == 1
+    assert seen[0]["url"].endswith("/FeatureServer/0/query")
+    assert seen[0]["params"]["where"] == "Route IN (210)"
+    assert seen[0]["params"]["f"] == "geojson"
+
+
+def test_download_filtered_paginates_until_short_page(tmp_path, monkeypatch):
+    """Multiple pages keep being fetched until one comes back shorter than the
+    request size. Verified by stubbing two pages of 2000 and a final page of 5."""
+
+    target = tmp_path / "paginated.geojson"
+    pages = [
+        [{"type": "Feature",
+          "geometry": {"type": "Point", "coordinates": [0, 0]},
+          "properties": {"Route": 5, "PM": float(i)}} for i in range(2000)],
+        [{"type": "Feature",
+          "geometry": {"type": "Point", "coordinates": [0, 0]},
+          "properties": {"Route": 5, "PM": float(i)}} for i in range(2000, 4000)],
+        [{"type": "Feature",
+          "geometry": {"type": "Point", "coordinates": [0, 0]},
+          "properties": {"Route": 5, "PM": float(i)}} for i in range(4000, 4005)],
+    ]
+    call_count = {"n": 0}
+
+    class _Resp:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self._payload
+
+    def _fake_get(url, params=None, timeout=None, **kw):
+        page = pages[call_count["n"]]
+        call_count["n"] += 1
+        return _Resp({"features": page})
+
+    monkeypatch.setattr(
+        "transportation_models.utils.ctm.caltrans.requests.get", _fake_get
+    )
+    download_caltrans_postmiles(out_path=target, routes=[5], progress=False)
+    assert call_count["n"] == 3
+    import json as _json
+    doc = _json.loads(target.read_text())
+    assert len(doc["features"]) == 2000 + 2000 + 5
+
+
+@pytest.mark.network
+def test_download_live_filtered_round_trip(tmp_path):
+    """Live: hit the real FeatureServer for one tiny route and verify the
+    resulting file loads through our ``load_postmiles`` adapter. Marked
+    ``network`` so it stays out of the offline CI default; run with::
+
+        pytest -m network tests/test_ctm_caltrans.py
+    """
+    out = download_caltrans_postmiles(
+        out_path=tmp_path / "live.geojson",
+        routes=[210], progress=False,
+    )
+    gdf = load_postmiles(out)
+    assert (gdf["Route"] == 210).all()
+    assert gdf["PM"].between(0.0, 100.0).all()
+    assert str(gdf.crs).endswith(":4326")
 
 
 def test_i210w_caltrans_pm_total_close_to_dissertation(i210_graph):

@@ -226,8 +226,11 @@ def corridor_from_graph(
     main_nodes = set(components[0])
     sub = sub.subgraph(main_nodes).copy()
 
-    # 3. Order the mainline as a directed path upstream -> downstream.
-    ordered_nodes = _walk_directed_path(sub)
+    # 3. Order the mainline as a directed path upstream -> downstream. Greedy
+    #    walk preferring the dominant carriageway by lanes (then length, then
+    #    bearing closeness) so parallel HOV/auxiliary ways sharing the same
+    #    ref as the trunk don't trip us up.
+    ordered_nodes = _walk_directed_path(sub, target_bearing=target_bearing)
 
     # 4. Build MainlineSegment list with cumulative-length postmiles. Lengths
     #    use osmnx-tagged ``length`` (meters) when present, else are computed
@@ -558,12 +561,27 @@ def _pick_best_parallel_edge(
     return best_key
 
 
-def _walk_directed_path(sub: nx.MultiDiGraph) -> list[int]:
+def _walk_directed_path(
+    sub: nx.MultiDiGraph, *, target_bearing: float,
+) -> list[int]:
     """Return the nodes of ``sub`` in upstream→downstream order.
 
-    Requires the underlying simple-graph structure to be a single directed
-    path (one source, one sink, every other node in/out-degree == 1 over the
-    set of distinct neighbors). Raises ValueError otherwise.
+    When the mainline subgraph has multiple sources, multiple sinks, or
+    internal branches -- typically caused by OSM-tagged parallel
+    carriageways (HOV / express / auxiliary lanes that share the trunk's
+    ref) -- the walker picks the dominant route by edge score:
+
+    1. **lanes** -- more lanes wins (HOV stubs are usually 1-2 lanes).
+    2. **length** -- when lanes tie, longer continuation wins.
+    3. **bearing closeness** to ``target_bearing`` -- final tiebreak so a
+       trunk staying on-axis beats a hooking ramp.
+
+    The walk starts at the source with the best outgoing score and follows
+    successors greedily until reaching a sink, ignoring lower-scoring
+    parallel branches.
+
+    Raises ``ValueError`` only if the subgraph is empty or every node is
+    cyclic (no sources at all).
     """
     def in_n(n: int) -> int:
         return len(set(sub.predecessors(n)))
@@ -572,32 +590,58 @@ def _walk_directed_path(sub: nx.MultiDiGraph) -> list[int]:
         return len(set(sub.successors(n)))
 
     sources = [n for n in sub.nodes if in_n(n) == 0]
-    sinks = [n for n in sub.nodes if out_n(n) == 0]
-    if len(sources) != 1 or len(sinks) != 1:
+    if not sources:
         raise ValueError(
-            "Expected mainline subgraph to be a single directed path; got "
-            f"{len(sources)} sources and {len(sinks)} sinks"
+            "Mainline subgraph has no source node (likely a cycle); cannot order"
         )
-    start = sources[0]
-    end = sinks[0]
+
+    def best_outgoing(n: int) -> tuple:
+        best = (-1, -1.0, -360.0)
+        for succ in sub.successors(n):
+            for _k, data in sub[n][succ].items():
+                s = _edge_walk_score(data, sub, n, succ, target_bearing)
+                if s > best:
+                    best = s
+        return best
+
+    # Start at the source whose outgoing edge looks most like the trunk.
+    start = max(sources, key=best_outgoing)
+
     nodes: list[int] = [start]
     seen = {start}
     cur = start
-    while cur != end:
-        nexts = [n for n in sub.successors(cur) if n not in seen]
-        if not nexts:
-            raise ValueError(
-                f"Mainline path broken at node {cur}; cannot reach sink {end}"
+    while True:
+        # Successor candidates: skip those already visited so a parallel-then-
+        # rejoining auxiliary path doesn't lure us into an infinite loop.
+        candidates = [n for n in sub.successors(cur) if n not in seen]
+        if not candidates:
+            break  # reached a sink (or all successors already visited)
+
+        def succ_score(succ: int) -> tuple:
+            return max(
+                _edge_walk_score(data, sub, cur, succ, target_bearing)
+                for _k, data in sub[cur][succ].items()
             )
-        if len(nexts) > 1:
-            raise ValueError(
-                f"Mainline branches at node {cur} (successors {nexts}); "
-                "filter the graph further or tighten bearing_tolerance"
-            )
-        cur = nexts[0]
+
+        cur = max(candidates, key=succ_score)
         nodes.append(cur)
         seen.add(cur)
     return nodes
+
+
+def _edge_walk_score(
+    data: dict, sub: nx.MultiDiGraph, u: int, v: int, target_bearing: float,
+) -> tuple[int, float, float]:
+    """Tuple-ordered score for picking an edge during the corridor walk.
+
+    Returns ``(lanes, length_m, -bearing_delta_deg)`` so ``max(...)`` picks
+    the most-lane, longest, on-bearing edge in that order of preference.
+    """
+    lanes = _parse_lanes(data.get("lanes"))
+    length = float(data.get("length") or 0.0)
+    bearing = _edge_bearing(sub, u, v, data)
+    delta = abs((bearing - target_bearing + 180.0) % 360.0 - 180.0)
+    return (lanes, length, -delta)
 
 
 def _crop_pm_range(corridor: Corridor, pm_range: tuple[float, float]) -> Corridor:

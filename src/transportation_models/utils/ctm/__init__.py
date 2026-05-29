@@ -18,7 +18,9 @@ from .io import (
     scenario_to_dataframes,
 )
 from .caltrans import (
+    DEFAULT_POSTMILE_FILE,
     caltrans_postmiles_for_corridor,
+    download_caltrans_postmiles,
     extract_route_number,
     load_postmiles,
 )
@@ -63,5 +65,7 @@ __all__ = [
     "extract_route_number",
     "load_postmiles",
     "caltrans_postmiles_for_corridor",
+    "download_caltrans_postmiles",
+    "DEFAULT_POSTMILE_FILE",
     "examples",
 ]

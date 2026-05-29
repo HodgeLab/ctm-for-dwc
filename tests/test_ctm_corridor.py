@@ -225,8 +225,14 @@ def test_wrong_direction_filters_everything_out():
     assert corridor.ramp_junctions == []
 
 
-def test_branching_mainline_raises():
-    """A mainline path that branches should be rejected (not a single corridor)."""
+def test_branching_mainline_follows_target_bearing():
+    """At a branch with equal lanes, the walker should follow the successor
+    whose bearing is closest to the target direction.
+
+    Node 2 has two equal-lane successors: westward to node 3 (bearing ~270°,
+    matches direction='W') and south to node 4 (bearing ~180°). The walker
+    should pick 2→3.
+    """
     g = _empty_wgs84_graph()
     _add_node(g, 1, -118.40, 34.05)
     _add_node(g, 2, -118.41, 34.05)
@@ -234,9 +240,45 @@ def test_branching_mainline_raises():
     _add_node(g, 4, -118.42, 34.04)
     _add_edge(g, 1, 2, highway="motorway", ref="I 210", lanes=4)
     _add_edge(g, 2, 3, highway="motorway", ref="I 210", lanes=4)
-    _add_edge(g, 2, 4, highway="motorway", ref="I 210", lanes=4)  # branch
-    with pytest.raises(ValueError, match="branches|single directed path"):
-        corridor_from_graph(g, ref="I 210", direction="W")
+    _add_edge(g, 2, 4, highway="motorway", ref="I 210", lanes=4)  # branch off-axis
+    corridor = corridor_from_graph(g, ref="I 210", direction="W")
+    main_nodes = [seg.u for seg in corridor.mainline_segments] + [
+        corridor.mainline_segments[-1].v
+    ]
+    assert main_nodes == [1, 2, 3]
+
+
+def test_parallel_carriageway_sinks_get_collapsed():
+    """A parallel HOV / auxiliary mainline that ends at the bbox edge alongside
+    the main carriageway should not derail extraction.
+
+    The Hayward I-880 N case: the bbox truncates two parallel motorway-tagged
+    ways at the north edge -- the through carriageway (4-3 lanes) and a
+    short auxiliary lane (1 lane) -- whose downstream ends are ~10 m apart.
+    The walker should pick the lane-rich carriageway and ignore the aux stub.
+    """
+    g = _empty_wgs84_graph()
+    # Through carriageway: 1 -> 2 -> 3 -> 4_main, 4 lanes throughout.
+    _add_node(g, 1, -122.0447, 37.5699)
+    _add_node(g, 2, -122.0500, 37.5800)
+    _add_node(g, 3, -122.0700, 37.6100)
+    _add_node(g, 4, -122.0761, 37.6202)
+    _add_edge(g, 1, 2, highway="motorway", ref="I 880", lanes=4)
+    _add_edge(g, 2, 3, highway="motorway", ref="I 880", lanes=4)
+    _add_edge(g, 3, 4, highway="motorway", ref="I 880", lanes=4)
+    # Parallel auxiliary lane branching off near node 3, ending ~10 m from
+    # node 4 (the bbox-edge truncation effect).
+    _add_node(g, 5, -122.0762, 37.6202)
+    _add_edge(g, 3, 5, highway="motorway", ref="I 880", lanes=1)
+
+    corridor = corridor_from_graph(g, ref="I 880", direction="N")
+    # Mainline should be 1->2->3->4 (the high-lane carriageway), not the
+    # 1->2->3->5 aux branch.
+    main_nodes = [seg.u for seg in corridor.mainline_segments] + [
+        corridor.mainline_segments[-1].v
+    ]
+    assert main_nodes == [1, 2, 3, 4]
+    assert {s.lanes for s in corridor.mainline_segments} == {4}
 
 
 def test_ramp_without_ref_still_identified():
