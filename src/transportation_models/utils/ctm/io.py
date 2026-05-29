@@ -50,6 +50,7 @@ from typing import Union
 
 import numpy as np
 import pandas as pd
+import scipy.io as sio
 
 from .model import Cell, Freeway, Scenario
 
@@ -199,6 +200,114 @@ def scenario_from_dataframes(
         demand=demand_arr,
         beta=beta_arr,
     )
+
+
+# ---- CTMSIM .mat adapter --------------------------------------------------
+#
+# Reads the MATLAB configuration file schema documented in Kurzhanskiy diss.
+# Appendix A (p. 150-154). The on-ramp blending factor gamma and allocation
+# factor xi default to 1 in CTMSIM (vs. 0 / 1 in our Cell), so the adapter
+# pulls them through explicitly from each cell struct.
+
+
+def _ctmsim_has_name(field) -> bool:
+    """True if a CTMSIM ``ORname`` / ``FRname`` field carries a ramp.
+
+    Empty char arrays come through as ``ndarray`` with size 0; empty strings
+    come through as ``""``. Either means "no ramp."
+    """
+    if isinstance(field, str):
+        return bool(field)
+    return hasattr(field, "size") and field.size > 0
+
+
+def _cell_from_ctmsim_struct(struct) -> Cell:
+    """Translate one CTMSIM cell struct into a :class:`Cell`.
+
+    ``v_f`` and ``w`` are derived from the triangular FD identity
+    ``q_max = v_f * rho_crit = w * (rho_jam - rho_crit)`` (CTMSIM stores the
+    triangle by capacity and densities, not by slopes).
+    """
+    length = abs(float(struct.PMend) - float(struct.PMstart))
+    rho_crit = float(struct.FDrhocrit)
+    rho_jam = float(struct.FDrhojam)
+    q_max = float(struct.FDfmax)
+    v_f = q_max / rho_crit
+    w = q_max / (rho_jam - rho_crit)
+    on_ramp = _ctmsim_has_name(struct.ORname)
+    off_ramp = _ctmsim_has_name(struct.FRname)
+    kwargs: dict = dict(
+        length=length,
+        q_max=q_max,
+        v_f=v_f,
+        w=w,
+        rho_jam=rho_jam,
+        rho_crit=rho_crit,
+        on_ramp=on_ramp,
+        off_ramp=off_ramp,
+    )
+    if on_ramp:
+        kwargs["on_ramp_capacity"] = float(struct.ORfmax)
+        kwargs["gamma"] = float(struct.ORgamma)
+        kwargs["xi"] = float(struct.ORxi)
+    if off_ramp:
+        kwargs["off_ramp_capacity"] = float(struct.FRfmax)
+    return Cell(**kwargs)
+
+
+def _load_ctmsim_mat(path: Union[str, Path]) -> dict:
+    """Load a CTMSIM ``.mat`` file with squeeze + struct-as-attribute access."""
+    return sio.loadmat(str(path), squeeze_me=True, struct_as_record=False)
+
+
+def freeway_from_ctmsim_mat(path: Union[str, Path]) -> Freeway:
+    """Build a :class:`Freeway` from a CTMSIM MATLAB configuration file.
+
+    Reads ``celldata`` (cell geometry, FD, ramp presence and capacity, on-ramp
+    blending) and ``TS`` (simulation step in hours) from a CTMSIM ``.mat``;
+    schema: Kurzhanskiy diss. Appendix A (p. 150-154). Free-flow speed and
+    congestion-wave speed are derived from the triangular FD identities;
+    standard Cell + Freeway validation runs before return.
+    """
+    mat = _load_ctmsim_mat(path)
+    cells = [_cell_from_ctmsim_struct(c) for c in mat["celldata"]]
+    return Freeway(dt=float(mat["TS"]), cells=cells).validate()
+
+
+def ctmsim_initial_densities(path: Union[str, Path]) -> np.ndarray:
+    """Extract the initial density vector ``rho0`` from a CTMSIM ``.mat``."""
+    mat = _load_ctmsim_mat(path)
+    return np.asarray(mat["initialDensities"], dtype=float).reshape(-1)
+
+
+def ctmsim_demand_at_sim_steps(path: Union[str, Path]) -> np.ndarray:
+    """Expand CTMSIM's ``demandProfile`` to per-step on-ramp demand.
+
+    ``demandProfile`` is sampled at the display cadence ``plotTS`` (e.g. 5 min),
+    one column per cell with a 1-based offset (column ``k`` corresponds to
+    cell ``k-1`` in our 0-indexed convention); the boundary "ML" cell's
+    upstream demand lives in this same array. The simulation step ``TS`` is
+    typically much finer (e.g. 10 s), and CTMSIM holds each sample constant
+    across ``plotTS / TS`` simulation steps (zero-order hold).
+
+    Returns an array of shape ``(n_cells, T)`` where ``T = n_samples *
+    plotTS / TS``. Cells without an on-ramp receive a zero column, which is
+    what :meth:`Scenario.validate` requires.
+    """
+    mat = _load_ctmsim_mat(path)
+    profile = np.asarray(mat["demandProfile"], dtype=float)
+    n_samples = profile.shape[0]
+    n_cells = len(mat["celldata"])
+    steps_per_sample = int(round(float(mat["plotTS"]) / float(mat["TS"])))
+
+    # Column k in demandProfile corresponds to cell k-1 (CTMSIM is 1-indexed).
+    # Columns 0 and the trailing N+1 are unused/padding and dropped here.
+    per_cell = profile[:, 1 : n_cells + 1]                       # (n_samples, n_cells)
+    expanded = np.repeat(per_cell, steps_per_sample, axis=0)      # (T, n_cells)
+    return expanded.T                                             # (n_cells, T)
+
+
+# ---- Scenario adapter -----------------------------------------------------
 
 
 def scenario_to_dataframes(

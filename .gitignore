@@ -214,3 +214,4 @@ artifacts
 .vscode
 .claude
 slurm_scripts
+scripts/output/

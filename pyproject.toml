@@ -18,6 +18,7 @@ dependencies = [
     "pandas",
     "python-dotenv",
     "scikit-learn",
+    "scipy",
     "seaborn",
     "statsmodels",
     "torch",

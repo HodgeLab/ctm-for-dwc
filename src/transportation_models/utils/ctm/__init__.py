@@ -8,7 +8,10 @@ dimensional units: length [mi], time [h], speed [mi/h], flow [veh/h], density
 
 from .engine import StepResult, simulate, step
 from .io import (
+    ctmsim_demand_at_sim_steps,
+    ctmsim_initial_densities,
     freeway_from_csv,
+    freeway_from_ctmsim_mat,
     freeway_from_dataframe,
     freeway_to_dataframe,
     scenario_from_dataframes,
@@ -35,5 +38,8 @@ __all__ = [
     "freeway_from_csv",
     "scenario_from_dataframes",
     "scenario_to_dataframes",
+    "freeway_from_ctmsim_mat",
+    "ctmsim_initial_densities",
+    "ctmsim_demand_at_sim_steps",
     "examples",
 ]
