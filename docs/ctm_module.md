@@ -116,8 +116,103 @@ span the dissertation's PM 24-39 range when anchored at Vernon Ave and the
 SR-134 split.
 
 ## Step 4: VDS --> Cell Mapping
-Currently implemented in `transportation_models.utils.representation` through a class called `Freeway`.
-Needs to be re-done.
+Implemented in `transportation_models.utils.ctm.vds`. End-to-end demo:
+`scripts/build_ctm_from_osm.py --pems-metadata {auto|PATH}`.
+
+Step 4 attaches a PeMS vehicle detector station (VDS) to every cell produced
+by Step 3, in three thin layers mirroring the Step-3 layout. The output is
+the data Step 2 (FD calibration) needs to look up time series per cell.
+
+**Stage 1: PeMS metadata → filtered VDS GeoDataFrame.**
+`load_pems_station_metadata(source, *, freeway, direction, mainline_only=True)`
+reads a PeMS `station_meta` text file (column schema: `ID`, `Fwy`, `Dir`,
+`District`, `County`, `Abs_PM` / `Abs PM`, `Latitude`, `Longitude`, `Lanes`,
+`Type`, `Name`, …) and emits a WGS-84 GeoDataFrame filtered to one freeway
++ direction + (by default) `Type=='ML'` mainline stations. Aliases like
+`Lat`/`Lng` are tolerated so the loader works on either PeMS export
+spelling.
+
+For users who don't already have the file on disk,
+`download_pems_station_metadata(district, ..., out_path=None)` wraps the
+existing `PeMSDownloader` to fetch the latest snapshot for a Caltrans
+district. Credentials come from `PEMS_USERNAME` / `PEMS_PASSWORD` (auto-
+loaded from `.env`); the default cache directory is `data/pems/`
+(gitignored). The module docstring documents the manual-download path too
+(browse to `pems.dot.ca.gov?dnode=Clearinghouse&type=meta`, sign in, pick
+the district, drop the resulting `.txt` anywhere on disk, and point
+`load_pems_station_metadata` at it).
+
+**Stage 2: project VDSs to the corridor.**
+`project_vds_to_corridor(vds_gdf, corridor, *, max_lateral_distance_m=100.0)`
+projects each VDS POINT onto the corridor's mainline LineStrings (one
+node-to-node segment at a time), picking the segment that minimizes
+perpendicular distance from the POINT to the polyline. For each VDS it
+records:
+
+* `pm_cum`             — corridor postmile (cumulative miles from upstream end)
+* `pm_caltrans`        — Caltrans postmile, interpolated from
+                         `Corridor.caltrans_postmiles` when present
+* `seg_index`          — which mainline segment caught the projection
+* `lateral_distance_m` — perpendicular distance from POINT to centerline
+
+VDSs whose `lateral_distance_m` exceeds `max_lateral_distance_m` (100 m by
+default) are dropped — these are stations on the same freeway but outside
+the bbox we extracted, for which `shapely.LineString.project` clamps to an
+endpoint and the postmile is meaningless. `pm_caltrans` vs PeMS-reported
+`Abs_PM` is the independent sanity check the integration test runs to
+verify the projection sits where it should.
+
+**Stage 3: assign VDSs to cells.**
+`assign_vds_to_cells(cells_df, vds_projected, *, fallback="upstream",
+tiebreaker="midpoint")` walks the cells produced by `cells_from_corridor`
+and attaches a VDS to each one. The interval check matches the ramp
+convention from Step 3 — VDSs in $(\text{pm\_start}, \text{pm\_end}]$
+belong to that cell, so a VDS exactly on a cell boundary goes to the
+upstream cell:
+
+1. **Direct match.** If exactly one VDS lands in the cell, it's the
+   `direct` assignment.
+2. **Tiebreaker.** Multiple VDSs in one cell are resolved by the
+   `tiebreaker` setting (`"midpoint"` — closest to the cell's pm midpoint,
+   the default; `"lowest_id"` — smallest `vds_id` for full determinism;
+   `"highest_pm_observed"` — placeholder for the future Step-2 data-
+   quality hook). The cell is flagged `direct_tiebreak` and
+   `vds_n_candidates >= 2` so downstream consumers can inspect.
+3. **M&H 2014 fallback.** If no VDS lives in the cell and
+   `fallback="upstream"`, the cell inherits the `vds_id` from the closest
+   *upstream* cell that has one (Muralidharan & Horowitz 2014, IEEE
+   #6859026). The cell is flagged `nearest_upstream` and
+   `vds_distance_mi` records the signed gap (negative = how far upstream
+   the inherited VDS is).
+4. **Missing.** Cells upstream of every VDS in the corridor stay
+   `missing` (no inherit-from-future), with `vds_id` set to `<NA>`.
+
+The optional `min_lane_match=True` flag mirrors the existing
+`utils/representation.py` behavior of preferring VDSs whose lane count
+matches the cell's `lanes` column when multiple candidates are available.
+
+**Output.** `cells.csv` gains these columns: `vds_id` (Int64, `<NA>` only
+on `missing`), `vds_pm`, `vds_source` (`direct` / `direct_tiebreak` /
+`nearest_upstream` / `missing`), `vds_distance_mi` (signed; nonzero only
+for `nearest_upstream`), and `vds_n_candidates` (count of direct
+candidates; >1 means a tiebreaker fired). Step 2 picks up the
+`vds_id` column to find the matching `.gz` time-series file per cell.
+
+**Validation.** Running the demo on the cached I-210 W graph with the
+cached PeMS D7 snapshot —
+
+```
+python scripts/build_ctm_from_osm.py \
+    --graphml tests/fixtures/osm/i210_bbox.graphml \
+    --ref "I 210" --direction W --postmiles auto \
+    --pems-metadata tests/fixtures/pems/d07_meta_2023_12_22.txt
+```
+
+— produces 45 cells over 12.6 mi with VDS sources `direct=18`,
+`direct_tiebreak=4`, `nearest_upstream=22`, `missing=1`. 26 mainline VDSs
+in the corridor span (~2.1 / mi, in the ballpark of CTMSIM's ~2.8 / mi),
+with median lateral distance to the centerline under 3 m and Caltrans-PM
+projection within 0.5 mi of PeMS's reported `Abs_PM` for most stations.
 
 ## Step 5: Cell Length Tuning
 Not currently implemented.

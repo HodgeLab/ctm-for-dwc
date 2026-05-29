@@ -35,6 +35,13 @@ from .osm import (
     summarize_refs,
 )
 from .results import SimulationResult
+from .vds import (
+    DEFAULT_PEMS_DIR,
+    assign_vds_to_cells,
+    download_pems_station_metadata,
+    load_pems_station_metadata,
+    project_vds_to_corridor,
+)
 from . import examples
 
 __all__ = [
@@ -67,5 +74,10 @@ __all__ = [
     "caltrans_postmiles_for_corridor",
     "download_caltrans_postmiles",
     "DEFAULT_POSTMILE_FILE",
+    "load_pems_station_metadata",
+    "project_vds_to_corridor",
+    "assign_vds_to_cells",
+    "download_pems_station_metadata",
+    "DEFAULT_PEMS_DIR",
     "examples",
 ]

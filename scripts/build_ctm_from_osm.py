@@ -64,6 +64,12 @@ from transportation_models.utils.ctm.caltrans import (
 )
 from transportation_models.utils.ctm.cells import cells_from_corridor
 from transportation_models.utils.ctm.osm import Corridor, corridor_from_graph
+from transportation_models.utils.ctm.vds import (
+    assign_vds_to_cells,
+    download_pems_station_metadata,
+    load_pems_station_metadata,
+    project_vds_to_corridor,
+)
 
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_OUT = REPO / "scripts/output/ctm_corridor"
@@ -87,6 +93,26 @@ def _resolve_postmiles_arg(value: str | None, ref: str):
         route = extract_route_number(ref)
         path = download_caltrans_postmiles(routes=[route], progress=True)
         return path
+    return Path(value).expanduser().resolve()
+
+
+def _resolve_pems_metadata_arg(value: str | None, district: int | None):
+    """Translate ``--pems-metadata`` into a file path (or None).
+
+    * ``None``      -> ``None`` (Step 4 skipped, cells get no vds_* columns).
+    * ``"auto"``    -> :func:`download_pems_station_metadata` for the requested
+                       district (latest available year). Needs ``--district``
+                       and PeMS credentials in the env.
+    * any other     -> filesystem path to a PeMS ``station_meta`` text file.
+    """
+    if value is None:
+        return None
+    if value == "auto":
+        if district is None:
+            raise SystemExit(
+                "--pems-metadata auto requires --district (Caltrans district id)"
+            )
+        return download_pems_station_metadata(district=district, progress=True)
     return Path(value).expanduser().resolve()
 
 
@@ -301,6 +327,15 @@ def print_summary(corridor: Corridor, cells_df) -> None:
             f"  Caltrans PM range : {cal_start:.3f} -> {cal_end:.3f} "
             f"(span {abs(cal_end - cal_start):.3f} mi)"
         )
+    if "vds_source" in cells_df.columns:
+        from collections import Counter
+        srcs = Counter(cells_df["vds_source"])
+        print(f"  VDS sources       : "
+              + ", ".join(f"{k}={v}" for k, v in sorted(srcs.items())))
+        multi = int((cells_df["vds_n_candidates"] >= 2).sum())
+        if multi:
+            print(f"  multi-VDS cells   : {multi} "
+                  f"(tiebreaker resolved them)")
 
 
 # ---- main -----------------------------------------------------------------
@@ -328,6 +363,29 @@ def main() -> None:
             "leaves Caltrans PMs unset and the cells.csv only carries "
             "cumulative-length postmiles."
         ),
+    )
+    parser.add_argument(
+        "--pems-metadata",
+        default=None,
+        help=(
+            "PeMS station_meta source. Either 'auto' (downloads the latest "
+            "snapshot for --district via the PeMS clearinghouse; needs "
+            "PEMS_USERNAME / PEMS_PASSWORD in the environment), or a "
+            "filesystem path to a pre-downloaded station_meta.txt file. "
+            "Omitting this skips Step 4 (cells.csv has no vds_* columns)."
+        ),
+    )
+    parser.add_argument(
+        "--district", type=int, default=None,
+        help=(
+            "Caltrans district for --pems-metadata auto (e.g. 4 for the Bay "
+            "Area / I-880, 7 for LA / I-210). Ignored if --pems-metadata is "
+            "an explicit path or omitted."
+        ),
+    )
+    parser.add_argument(
+        "--vds-tiebreaker", choices=["midpoint", "lowest_id"], default="midpoint",
+        help="strategy when multiple VDSs land in one cell (default: midpoint)",
     )
     parser.add_argument("--out-dir", type=Path, default=None,
                         help=f"output directory (default: {DEFAULT_OUT}/<ref>_<dir>)")
@@ -362,6 +420,20 @@ def main() -> None:
         postmiles=postmiles_arg,
     )
     cells_df = cells_from_corridor(corridor)
+
+    # Step 4 (optional): load PeMS station metadata, project VDSs onto the
+    # corridor, and assign them to cells with the M&H 2014 upstream fallback.
+    pems_path = _resolve_pems_metadata_arg(args.pems_metadata, args.district)
+    if pems_path is not None:
+        vds_gdf = load_pems_station_metadata(
+            pems_path,
+            freeway=args.ref,
+            direction=args.direction if isinstance(direction, str) else args.direction,
+        )
+        projected = project_vds_to_corridor(vds_gdf, corridor)
+        cells_df = assign_vds_to_cells(
+            cells_df, projected, tiebreaker=args.vds_tiebreaker,
+        )
 
     cells_csv = out_dir / "cells.csv"
     cells_df.to_csv(cells_csv, index=False)
