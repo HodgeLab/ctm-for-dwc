@@ -25,7 +25,10 @@ optional columns (fall back to :class:`Cell` defaults if missing or NaN)
     off_ramp            bool    whether the cell has an off-ramp; default False
     on_ramp_capacity    veh/h   R_i; defaults to inf (must stay inf if on_ramp=False)
     off_ramp_capacity   veh/h   S_i; defaults to inf (must stay inf if off_ramp=False)
-    gamma               -       on-ramp blending factor; defaults to 0
+    gamma               -       on-ramp blending factor; defaults to 1 (CTMSIM
+                                canonical, matches our cells.cells_from_corridor
+                                convention of on-ramps at the upstream edge;
+                                set 0 to recover Gomes & Horowitz)
     xi                  -       on-ramp allocation factor; defaults to 1
 
 Scenario schema

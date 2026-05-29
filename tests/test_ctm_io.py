@@ -34,9 +34,11 @@ def test_freeway_from_dataframe_required_columns_only():
     c = fwy.cells[0]
     assert c.length == 1.0 and c.q_max == 6000.0 and c.v_f == 60.0
     assert c.w == 20.0 and c.rho_jam == 400.0
-    # Optional fields default in :class:`Cell`.
+    # Optional fields default in :class:`Cell`. gamma defaults to 1.0
+    # (CTMSIM canonical; matches cells_from_corridor's upstream-edge ramp
+    # convention). xi defaults to 1.0 (on-ramp can use the cell's full space).
     assert c.rho_crit == pytest.approx(100.0)  # q_max / v_f
-    assert c.gamma == 0.0
+    assert c.gamma == 1.0
     assert c.xi == 1.0
     assert c.on_ramp_capacity == np.inf
     assert c.off_ramp_capacity == np.inf
@@ -62,9 +64,9 @@ def test_freeway_from_dataframe_optional_columns_are_used():
 
 def test_optional_column_with_nan_falls_back_to_default():
     df = _minimal_df()
-    df["gamma"] = [np.nan, 0.5]  # cell 0: NaN -> default 0.0; cell 1: 0.5
+    df["gamma"] = [np.nan, 0.5]  # cell 0: NaN -> default 1.0; cell 1: 0.5
     fwy = freeway_from_dataframe(df, dt=1.0 / 120.0)
-    assert fwy.cells[0].gamma == 0.0
+    assert fwy.cells[0].gamma == 1.0
     assert fwy.cells[1].gamma == 0.5
 
 

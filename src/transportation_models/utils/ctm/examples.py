@@ -15,6 +15,10 @@ def example_1_freeway() -> Freeway:
     """
 
     def cell(**overrides) -> Cell:
+        # Dissertation Example 1 is stated in the Gomes & Horowitz / four-mode
+        # form, which sets gamma = 0. Pin it explicitly so the reported
+        # equilibria rho^u = (80, 100) and rho^con = (160, 160) hold
+        # regardless of the (now CTMSIM-canonical, gamma = 1) Cell default.
         return Cell(
             length=1.0,
             q_max=6000.0,
@@ -22,6 +26,7 @@ def example_1_freeway() -> Freeway:
             w=20.0,
             rho_jam=400.0,
             rho_crit=100.0,
+            gamma=0.0,
             **overrides,
         )
 
@@ -45,6 +50,8 @@ def four_cell_freeway() -> Freeway:
     """
 
     def cell(**overrides) -> Cell:
+        # §3.4 example also follows Gomes & Horowitz (gamma = 0); pin it so
+        # the golden test's feasible / infeasible flows match the dissertation.
         return Cell(
             length=1.0,
             q_max=6000.0,
@@ -52,6 +59,7 @@ def four_cell_freeway() -> Freeway:
             w=20.0,
             rho_jam=400.0,
             rho_crit=100.0,
+            gamma=0.0,
             **overrides,
         )
 

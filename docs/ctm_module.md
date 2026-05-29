@@ -24,8 +24,96 @@ Key parameters are:
 5) Critical density $\rho_{crit,i}$
 
 ## Step 3: Roadway --> Cell Mapping
-Currently implemented in `transportation_models.utils.representation` through a class called `Freeway`.
-Needs to be re-done.
+Implemented in `transportation_models.utils.ctm.osm` (corridor extraction),
+`transportation_models.utils.ctm.cells` (cell layout), and
+`transportation_models.utils.ctm.caltrans` (optional Caltrans postmile
+annotation). End-to-end demo: `scripts/build_ctm_from_osm.py`.
+
+The mapping is a three-stage pipeline that takes an OpenStreetMap network for a
+region and emits a freeway-schema cell table ready for
+`utils.ctm.io.freeway_from_dataframe`. Each stage is intentionally small so it
+can be tested and swapped in isolation.
+
+**Stage 1: OSM → `Corridor`.** The caller fetches a roadway graph via any
+osmnx download method (`graph_from_bbox`, `graph_from_place`,
+`graph_from_polygon`, `load_graphml`, …) and runs `ox.simplify_graph` on it.
+`corridor_from_graph(graph, ref="I 880", direction="N")` then:
+
+1. Filters edges to `highway=motorway` matching the requested `ref` (matches a
+   bare string, list-valued OSM tags, or `;`-joined values).
+2. Drops mainline edges whose bearing is more than `bearing_tolerance` degrees
+   off the requested direction, which picks one carriageway out of a
+   bidirectional bbox.
+3. Takes the largest weakly-connected component of what remains.
+4. Walks the result upstream → downstream, picking the dominant carriageway at
+   every fork via a `(lanes, length, bearing-closeness)` tuple score. This
+   tolerates OSM's habit of tagging parallel HOV / express / auxiliary lanes
+   with the same `ref` as the trunk (e.g., I-880 in Hayward, I-210 in Pasadena
+   where the bbox truncates an HOV stub a few meters from the trunk).
+5. Identifies ramps as `highway=motorway_link` edges with exactly one endpoint
+   on the mainline path (source on mainline ⇒ off-ramp; sink on mainline ⇒
+   on-ramp).
+6. Optionally crops to `pm_range=(lo, hi)` in cumulative-mile coordinates.
+
+The output `Corridor` holds an ordered list of `MainlineSegment`s
+(geometry, lane count, `pm_start`/`pm_end` in cumulative miles from upstream)
+and `RampJunction`s (kind, postmile, gore-point geometry, ramp name).
+
+If the user doesn't know the right OSM `ref` for a region, `summarize_refs(g)`
+inventories the refs present, ranked by total mainline length, with the
+most-common OSM `name` tag attached (e.g. `Nimitz Freeway` for `I 880`).
+`scripts/list_osm_refs.py` is the CLI wrapper.
+
+**Stage 2 (optional): Caltrans postmile annotation.** When
+`corridor_from_graph(..., postmiles=path_or_gdf)` is given a Caltrans SHN
+postmile dataset (point geometries with `Route` and `PM` columns), it
+attaches a `caltrans_postmiles: dict[node_id → PM]` to the corridor. For each
+mainline node it finds the nearest matching-route marker and adjusts that
+marker's PM by the signed distance along the mainline from marker to node,
+using the route's direction convention (PMs increase N/E along the route, so
+westbound and southbound corridors get monotonically *decreasing* PMs along
+travel — matching what CTMSIM / the dissertation report). The downloader
+`download_caltrans_postmiles(routes=[880])` pulls a route-filtered subset
+from the Caltrans FeatureServer (≈1 MB per route, vs ~144 MB statewide) and
+caches it under `data/caltrans/` (gitignored).
+
+**Stage 3: cell layout.** `cells_from_corridor(corridor)` collects breakpoints
+from the union of on-ramp gores, off-ramp gores, mainline lane-count changes,
+the corridor endpoints, and any `extra_break_postmiles` the caller passes in
+(Step 4 uses the last to enforce "one VDS per cell"). Adjacent breakpoints
+become cells, and each cell records `length`, `lanes`, `on_ramp`, `off_ramp`,
+the ramp names if present, and — when Caltrans PMs were attached in stage 2 —
+`caltrans_pm_start`/`caltrans_pm_end`. The resulting DataFrame slots directly
+into `freeway_from_dataframe` once Step 2 supplies the FD parameters.
+
+The CTMSIM/dissertation convention that "on-ramps live at the *start* of a
+cell, off-ramps at the *end*" is encoded exactly here: a cell's `on_ramp`
+flag is True iff its `pm_start` sits on an on-ramp gore, and `off_ramp` iff
+its `pm_end` sits on an off-ramp gore. A ramp at the corridor's upstream or
+downstream end therefore belongs to the first or last cell; co-located
+on + off ramps split cleanly across adjacent cells (off → upstream cell,
+on → downstream cell).
+
+Because the on-ramp lives at the cell's upstream edge, on-ramp vehicles
+have a full ΔT to traverse the cell at free-flow speed (the CFL condition
+$v_{f,i}\Delta T \le l_i$ guarantees they don't overshoot). They therefore
+*do* contribute to the cell's sending function in the same step, which
+fixes the on-ramp blending factor at $\gamma_i = 1$. `Cell.gamma` defaults
+to 1.0 accordingly (matching CTMSIM canonical); the dissertation's
+Examples 1 and §3.4 — which are stated in the Gomes & Horowitz / four-mode
+form with $\gamma_i = 0$ — pin γ explicitly in
+`utils.ctm.examples`. The on-ramp allocation factor $\xi_i$ is orthogonal
+to ramp position (it controls how much of the cell's empty space the
+on-ramp can fill) and defaults to 1.0, matching both conventions.
+
+**Validation.** The Hayward I-880 N case end-to-end: `python
+scripts/build_ctm_from_osm.py --bbox -122.08,37.57,-122.04,37.62 --ref "I 880"
+--direction N --postmiles auto` extracts 8 mainline segments and 7 cells over
+3.89 mi with Caltrans PM 10.9 → 14.7 (NB direction → PMs increase along
+travel). The I-210 W golden test against the Kurzhanskiy 2007 dissertation
+fixture (`ctmsim_configs/w060412.mat`) confirms the corridor's Caltrans PMs
+span the dissertation's PM 24-39 range when anchored at Vernon Ave and the
+SR-134 split.
 
 ## Step 4: VDS --> Cell Mapping
 Currently implemented in `transportation_models.utils.representation` through a class called `Freeway`.

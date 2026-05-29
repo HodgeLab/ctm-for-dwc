@@ -47,8 +47,14 @@ class Cell:
     off_ramp: bool = False             # whether the cell has an off-ramp
     on_ramp_capacity: float = np.inf   # R_i [veh/h]
     off_ramp_capacity: float = np.inf  # S_i [veh/h]
-    gamma: float = 0.0      # gamma_i   on-ramp blending factor [-]
+    gamma: float = 1.0      # gamma_i   on-ramp blending factor [-]
     xi: float = 1.0         # xi_i      on-ramp allocation factor [-]
+    # gamma defaults to 1.0 to match the CTMSIM canonical update + the
+    # cell-boundary convention encoded in `cells.cells_from_corridor`
+    # (on-ramps live at the *upstream* edge of their cell, so on-ramp arrivals
+    # have a full ΔT to traverse the cell at free-flow speed and contribute to
+    # this step's sending function). Set gamma=0.0 explicitly to recover the
+    # Gomes & Horowitz / four-mode form used in the dissertation's Examples.
 
     def __post_init__(self) -> None:
         if self.rho_crit is None:
