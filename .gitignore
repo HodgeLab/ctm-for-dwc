@@ -215,3 +215,6 @@ artifacts
 .claude
 slurm_scripts
 scripts/output/
+
+# osmnx Overpass query cache (one file per query, regenerated on demand)
+cache/

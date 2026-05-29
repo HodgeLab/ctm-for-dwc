@@ -1,0 +1,3586 @@
+<?xml version='1.0' encoding='utf-8'?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://graphml.graphdrawing.org/xmlns http://graphml.graphdrawing.org/xmlns/1.0/graphml.xsd">
+  <key id="d21" for="edge" attr.name="tunnel" attr.type="string" />
+  <key id="d20" for="edge" attr.name="width" attr.type="string" />
+  <key id="d19" for="edge" attr.name="ref" attr.type="string" />
+  <key id="d18" for="edge" attr.name="name" attr.type="string" />
+  <key id="d17" for="edge" attr.name="maxspeed" attr.type="string" />
+  <key id="d16" for="edge" attr.name="bridge" attr.type="string" />
+  <key id="d15" for="edge" attr.name="geometry" attr.type="string" />
+  <key id="d14" for="edge" attr.name="length" attr.type="string" />
+  <key id="d13" for="edge" attr.name="reversed" attr.type="string" />
+  <key id="d12" for="edge" attr.name="oneway" attr.type="string" />
+  <key id="d11" for="edge" attr.name="lanes" attr.type="string" />
+  <key id="d10" for="edge" attr.name="highway" attr.type="string" />
+  <key id="d9" for="edge" attr.name="osmid" attr.type="string" />
+  <key id="d8" for="node" attr.name="street_count" attr.type="string" />
+  <key id="d7" for="node" attr.name="ref" attr.type="string" />
+  <key id="d6" for="node" attr.name="highway" attr.type="string" />
+  <key id="d5" for="node" attr.name="x" attr.type="string" />
+  <key id="d4" for="node" attr.name="y" attr.type="string" />
+  <key id="d3" for="graph" attr.name="simplified" attr.type="string" />
+  <key id="d2" for="graph" attr.name="crs" attr.type="string" />
+  <key id="d1" for="graph" attr.name="created_with" attr.type="string" />
+  <key id="d0" for="graph" attr.name="created_date" attr.type="string" />
+  <graph edgedefault="directed">
+    <node id="11931818">
+      <data key="d4">34.1491781</data>
+      <data key="d5">-118.0511656</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d7">31</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="15343580">
+      <data key="d4">34.149778</data>
+      <data key="d5">-118.0501695</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="16218741">
+      <data key="d4">34.1410911</data>
+      <data key="d5">-118.1541199</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="26795119">
+      <data key="d4">34.1513294</data>
+      <data key="d5">-118.0900446</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d7">29A</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="26795121">
+      <data key="d4">34.1528997</data>
+      <data key="d5">-118.0933124</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="26795155">
+      <data key="d4">34.1490416</data>
+      <data key="d5">-118.0462371</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d7">31</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="26795156">
+      <data key="d4">34.1486218</data>
+      <data key="d5">-118.0542145</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d7">31</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="27976732">
+      <data key="d4">34.1523605</data>
+      <data key="d5">-118.13261</data>
+      <data key="d6">crossing</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="29322371">
+      <data key="d4">34.1526674</data>
+      <data key="d5">-118.1073616</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d7">27B</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="29322375">
+      <data key="d4">34.1529638</data>
+      <data key="d5">-118.1123382</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="29429900">
+      <data key="d4">34.1485765</data>
+      <data key="d5">-118.0731765</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="36550437">
+      <data key="d4">34.1355829</data>
+      <data key="d5">-118.0055706</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="36550441">
+      <data key="d4">34.1357439</data>
+      <data key="d5">-118.0072926</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="36550453">
+      <data key="d4">34.1394404</data>
+      <data key="d5">-118.0156239</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d7">33</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="36740286">
+      <data key="d4">34.1301705</data>
+      <data key="d5">-117.960349</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d7">27B–C</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="36740306">
+      <data key="d4">34.1354484</data>
+      <data key="d5">-117.9774268</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d7">35A</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="36740307">
+      <data key="d4">34.1355318</data>
+      <data key="d5">-117.9828065</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="36747161">
+      <data key="d4">34.1491802</data>
+      <data key="d5">-118.0500731</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="36747162">
+      <data key="d4">34.1504884</data>
+      <data key="d5">-118.0534356</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="122481462">
+      <data key="d4">34.1359661</data>
+      <data key="d5">-117.9763052</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="122514893">
+      <data key="d4">34.1517257</data>
+      <data key="d5">-118.0935916</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="122550246">
+      <data key="d4">34.1523833</data>
+      <data key="d5">-118.0994683</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d7">29A</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="122550252">
+      <data key="d4">34.1518134</data>
+      <data key="d5">-118.0959774</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="122688260">
+      <data key="d4">34.1523535</data>
+      <data key="d5">-118.1316576</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="122897401">
+      <data key="d4">34.152518</data>
+      <data key="d5">-118.1452675</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="123710012">
+      <data key="d4">34.135009</data>
+      <data key="d5">-117.9809657</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="177398561">
+      <data key="d4">34.1487951</data>
+      <data key="d5">-118.157328</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d7">13A</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="178489644">
+      <data key="d4">34.1516464</data>
+      <data key="d5">-118.143858</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="178490324">
+      <data key="d4">34.1516314</data>
+      <data key="d5">-118.140551</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="181077185">
+      <data key="d4">34.1516338</data>
+      <data key="d5">-118.1382748</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d7">26</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="181077206">
+      <data key="d4">34.1512904</data>
+      <data key="d5">-118.1339708</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="181077295">
+      <data key="d4">34.1516597</data>
+      <data key="d5">-118.1278222</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="182130675">
+      <data key="d4">34.1517133</data>
+      <data key="d5">-118.1270681</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d7">27</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="182130717">
+      <data key="d4">34.1517676</data>
+      <data key="d5">-118.1223593</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="182130731">
+      <data key="d4">34.152252</data>
+      <data key="d5">-118.1158659</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="182130781">
+      <data key="d4">34.152846</data>
+      <data key="d5">-118.1215892</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="185743917">
+      <data key="d4">34.1520065</data>
+      <data key="d5">-118.0994842</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="185744804">
+      <data key="d4">34.1527069</data>
+      <data key="d5">-118.1013067</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="268162290">
+      <data key="d4">34.1481142</data>
+      <data key="d5">-118.0347936</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d7">32</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="268162293">
+      <data key="d4">34.1479914</data>
+      <data key="d5">-118.0332788</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="268162304">
+      <data key="d4">34.1429261</data>
+      <data key="d5">-118.021077</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d7">33</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="268162312">
+      <data key="d4">34.1392998</data>
+      <data key="d5">-118.0157883</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="268162313">
+      <data key="d4">34.1381991</data>
+      <data key="d5">-118.0146002</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="268162378">
+      <data key="d4">34.1482998</data>
+      <data key="d5">-118.0315158</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="268162437">
+      <data key="d4">34.1481592</data>
+      <data key="d5">-118.0327172</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="268162439">
+      <data key="d4">34.1485058</data>
+      <data key="d5">-118.0357795</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="268667539">
+      <data key="d4">34.1473063</data>
+      <data key="d5">-118.0796066</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="268670906">
+      <data key="d4">34.150249</data>
+      <data key="d5">-118.0891081</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="268671043">
+      <data key="d4">34.1483672</data>
+      <data key="d5">-118.0863229</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d7">29B</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="268671344">
+      <data key="d4">34.1479181</data>
+      <data key="d5">-118.0750149</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d7">30B</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="268671512">
+      <data key="d4">34.1476799</data>
+      <data key="d5">-118.0776085</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="268671522">
+      <data key="d4">34.1476224</data>
+      <data key="d5">-118.083597</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d7">30A</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="268671567">
+      <data key="d4">34.1522327</data>
+      <data key="d5">-118.0935465</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="268673020">
+      <data key="d4">34.1491496</data>
+      <data key="d5">-118.0869534</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="268673790">
+      <data key="d4">34.1480457</data>
+      <data key="d5">-118.0785725</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d7">29B</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="268673895">
+      <data key="d4">34.1490884</data>
+      <data key="d5">-118.0734782</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="268674873">
+      <data key="d4">34.1471962</data>
+      <data key="d5">-118.0826018</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="268882189">
+      <data key="d4">34.1323162</data>
+      <data key="d5">-117.9508241</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="268882196">
+      <data key="d4">34.1296211</data>
+      <data key="d5">-117.9433595</data>
+      <data key="d8">2</data>
+    </node>
+    <node id="268882219">
+      <data key="d4">34.1296962</data>
+      <data key="d5">-117.9428377</data>
+      <data key="d8">2</data>
+    </node>
+    <node id="268882238">
+      <data key="d4">34.1328405</data>
+      <data key="d5">-117.9515909</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="268882249">
+      <data key="d4">34.1335246</data>
+      <data key="d5">-117.9540717</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d7">36B</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="279669910">
+      <data key="d4">34.1520155</data>
+      <data key="d5">-118.1405648</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d7">25B</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="279669949">
+      <data key="d4">34.1520445</data>
+      <data key="d5">-118.1434784</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d7">26A</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="279669952">
+      <data key="d4">34.1522236</data>
+      <data key="d5">-118.1460307</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d7">25A</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="279669988">
+      <data key="d4">34.1500795</data>
+      <data key="d5">-118.1549649</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="279670282">
+      <data key="d4">34.1508692</data>
+      <data key="d5">-118.1550876</data>
+      <data key="d8">2</data>
+    </node>
+    <node id="279670688">
+      <data key="d4">34.1515603</data>
+      <data key="d5">-118.1552708</data>
+      <data key="d8">2</data>
+    </node>
+    <node id="279672869">
+      <data key="d4">34.1525444</data>
+      <data key="d5">-118.1552263</data>
+      <data key="d8">2</data>
+    </node>
+    <node id="321911536">
+      <data key="d4">34.1489278</data>
+      <data key="d5">-118.0634107</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d7">30</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="321911697">
+      <data key="d4">34.1501687</data>
+      <data key="d5">-118.0744821</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="321924196">
+      <data key="d4">34.1489689</data>
+      <data key="d5">-118.0574575</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="321925592">
+      <data key="d4">34.1486944</data>
+      <data key="d5">-118.0458561</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="322075318">
+      <data key="d4">34.1458838</data>
+      <data key="d5">-118.0273024</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="322562336">
+      <data key="d4">34.1530904</data>
+      <data key="d5">-118.0986975</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="322562552">
+      <data key="d4">34.1527038</data>
+      <data key="d5">-118.1051034</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="322652780">
+      <data key="d4">34.1353907</data>
+      <data key="d5">-118.0046951</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d7">34</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="322652809">
+      <data key="d4">34.1350536</data>
+      <data key="d5">-118.0014471</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="322653739">
+      <data key="d4">34.1350502</data>
+      <data key="d5">-117.9998655</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="322654001">
+      <data key="d4">34.1353624</data>
+      <data key="d5">-117.9952221</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="322718801">
+      <data key="d4">34.1359276</data>
+      <data key="d5">-117.9869578</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="322726414">
+      <data key="d4">34.135005</data>
+      <data key="d5">-117.9827177</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="322726430">
+      <data key="d4">34.1353744</data>
+      <data key="d5">-117.9731736</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="322726431">
+      <data key="d4">34.135613</data>
+      <data key="d5">-117.973047</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d7">35B</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="322726437">
+      <data key="d4">34.1357337</data>
+      <data key="d5">-117.9814747</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="322892189">
+      <data key="d4">34.1295018</data>
+      <data key="d5">-117.9613306</data>
+      <data key="d8">2</data>
+    </node>
+    <node id="322893052">
+      <data key="d4">34.1362723</data>
+      <data key="d5">-117.9564073</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="322895473">
+      <data key="d4">34.1375543</data>
+      <data key="d5">-117.9561587</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="322898465">
+      <data key="d4">34.1338075</data>
+      <data key="d5">-117.9573115</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="322899110">
+      <data key="d4">34.1354574</data>
+      <data key="d5">-117.9649425</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d7">36A</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="322899203">
+      <data key="d4">34.1304816</data>
+      <data key="d5">-117.9605792</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="323067265">
+      <data key="d4">34.1297656</data>
+      <data key="d5">-117.9323514</data>
+      <data key="d8">2</data>
+    </node>
+    <node id="323067268">
+      <data key="d4">34.1306018</data>
+      <data key="d5">-117.9297996</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="323067643">
+      <data key="d4">34.1306462</data>
+      <data key="d5">-117.9336802</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="323067648">
+      <data key="d4">34.1299321</data>
+      <data key="d5">-117.9346954</data>
+      <data key="d8">2</data>
+    </node>
+    <node id="326269593">
+      <data key="d4">34.1495865</data>
+      <data key="d5">-118.0705519</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="353018174">
+      <data key="d4">34.1359449</data>
+      <data key="d5">-117.956916</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="353021833">
+      <data key="d4">34.133927</data>
+      <data key="d5">-117.9570869</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d7">36B</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="364289154">
+      <data key="d4">34.1515903</data>
+      <data key="d5">-118.1503891</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="364292886">
+      <data key="d4">34.1352596</data>
+      <data key="d5">-117.9755903</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="364293613">
+      <data key="d4">34.128951</data>
+      <data key="d5">-117.9367761</data>
+      <data key="d8">2</data>
+    </node>
+    <node id="364873706">
+      <data key="d4">34.150557</data>
+      <data key="d5">-118.1517875</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="397310084">
+      <data key="d4">34.1525837</data>
+      <data key="d5">-118.0934608</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="446297087">
+      <data key="d4">34.1299607</data>
+      <data key="d5">-117.9254272</data>
+      <data key="d8">2</data>
+    </node>
+    <node id="446297120">
+      <data key="d4">34.1309196</data>
+      <data key="d5">-117.9287316</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d7">38</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="446303437">
+      <data key="d4">34.1342857</data>
+      <data key="d5">-117.9585135</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="446303440">
+      <data key="d4">34.1350768</data>
+      <data key="d5">-117.9609374</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d7">36B</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="461493589">
+      <data key="d4">34.1355608</data>
+      <data key="d5">-117.9838021</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="462531326">
+      <data key="d4">34.1355715</data>
+      <data key="d5">-117.9906506</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="462532371">
+      <data key="d4">34.1353591</data>
+      <data key="d5">-117.9932511</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d7">35A</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="539712691">
+      <data key="d4">34.1401834</data>
+      <data key="d5">-118.0171768</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="539715526">
+      <data key="d4">34.140294</data>
+      <data key="d5">-118.0179771</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="539777368">
+      <data key="d4">34.1358968</data>
+      <data key="d5">-118.0012422</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="539779695">
+      <data key="d4">34.135373</data>
+      <data key="d5">-117.9865869</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d7">35B</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="552459342">
+      <data key="d4">34.1481339</data>
+      <data key="d5">-118.1551152</data>
+      <data key="d8">2</data>
+    </node>
+    <node id="552459736">
+      <data key="d4">34.1424974</data>
+      <data key="d5">-118.1546844</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="604023956">
+      <data key="d4">34.1491875</data>
+      <data key="d5">-118.068156</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="612638344">
+      <data key="d4">34.1485425</data>
+      <data key="d5">-118.0616247</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="613184001">
+      <data key="d4">34.1489091</data>
+      <data key="d5">-118.0680661</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="664492542">
+      <data key="d4">34.129304</data>
+      <data key="d5">-117.9610818</data>
+      <data key="d8">2</data>
+    </node>
+    <node id="806276613">
+      <data key="d4">34.1530667</data>
+      <data key="d5">-118.0948091</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="844945145">
+      <data key="d4">34.1522003</data>
+      <data key="d5">-118.1256484</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="852777075">
+      <data key="d4">34.1524737</data>
+      <data key="d5">-118.1498881</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="852777115">
+      <data key="d4">34.1523705</data>
+      <data key="d5">-118.151442</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="852867729">
+      <data key="d4">34.1512564</data>
+      <data key="d5">-118.1458339</data>
+      <data key="d6">crossing</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="853061423">
+      <data key="d4">34.1489968</data>
+      <data key="d5">-118.0533498</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="853102637">
+      <data key="d4">34.135033</data>
+      <data key="d5">-117.9872147</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="853102656">
+      <data key="d4">34.1355833</data>
+      <data key="d5">-117.994508</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d7">34</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="934126848">
+      <data key="d4">34.1437464</data>
+      <data key="d5">-118.1548464</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="938898673">
+      <data key="d4">34.1517313</data>
+      <data key="d5">-118.1504529</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="1102599024">
+      <data key="d4">34.1356606</data>
+      <data key="d5">-117.9658701</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="1102600744">
+      <data key="d4">34.1356094</data>
+      <data key="d5">-117.9632885</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="1102601810">
+      <data key="d4">34.1310445</data>
+      <data key="d5">-117.9336839</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="1102602969">
+      <data key="d4">34.1325553</data>
+      <data key="d5">-117.9589665</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="1102604029">
+      <data key="d4">34.1292346</data>
+      <data key="d5">-117.9609545</data>
+      <data key="d8">2</data>
+    </node>
+    <node id="1102606094">
+      <data key="d4">34.1304704</data>
+      <data key="d5">-117.9335478</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="1110075180">
+      <data key="d4">34.1298229</data>
+      <data key="d5">-117.9341178</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="1346251751">
+      <data key="d4">34.1485276</data>
+      <data key="d5">-118.0680555</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="1377536883">
+      <data key="d4">34.1519713</data>
+      <data key="d5">-118.1494619</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d7">13B</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="1687098985">
+      <data key="d4">34.1448684</data>
+      <data key="d5">-118.1548553</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="1687115151">
+      <data key="d4">34.1528581</data>
+      <data key="d5">-118.1208332</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="1687115161">
+      <data key="d4">34.1523396</data>
+      <data key="d5">-118.1047935</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d7">28</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="1687115177">
+      <data key="d4">34.1520792</data>
+      <data key="d5">-118.1269437</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d7">26B</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="1687115183">
+      <data key="d4">34.1525817</data>
+      <data key="d5">-118.1164148</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d7">27A</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="1687158745">
+      <data key="d4">34.1462399</data>
+      <data key="d5">-118.0275485</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d7">32</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="1784830607">
+      <data key="d4">34.1387115</data>
+      <data key="d5">-118.1541043</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="1833697499">
+      <data key="d4">34.1523221</data>
+      <data key="d5">-118.1071342</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="1931511067">
+      <data key="d4">34.1358784</data>
+      <data key="d5">-117.9994834</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="1931511071">
+      <data key="d4">34.1476759</data>
+      <data key="d5">-118.0733308</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="1931523072">
+      <data key="d4">34.1495384</data>
+      <data key="d5">-118.1555435</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d7">25C</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="3123939257">
+      <data key="d4">34.1504878</data>
+      <data key="d5">-118.0533188</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="3480273622">
+      <data key="d4">34.1490774</data>
+      <data key="d5">-118.0677418</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="4085601850">
+      <data key="d4">34.1348555</data>
+      <data key="d5">-117.9775187</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="5221232637">
+      <data key="d4">34.1472243</data>
+      <data key="d5">-118.0314971</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="5221232641">
+      <data key="d4">34.1473512</data>
+      <data key="d5">-118.0313515</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="5226293487">
+      <data key="d4">34.1401911</data>
+      <data key="d5">-118.0159587</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="7217665643">
+      <data key="d4">34.1479138</data>
+      <data key="d5">-118.1550658</data>
+      <data key="d8">2</data>
+    </node>
+    <node id="7464907668">
+      <data key="d4">34.1426677</data>
+      <data key="d5">-118.0200711</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="8230294397">
+      <data key="d4">34.1511513</data>
+      <data key="d5">-118.1555907</data>
+      <data key="d8">2</data>
+    </node>
+    <node id="9132535290">
+      <data key="d4">34.1357205</data>
+      <data key="d5">-117.9804816</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="9171144301">
+      <data key="d4">34.148172</data>
+      <data key="d5">-118.0765391</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="11118261652">
+      <data key="d4">34.1502023</data>
+      <data key="d5">-118.0704984</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="12422556103">
+      <data key="d4">34.133597</data>
+      <data key="d5">-117.955118</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="13233844838">
+      <data key="d4">34.1472078</data>
+      <data key="d5">-118.0817062</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="13235215479">
+      <data key="d4">34.1518393</data>
+      <data key="d5">-118.1130935</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="13240128593">
+      <data key="d4">34.1517828</data>
+      <data key="d5">-118.1213268</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="13276237362">
+      <data key="d4">34.1512632</data>
+      <data key="d5">-118.1323001</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="13298107290">
+      <data key="d4">34.1402763</data>
+      <data key="d5">-118.0187391</data>
+      <data key="d8">2</data>
+    </node>
+    <node id="13298107292">
+      <data key="d4">34.14015</data>
+      <data key="d5">-118.0187149</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="13298107299">
+      <data key="d4">34.1401917</data>
+      <data key="d5">-118.0160697</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="13327574856">
+      <data key="d4">34.1490038</data>
+      <data key="d5">-118.0516255</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="13327606907">
+      <data key="d4">34.1307493</data>
+      <data key="d5">-117.945787</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="13327606941">
+      <data key="d4">34.1354637</data>
+      <data key="d5">-117.9789242</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="13327626978">
+      <data key="d4">34.1368537</data>
+      <data key="d5">-118.0108465</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="13327647717">
+      <data key="d4">34.1490307</data>
+      <data key="d5">-118.0477925</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="13327748339">
+      <data key="d4">34.1492475</data>
+      <data key="d5">-118.1563741</data>
+      <data key="d8">2</data>
+    </node>
+    <node id="13327748357">
+      <data key="d4">34.1520187</data>
+      <data key="d5">-118.136621</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="13327766714">
+      <data key="d4">34.1297427</data>
+      <data key="d5">-117.9244514</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="13327766729">
+      <data key="d4">34.1299281</data>
+      <data key="d5">-117.9333098</data>
+      <data key="d8">2</data>
+    </node>
+    <node id="13327846974">
+      <data key="d4">34.1527403</data>
+      <data key="d5">-118.0972625</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="13327846997">
+      <data key="d4">34.1523035</data>
+      <data key="d5">-118.1244564</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="13328118297">
+      <data key="d4">34.1523843</data>
+      <data key="d5">-118.097389</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="13328147212">
+      <data key="d4">34.1522034</data>
+      <data key="d5">-118.1182462</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="13333251231">
+      <data key="d4">34.152115</data>
+      <data key="d5">-118.1221287</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="13333251246">
+      <data key="d4">34.1516486</data>
+      <data key="d5">-118.1307413</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="13333260283">
+      <data key="d4">34.1516559</data>
+      <data key="d5">-118.1347049</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="13333300203">
+      <data key="d4">34.1516713</data>
+      <data key="d5">-118.1494979</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="13333300204">
+      <data key="d4">34.1517981</data>
+      <data key="d5">-118.1477813</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="13333569151">
+      <data key="d4">34.148639</data>
+      <data key="d5">-118.0526501</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="13333613239">
+      <data key="d4">34.1486821</data>
+      <data key="d5">-118.0486871</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="13333696731">
+      <data key="d4">34.1314693</data>
+      <data key="d5">-117.9485473</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="13333696777">
+      <data key="d4">34.1352815</data>
+      <data key="d5">-117.9789683</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="13335463695">
+      <data key="d4">34.129977</data>
+      <data key="d5">-117.9252924</data>
+      <data key="d8">2</data>
+    </node>
+    <node id="13335464316">
+      <data key="d4">34.1299548</data>
+      <data key="d5">-117.93299</data>
+      <data key="d8">2</data>
+    </node>
+    <node id="13335464341">
+      <data key="d4">34.1297683</data>
+      <data key="d5">-117.9435553</data>
+      <data key="d8">2</data>
+    </node>
+    <node id="13335464345">
+      <data key="d4">34.1302876</data>
+      <data key="d5">-117.945232</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="13335541473">
+      <data key="d4">34.1353367</data>
+      <data key="d5">-117.982804</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="13335585154">
+      <data key="d4">34.1470666</data>
+      <data key="d5">-118.0297624</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="13366754126">
+      <data key="d4">34.1520184</data>
+      <data key="d5">-118.1368946</data>
+      <data key="d6">motorway_junction</data>
+      <data key="d8">3</data>
+    </node>
+    <node id="13475247713">
+      <data key="d4">34.1469465</data>
+      <data key="d5">-118.0696535</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="13475247714">
+      <data key="d4">34.1469852</data>
+      <data key="d5">-118.0695891</data>
+      <data key="d8">1</data>
+    </node>
+    <node id="13525138112">
+      <data key="d4">34.1496456</data>
+      <data key="d5">-118.1548591</data>
+      <data key="d8">1</data>
+    </node>
+    <edge source="11931818" target="853061423" id="0">
+      <data key="d9">4581194</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">1</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">202.51303063706848</data>
+      <data key="d15">LINESTRING (-118.0511656 34.1491781, -118.0529575 34.1490795, -118.0533498 34.1489968)</data>
+    </edge>
+    <edge source="11931818" target="3123939257" id="0">
+      <data key="d9">[405542248, 156416009, 311011453]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">['2', '3', '1']</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">300.62379023363326</data>
+      <data key="d15">LINESTRING (-118.0511656 34.1491781, -118.0522139 34.149209, -118.0525687 34.1492287, -118.0526724 34.1492512, -118.0527761 34.1492838, -118.0529403 34.1493743, -118.0530931 34.1495138, -118.0532086 34.1496712, -118.0532625 34.1498157, -118.0532778 34.149969, -118.0533106 34.1503945, -118.0533117 34.1504077, -118.0533188 34.1504878)</data>
+    </edge>
+    <edge source="15343580" target="36747161" id="0">
+      <data key="d9">[405543472, 983113006, 3185750]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">['2', '1']</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">241.09637091795958</data>
+      <data key="d15">LINESTRING (-118.0501695 34.149778, -118.0501174 34.1498514, -118.0500902 34.149885, -118.0500765 34.1498967, -118.0500429 34.1499205, -118.0500098 34.1499405, -118.0499723 34.1499537, -118.0499317 34.1499626, -118.0498597 34.149973, -118.0497432 34.14998, -118.049621 34.1499817, -118.049539 34.1499767, -118.0494469 34.1499661, -118.0493724 34.149945, -118.0493005 34.149915, -118.0492145 34.1498414, -118.0491652 34.1497463, -118.0491291 34.1496256, -118.0491325 34.1495896, -118.0491377 34.1495333, -118.0491721 34.149448, -118.0492374 34.1493451, -118.0493795 34.1492646, -118.0495191 34.1492366, -118.0497136 34.149215, -118.0500731 34.1491802)</data>
+    </edge>
+    <edge source="16218741" target="552459736" id="0">
+      <data key="d9">167078570</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">2</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">165.17411884483292</data>
+      <data key="d15">LINESTRING (-118.1541199 34.1410911, -118.1542304 34.1413075, -118.1543207 34.1414877, -118.1544649 34.1418155, -118.1546438 34.1423101, -118.1546844 34.1424974)</data>
+    </edge>
+    <edge source="26795119" target="26795121" id="0">
+      <data key="d9">[32718664, 156460294, 32718663]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">353.53993076220604</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.0900446 34.1513294, -118.0901637 34.1515317, -118.0907476 34.151876, -118.0912308 34.1521176, -118.09172 34.1523378, -118.0922522 34.1525438, -118.092647 34.1526716, -118.0933124 34.1528997)</data>
+    </edge>
+    <edge source="26795119" target="397310084" id="0">
+      <data key="d9">[34461344, 32718670, 864056486]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">5</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">346.3862007013546</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.0900446 34.1513294, -118.0901706 34.1513962, -118.0907478 34.151715, -118.0912853 34.1519467, -118.0917739 34.1521356, -118.0923404 34.1523273, -118.0928468 34.1524623, -118.0934608 34.1525837)</data>
+    </edge>
+    <edge source="26795155" target="13327647717" id="0">
+      <data key="d9">864542800</data>
+      <data key="d10">motorway</data>
+      <data key="d11">4</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">143.1374740860436</data>
+    </edge>
+    <edge source="26795155" target="36747161" id="0">
+      <data key="d9">5229423</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">1</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">354.31234771343327</data>
+      <data key="d15">LINESTRING (-118.0462371 34.1490416, -118.0466578 34.1491257, -118.0474046 34.1491669, -118.0497168 34.1491644, -118.0500731 34.1491802)</data>
+    </edge>
+    <edge source="26795156" target="13333569151" id="0">
+      <data key="d9">[24672417, 71757326]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">4</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">143.9756153151503</data>
+      <data key="d15">LINESTRING (-118.0542145 34.1486218, -118.0531622 34.1486363, -118.0526501 34.148639)</data>
+    </edge>
+    <edge source="26795156" target="321925592" id="0">
+      <data key="d9">[1012480865, 292096835, 301162672, 968111794, 29276029]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">['2', '3', '1']</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">771.184279202859</data>
+      <data key="d15">LINESTRING (-118.0542145 34.1486218, -118.0537859 34.1485367, -118.0530253 34.1484998, -118.0528669 34.1484947, -118.0526957 34.1484934, -118.0519568 34.148502, -118.0504477 34.1485123, -118.0504233 34.1485124, -118.0503361 34.1485151, -118.0501579 34.1485121, -118.0500797 34.1485108, -118.0489798 34.1485147, -118.0478516 34.1485652, -118.0474567 34.148579, -118.0458561 34.1486944)</data>
+    </edge>
+    <edge source="27976732" target="13327748357" id="0">
+      <data key="d9">[999521401, 156460306]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">['2', '1']</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">373.2309919911395</data>
+      <data key="d15">LINESTRING (-118.13261 34.1523605, -118.1328764 34.1522894, -118.1331803 34.1522363, -118.1350889 34.152169, -118.1354009 34.152158, -118.1363109 34.1521155, -118.136621 34.1520187)</data>
+    </edge>
+    <edge source="29322371" target="1687115183" id="0">
+      <data key="d9">[119259546, 34461523, 119259548]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">5</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">833.1240147461292</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.1073616 34.1526674, -118.1128942 34.1526224, -118.1135191 34.1526113, -118.1164148 34.1525817)</data>
+    </edge>
+    <edge source="29322371" target="29322375" id="0">
+      <data key="d9">172463545</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">2</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">460.7659284110936</data>
+      <data key="d15">LINESTRING (-118.1073616 34.1526674, -118.1077884 34.1527925, -118.1090688 34.1528459, -118.1123382 34.1529638)</data>
+    </edge>
+    <edge source="29429900" target="9171144301" id="0">
+      <data key="d9">[29643200, 29643208]</data>
+      <data key="d16">yes</data>
+      <data key="d10">motorway</data>
+      <data key="d11">5</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">312.6939909461264</data>
+      <data key="d15">LINESTRING (-118.0731765 34.1485765, -118.073615 34.1485191, -118.0765391 34.148172)</data>
+    </edge>
+    <edge source="36550437" target="36550441" id="0">
+      <data key="d9">38922181</data>
+      <data key="d10">motorway</data>
+      <data key="d11">4</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">159.90467869615267</data>
+      <data key="d15">LINESTRING (-118.0055706 34.1355829, -118.0057812 34.1355851, -118.0060132 34.1355907, -118.0064182 34.135614, -118.0068447 34.1356673, -118.0072926 34.1357439)</data>
+    </edge>
+    <edge source="36550441" target="13327626978" id="0">
+      <data key="d9">[1453268608, 38922179, 1453256878]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">5</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">349.7516372830627</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.0072926 34.1357439, -118.0076976 34.1358416, -118.0079953 34.1359304, -118.0084553 34.1360747, -118.0093476 34.1363544, -118.0097825 34.1364951, -118.0108465 34.1368537)</data>
+    </edge>
+    <edge source="36550453" target="13298107299" id="0">
+      <data key="d9">[406229153, 38855365, 29288774, 761872264, 761872265, 406229145, 38855356]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">513.3966284952003</data>
+      <data key="d16">yes</data>
+      <data key="d11">['2', '1']</data>
+      <data key="d20">['5', '3.5']</data>
+      <data key="d15">LINESTRING (-118.0156239 34.1394404, -118.0159155 34.1398611, -118.0160382 34.1400106, -118.0164262 34.1404885, -118.0169118 34.1410744, -118.0169626 34.1411463, -118.0169966 34.1412082, -118.0170169 34.141264, -118.0170262 34.141322, -118.0170257 34.14136, -118.017021 34.1413977, -118.0170066 34.1414568, -118.0169841 34.141507, -118.0169426 34.141568, -118.0169023 34.1416097, -118.0168501 34.1416495, -118.016799 34.1416807, -118.016742 34.1417059, -118.0166763 34.1417246, -118.0166044 34.1417356, -118.0165315 34.1417368, -118.0164912 34.1417324, -118.016459 34.1417274, -118.0164021 34.1417118, -118.0163443 34.14169, -118.0162928 34.1416646, -118.0162439 34.1416326, -118.0162009 34.1415931, -118.0161636 34.1415526, -118.0161119 34.1414647, -118.0160977 34.1413932, -118.016095 34.1412789, -118.0160842 34.1408777, -118.0160751 34.1408266, -118.0160775 34.1405741, -118.0160745 34.1404265, -118.016074 34.1404036, -118.0160722 34.1403135, -118.0160697 34.1401917)</data>
+    </edge>
+    <edge source="36550453" target="7464907668" id="0">
+      <data key="d9">[38855359, 867327021, 38855358, 38855357]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">4</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">550.6617774471274</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.0156239 34.1394404, -118.0161911 34.1400078, -118.0166624 34.1404912, -118.0169009 34.1407237, -118.0171971 34.1410095, -118.0175484 34.1413028, -118.0178654 34.1415274, -118.0182456 34.1417663, -118.0187072 34.1420093, -118.0191649 34.142237, -118.0200711 34.1426677)</data>
+    </edge>
+    <edge source="36740286" target="322898465" id="0">
+      <data key="d9">[52158161, 52158162, 29354955]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">1</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">San Gabriel River Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 605</data>
+      <data key="d13">False</data>
+      <data key="d14">492.3161119783607</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-117.960349 34.1301705, -117.9598582 34.1307278, -117.9595433 34.1310765, -117.9592241 34.1314279, -117.9586459 34.1320775, -117.9580575 34.132753, -117.9577893 34.1330822, -117.9577784 34.1330989, -117.9574956 34.1335299, -117.9573115 34.1338075)</data>
+    </edge>
+    <edge source="36740286" target="1102599024" id="0">
+      <data key="d9">[81204806, 29355014, 81204807, 37743982, 37743983]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">2</data>
+      <data key="d17">65 mph</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">1170.9994193961022</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-117.960349 34.1301705, -117.9595874 34.1311769, -117.9593754 34.1314496, -117.9591766 34.1317403, -117.9590153 34.1320591, -117.9589319 34.1323332, -117.9588768 34.1325728, -117.9588449 34.1328132, -117.9588448 34.1330708, -117.9588671 34.1333285, -117.9589341 34.1336452, -117.959043 34.1339281, -117.9591566 34.1341508, -117.95935 34.1344492, -117.9596246 34.1347583, -117.959867 34.1349729, -117.9601328 34.1351658, -117.9604639 34.1353591, -117.9607216 34.135473, -117.9610092 34.1355728, -117.9613096 34.1356456, -117.9616337 34.135706, -117.9620159 34.1357407, -117.9628171 34.135774, -117.9630793 34.1357824, -117.9636341 34.1358001, -117.9644913 34.1357881, -117.9658701 34.1356606)</data>
+    </edge>
+    <edge source="36740306" target="9132535290" id="0">
+      <data key="d9">[38855475, 38855476]</data>
+      <data key="d16">yes</data>
+      <data key="d10">motorway_link</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">283.1157496124266</data>
+      <data key="d11">1</data>
+      <data key="d15">LINESTRING (-117.9774268 34.1354484, -117.9777072 34.1355081, -117.9792652 34.1356318, -117.9799202 34.1356908, -117.9804816 34.1357205)</data>
+    </edge>
+    <edge source="36740306" target="13327606941" id="0">
+      <data key="d9">[38855481, 38855482]</data>
+      <data key="d16">yes</data>
+      <data key="d10">motorway</data>
+      <data key="d11">['5', '4']</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">137.84868111567667</data>
+      <data key="d15">LINESTRING (-117.9774268 34.1354484, -117.9777326 34.1354428, -117.9789242 34.1354637)</data>
+    </edge>
+    <edge source="36740307" target="461493589" id="0">
+      <data key="d9">1453256879</data>
+      <data key="d10">motorway</data>
+      <data key="d11">4</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">91.68930157639073</data>
+    </edge>
+    <edge source="36740307" target="36550441" id="0">
+      <data key="d9">[1453256866, 1453256867, 1453256868, 1453256869, 1453256870, 1453256871, 1453256872, 1453256873, 1453256874, 1453256875, 1453256876, 1453256877, 1453256880]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">1</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210 EXPR</data>
+      <data key="d13">False</data>
+      <data key="d14">2259.6873312722055</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-117.9828065 34.1355318, -117.9830602 34.1354708, -117.9845434 34.1354852, -117.985509 34.1354875, -117.9862024 34.1354936, -117.9865022 34.1354935, -117.9877044 34.1354941, -117.988672 34.1354919, -117.9888222 34.1354936, -117.9900527 34.1354963, -117.9906549 34.1354958, -117.9909378 34.1354952, -117.9921073 34.1354997, -117.9934658 34.1355152, -117.9946058 34.1355152, -117.9949475 34.1355156, -117.995219 34.1355143, -117.9956491 34.1355119, -117.9966187 34.1355174, -117.997646 34.135513, -117.9988611 34.1355208, -117.9998133 34.1355185, -118.0007078 34.1355134, -118.0010088 34.1355166, -118.0022742 34.135523, -118.0031191 34.1355174, -118.0038996 34.1355074, -118.0050697 34.135515, -118.0052737 34.1355134, -118.0054995 34.1355119, -118.0061433 34.1355219, -118.0066804 34.1355674, -118.0071216 34.1356362, -118.0072926 34.1357439)</data>
+    </edge>
+    <edge source="36747161" target="11931818" id="0">
+      <data key="d9">[119961523, 520305974]</data>
+      <data key="d16">yes</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">2</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">100.53614483801569</data>
+      <data key="d15">LINESTRING (-118.0500731 34.1491802, -118.0504154 34.1491776, -118.0511656 34.1491781)</data>
+    </edge>
+    <edge source="36747162" target="321924196" id="0">
+      <data key="d9">[13275465, 311011452, 405542246]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">['2', '1']</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">486.36900284705627</data>
+      <data key="d15">LINESTRING (-118.0534356 34.1504884, -118.0534299 34.1504051, -118.0533987 34.1498902, -118.0534226 34.1497297, -118.0534905 34.1495905, -118.0535939 34.1494598, -118.0537411 34.1493268, -118.0539272 34.1492303, -118.0541323 34.149174, -118.0543427 34.1491445, -118.0569397 34.1490627, -118.0574575 34.1489689)</data>
+    </edge>
+    <edge source="122514893" target="268670906" id="0">
+      <data key="d9">[39978872, 24719690, 34534148, 156460311]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">['2', '1']</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">455.12511220618654</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.0935916 34.1517257, -118.0930966 34.1517281, -118.0927338 34.1517096, -118.0923466 34.151663, -118.0919956 34.1515889, -118.0917639 34.151532, -118.0914423 34.1514439, -118.0911076 34.1513303, -118.0907385 34.1511733, -118.0901909 34.1508821, -118.0891081 34.150249)</data>
+    </edge>
+    <edge source="122550246" target="122550252" id="0">
+      <data key="d9">[55972802, 55972803, 13277929, 405379243, 405379245]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">332.37693216298334</data>
+      <data key="d16">yes</data>
+      <data key="d11">2</data>
+      <data key="d15">LINESTRING (-118.0994683 34.1523833, -118.0990698 34.1522758, -118.0988539 34.1522659, -118.098226 34.1522216, -118.0975681 34.1521605, -118.0970407 34.1521207, -118.096958 34.1521144, -118.0964341 34.1520223, -118.0962375 34.1519485, -118.0960383 34.1518719, -118.0959969 34.151856, -118.0959774 34.1518134)</data>
+    </edge>
+    <edge source="122550246" target="13328118297" id="0">
+      <data key="d9">[174767579, 55972804, 55972799]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">5</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">191.35764175566447</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.0994683 34.1523833, -118.0988533 34.1523717, -118.0982275 34.1523763, -118.097389 34.1523843)</data>
+    </edge>
+    <edge source="123710012" target="364292886" id="0">
+      <data key="d9">[29336337, 38855474, 38855473, 1029211318, 1029211319]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">['2', '1']</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">496.034663871208</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-117.9809657 34.135009, -117.9806205 34.1350601, -117.9797819 34.135067, -117.979082 34.1350728, -117.9790357 34.1350754, -117.9778391 34.1351438, -117.9772796 34.1351463, -117.9755903 34.1352596)</data>
+    </edge>
+    <edge source="178489644" target="178490324" id="0">
+      <data key="d9">156415826</data>
+      <data key="d10">motorway</data>
+      <data key="d11">6</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">304.3147621005979</data>
+    </edge>
+    <edge source="178490324" target="181077185" id="0">
+      <data key="d9">[978419771, 1343440423]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">7</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">209.46635746821548</data>
+      <data key="d15">LINESTRING (-118.140551 34.1516314, -118.1389542 34.1516416, -118.1382748 34.1516338)</data>
+    </edge>
+    <edge source="181077185" target="181077206" id="0">
+      <data key="d9">17489169</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">2</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">399.39969656020446</data>
+      <data key="d15">LINESTRING (-118.1382748 34.1516338, -118.1377916 34.1515041, -118.1364467 34.1514259, -118.1342988 34.1513419, -118.1339708 34.1512904)</data>
+    </edge>
+    <edge source="181077185" target="13333260283" id="0">
+      <data key="d9">[978419770, 1453834933, 1051288623]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">6</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">328.52005841842725</data>
+      <data key="d15">LINESTRING (-118.1382748 34.1516338, -118.137075 34.1516373, -118.1354922 34.1516573, -118.1347049 34.1516559)</data>
+    </edge>
+    <edge source="181077295" target="182130675" id="0">
+      <data key="d9">964868481</data>
+      <data key="d10">motorway</data>
+      <data key="d11">6</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">69.64773698195</data>
+    </edge>
+    <edge source="182130675" target="182130717" id="0">
+      <data key="d9">17593971</data>
+      <data key="d10">motorway_link</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">433.497527365891</data>
+      <data key="d15">LINESTRING (-118.1270681 34.1517133, -118.1258908 34.1517085, -118.1235943 34.151766, -118.1226909 34.1517858, -118.1223593 34.1517676)</data>
+    </edge>
+    <edge source="182130675" target="13333251231" id="0">
+      <data key="d9">964868482</data>
+      <data key="d10">motorway</data>
+      <data key="d11">5</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">456.9421511776382</data>
+      <data key="d15">LINESTRING (-118.1270681 34.1517133, -118.1256335 34.1518515, -118.1240284 34.152022, -118.1224073 34.1521077, -118.1221287 34.152115)</data>
+    </edge>
+    <edge source="182130731" target="1833697499" id="0">
+      <data key="d9">[119259539, 119259533, 119259541]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">5</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">803.5416368892224</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.1158659 34.152252, -118.1135122 34.1522711, -118.1128625 34.1522891, -118.1071342 34.1523221)</data>
+    </edge>
+    <edge source="182130781" target="844945145" id="0">
+      <data key="d9">[967560483, 70872451]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">['2', '1']</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">380.88244000194436</data>
+      <data key="d15">LINESTRING (-118.1215892 34.152846, -118.1221047 34.1527067, -118.1231566 34.1525728, -118.1237397 34.1524986, -118.1242069 34.1524361, -118.1256484 34.1522003)</data>
+    </edge>
+    <edge source="185744804" target="322562552" id="0">
+      <data key="d9">34461355</data>
+      <data key="d10">motorway</data>
+      <data key="d11">5</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">349.3681514023962</data>
+    </edge>
+    <edge source="268162290" target="5221232641" id="0">
+      <data key="d9">[406229151, 966769243, 406229148, 406229149, 156466462, 966769244]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">['2', '3', '1']</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">328.35752612775684</data>
+      <data key="d15">LINESTRING (-118.0347936 34.1481142, -118.034396 34.1479957, -118.0338968 34.1479132, -118.0333303 34.1478138, -118.0327388 34.1476905, -118.0325903 34.1476568, -118.0322489 34.1475794, -118.0321387 34.147551, -118.0317952 34.1474649, -118.031775 34.1474577, -118.031674 34.1474346, -118.0314973 34.1473935, -118.0314148 34.1473652, -118.0313515 34.1473512)</data>
+    </edge>
+    <edge source="268162290" target="268162293" id="0">
+      <data key="d9">988339981</data>
+      <data key="d10">motorway</data>
+      <data key="d11">4</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">140.06614739366427</data>
+      <data key="d15">LINESTRING (-118.0347936 34.1481142, -118.0339483 34.1480482, -118.0332788 34.1479914)</data>
+    </edge>
+    <edge source="268162293" target="13335585154" id="0">
+      <data key="d9">[1453877267, 71757308, 71757311]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">5</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">342.09608046861445</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.0332788 34.1479914, -118.0326008 34.1479274, -118.031896 34.1477853, -118.0313158 34.147641, -118.030902 34.1475188, -118.030485 34.1473633, -118.0299143 34.147139, -118.0297624 34.1470666)</data>
+    </edge>
+    <edge source="268162304" target="13298107290" id="0">
+      <data key="d9">[38855362, 38855363, 761872263, 406229147, 29288798]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">393.63680695261473</data>
+      <data key="d16">yes</data>
+      <data key="d11">['2', '3', '1']</data>
+      <data key="d15">LINESTRING (-118.021077 34.1429261, -118.0208356 34.1427092, -118.0206484 34.1426009, -118.0199357 34.1421926, -118.0193829 34.1418495, -118.0192251 34.1417523, -118.0191319 34.141688, -118.0190577 34.1416263, -118.0190061 34.141576, -118.018924 34.1414771, -118.018844 34.1413643, -118.0187887 34.1412466, -118.0187567 34.1411274, -118.0187458 34.1409873, -118.0187398 34.1403543, -118.0187396 34.1403349, -118.0187391 34.1402763)</data>
+    </edge>
+    <edge source="268162304" target="268162312" id="0">
+      <data key="d9">[71757317, 71757322, 864547182, 43091317, 43091318]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">4</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">640.2392079320512</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.021077 34.1429261, -118.0208365 34.1428076, -118.0196529 34.1422335, -118.0185829 34.1417273, -118.0182179 34.1415182, -118.0178692 34.1412942, -118.0175472 34.141038, -118.0171827 34.1407131, -118.0169618 34.1404872, -118.0164608 34.1400011, -118.0157883 34.1392998)</data>
+    </edge>
+    <edge source="268162312" target="268162313" id="0">
+      <data key="d9">71757322</data>
+      <data key="d10">motorway</data>
+      <data key="d11">4</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">164.21217208909968</data>
+      <data key="d15">LINESTRING (-118.0157883 34.1392998, -118.015317 34.1388314, -118.0150463 34.1385802, -118.0146002 34.1381991)</data>
+    </edge>
+    <edge source="268162313" target="322652780" id="0">
+      <data key="d9">[38922182, 38922186, 38922187, 585990417, 38922194, 988273682, 1454101428, 585990418]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">5</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">978.012504469199</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.0146002 34.1381991, -118.01443 34.1380734, -118.0142048 34.1379431, -118.0139662 34.1378009, -118.013481 34.1375533, -118.0130972 34.1373919, -118.0126772 34.1372408, -118.009782 34.1362975, -118.0093454 34.13615, -118.0078766 34.1357071, -118.0073091 34.1355571, -118.006796 34.1354669, -118.0063582 34.1354252, -118.0059339 34.1354105, -118.0056795 34.1354081, -118.0052725 34.135396, -118.0050691 34.1353949, -118.0046951 34.1353907)</data>
+    </edge>
+    <edge source="268162378" target="268162437" id="0">
+      <data key="d9">[967549928, 24672428, 406228755, 71757304, 71757307]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">['6', '2', '1']</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">451.62816915252625</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.0315158 34.1482998, -118.0314271 34.1483085, -118.0312044 34.1483311, -118.03043 34.1483983, -118.0302862 34.1484076, -118.030134 34.1483651, -118.0300363 34.1483058, -118.0299658 34.1482258, -118.0299229 34.1480837, -118.0299655 34.1479417, -118.0300516 34.1478338, -118.0301996 34.147763, -118.0302174 34.1477623, -118.0303606 34.147757, -118.0306038 34.147816, -118.0309732 34.1479107, -118.0313278 34.1480045, -118.0318922 34.148122, -118.0322426 34.1481819, -118.0327172 34.1481592)</data>
+    </edge>
+    <edge source="268162437" target="268162439" id="0">
+      <data key="d9">[71757321, 1453268595]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">['5', '4']</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">284.4286819881745</data>
+      <data key="d15">LINESTRING (-118.0327172 34.1481592, -118.0334546 34.1482463, -118.0357795 34.1485058)</data>
+    </edge>
+    <edge source="268162439" target="26795155" id="0">
+      <data key="d9">[864542801, 1453268594]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">['5', '4']</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">966.1446988374823</data>
+      <data key="d15">LINESTRING (-118.0357795 34.1485058, -118.0361989 34.1485493, -118.0379375 34.1487471, -118.0396751 34.1489374, -118.0402073 34.1489892, -118.04153 34.1490603, -118.0441359 34.1490597, -118.0462371 34.1490416)</data>
+    </edge>
+    <edge source="268670906" target="268671043" id="0">
+      <data key="d9">[1343743404, 24719668, 1463841368, 1463841369, 24719679]</data>
+      <data key="d16">yes</data>
+      <data key="d10">motorway</data>
+      <data key="d11">6</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">331.80332681338643</data>
+      <data key="d15">LINESTRING (-118.0891081 34.150249, -118.0885029 34.1497787, -118.0879964 34.1493824, -118.087626 34.1491186, -118.0870216 34.1487348, -118.0868885 34.1486648, -118.0868066 34.1486217, -118.0866696 34.1485484, -118.0863229 34.1483672)</data>
+    </edge>
+    <edge source="268671043" target="268674873" id="0">
+      <data key="d9">[24720175, 405379247]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">2</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">372.97650935750255</data>
+      <data key="d15">LINESTRING (-118.0863229 34.1483672, -118.0860769 34.148159, -118.0855801 34.1478995, -118.0852025 34.1477361, -118.0847831 34.1476149, -118.0842424 34.1474729, -118.0837446 34.1473592, -118.0832811 34.1472953, -118.0826018 34.1471962)</data>
+    </edge>
+    <edge source="268671043" target="268671522" id="0">
+      <data key="d9">963573481</data>
+      <data key="d10">motorway</data>
+      <data key="d11">5</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">265.66682940866235</data>
+      <data key="d15">LINESTRING (-118.0863229 34.1483672, -118.085932 34.1482072, -118.0856614 34.148103, -118.0852081 34.1479418, -118.0848209 34.1478384, -118.0844432 34.1477556, -118.0840544 34.1476979, -118.083597 34.1476224)</data>
+    </edge>
+    <edge source="268671344" target="13475247713" id="0">
+      <data key="d9">[32358178, 29252163, 29252162, 405542242, 307237364, 13264983]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">['2', '1']</data>
+      <data key="d17">65 mph</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">567.3863842966576</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.0750149 34.1479181, -118.0735796 34.1480818, -118.0732519 34.1481104, -118.0730868 34.1481196, -118.0710995 34.1482149, -118.0709373 34.1482126, -118.0708582 34.1482004, -118.0707764 34.1481793, -118.0706926 34.1481471, -118.0706168 34.1481149, -118.0705296 34.1480627, -118.0703767 34.1479474, -118.0703156 34.1478839, -118.0702598 34.1478138, -118.0702051 34.1477407, -118.070115 34.1476133, -118.0699822 34.1474015, -118.0699393 34.1473377, -118.0697098 34.1470233, -118.0696975 34.1470064, -118.0696535 34.1469465)</data>
+    </edge>
+    <edge source="268671344" target="1346251751" id="0">
+      <data key="d9">[991200264, 24719747, 24719748]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">4</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">645.6692001567768</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.0750149 34.1479181, -118.0735852 34.1481743, -118.073255 34.1482101, -118.0715792 34.1483988, -118.0700286 34.1485057, -118.0680555 34.1485276)</data>
+    </edge>
+    <edge source="268671512" target="268671344" id="0">
+      <data key="d9">991200265</data>
+      <data key="d10">motorway</data>
+      <data key="d11">5</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">240.1925400712725</data>
+      <data key="d15">LINESTRING (-118.0776085 34.1476799, -118.0767418 34.1477436, -118.0756101 34.1478459, -118.0750149 34.1479181)</data>
+    </edge>
+    <edge source="268671522" target="268667539" id="0">
+      <data key="d9">[24719736, 405541017, 24719734, 24719735]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">370.29784622211093</data>
+      <data key="d16">yes</data>
+      <data key="d11">2</data>
+      <data key="d15">LINESTRING (-118.083597 34.1476224, -118.0827165 34.147457, -118.0822209 34.1474078, -118.0807688 34.1472892, -118.0806818 34.1472912, -118.0804992 34.1472858, -118.08028 34.1472909, -118.0798649 34.1473008, -118.0796066 34.1473063)</data>
+    </edge>
+    <edge source="268671522" target="268671512" id="0">
+      <data key="d9">[988230827, 24719732, 24719733]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">5</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">551.8380025608221</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.083597 34.1476224, -118.0832026 34.1475798, -118.0828507 34.1475514, -118.0822571 34.1475431, -118.0816529 34.1475531, -118.0794089 34.1476174, -118.0776085 34.1476799)</data>
+    </edge>
+    <edge source="268671567" target="268670906" id="0">
+      <data key="d9">[24719650, 24719659, 156415837]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">5</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">471.0219951692461</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.0935465 34.1522327, -118.0930474 34.1521471, -118.0925238 34.1520122, -118.0920346 34.151863, -118.0915329 34.1516597, -118.0907418 34.1513259, -118.0901865 34.1510142, -118.0895295 34.1505778, -118.0891081 34.150249)</data>
+    </edge>
+    <edge source="268671567" target="13333569151" id="0">
+      <data key="d9">[1453870048, 1453870049, 1453870050, 1453870051, 1453870052, 1453870053, 1453870054, 1453870055, 1453870056, 1453870057, 1463841367, 1463841370, 1453870047]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">1</data>
+      <data key="d17">65 mph</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210 EXPR</data>
+      <data key="d13">False</data>
+      <data key="d14">3925.038537037092</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.0935465 34.1522327, -118.0933446 34.1522889, -118.0928886 34.1521901, -118.0924326 34.1520702, -118.0919471 34.1519171, -118.0914295 34.1517195, -118.0911022 34.1515819, -118.0908065 34.1514471, -118.0907435 34.1514088, -118.0902493 34.1511491, -118.0901816 34.1511091, -118.089627 34.1507529, -118.0893239 34.1505398, -118.0890571 34.1503511, -118.0889343 34.1502512, -118.0885153 34.1499327, -118.0883255 34.1497801, -118.0881317 34.1496316, -118.0876422 34.1492654, -118.0873753 34.1490789, -118.0870079 34.1488558, -118.0868154 34.1487455, -118.0867544 34.1487082, -118.0866053 34.1486307, -118.0863668 34.1485095, -118.0858679 34.1482876, -118.0856292 34.1481977, -118.0850941 34.1480168, -118.084795 34.1479402, -118.0843967 34.1478403, -118.0839314 34.1477559, -118.0834284 34.1476927, -118.0831642 34.1476671, -118.0826721 34.1476394, -118.0822815 34.1476342, -118.0819204 34.147635, -118.0816916 34.1476449, -118.0813021 34.1476555, -118.0808146 34.1476699, -118.0802554 34.1476871, -118.0794695 34.1477071, -118.0785924 34.1477382, -118.0777328 34.1477726, -118.0762562 34.1478913, -118.0754153 34.1479857, -118.0745074 34.1481033, -118.0735892 34.1482388, -118.0732549 34.1482898, -118.0725186 34.1483808, -118.071797 34.1484585, -118.0711909 34.1485084, -118.0702628 34.148575, -118.0694984 34.1486061, -118.0689915 34.1486161, -118.0685824 34.1486172, -118.0681519 34.1486172, -118.0680536 34.1486183, -118.067527 34.1486227, -118.0668712 34.148625, -118.0659713 34.1486372, -118.0651693 34.1486405, -118.0641273 34.1486461, -118.0633414 34.148645, -118.0623516 34.1486416, -118.0611795 34.1486339, -118.0605693 34.1486361, -118.0597097 34.1486405, -118.0588648 34.148645, -118.0580601 34.1486461, -118.057124 34.1486616, -118.0560552 34.1486794, -118.0551016 34.1486938, -118.0544539 34.1487071, -118.0541924 34.1487127, -118.0534709 34.148716, -118.0528526 34.148721, -118.0526501 34.148639)</data>
+    </edge>
+    <edge source="268673020" target="26795119" id="0">
+      <data key="d9">[39978888, 39978890, 990674431]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">6</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">374.151242765413</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.0869534 34.1491496, -118.0873311 34.1493911, -118.087886 34.1497894, -118.0884644 34.1502567, -118.0892837 34.1508602, -118.0900446 34.1513294)</data>
+    </edge>
+    <edge source="268673790" target="268673020" id="0">
+      <data key="d9">[405379241, 405379242, 405379244, 405379246, 24720079, 1062824242, 1463841364, 292007062, 1463841372]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">['2', '3', '1']</data>
+      <data key="d17">65 mph</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">793.8200270060842</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.0785725 34.1480457, -118.0796756 34.148089, -118.080488 34.1481476, -118.0810566 34.1481915, -118.0814515 34.1482219, -118.0816917 34.1482243, -118.081951 34.1482287, -118.0819857 34.1482293, -118.0820602 34.1482306, -118.0822749 34.1482644, -118.082402 34.1482604, -118.0825583 34.1482431, -118.0831119 34.1482256, -118.0837377 34.148218, -118.0840467 34.1482322, -118.0844072 34.1482749, -118.0848106 34.148353, -118.0852999 34.1484737, -118.0857548 34.1486229, -118.0862268 34.1488005, -118.0864053 34.1488869, -118.0865979 34.1489858, -118.0869534 34.1491496)</data>
+    </edge>
+    <edge source="268673790" target="268673020" id="1">
+      <data key="d9">[24719941, 992635304, 1463841365, 24719770, 1463841373]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">5</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">799.5812199252005</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.0785725 34.1480457, -118.0817766 34.1479401, -118.0823594 34.1479366, -118.0830079 34.1479652, -118.0833557 34.1479979, -118.0837598 34.1480501, -118.0841732 34.1481184, -118.0846353 34.1482228, -118.0850959 34.1483572, -118.0855965 34.1484938, -118.0861237 34.1487032, -118.0864291 34.1488565, -118.0865157 34.148901, -118.0866235 34.1489574, -118.0869534 34.1491496)</data>
+    </edge>
+    <edge source="268673895" target="9171144301" id="0">
+      <data key="d9">[24720144, 405541024, 405541015]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d17">65 mph</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">320.5010032176852</data>
+      <data key="d11">2</data>
+      <data key="d15">LINESTRING (-118.0734782 34.1490884, -118.0735485 34.1487706, -118.073578 34.1487384, -118.0735855 34.1487349, -118.0736384 34.1487106, -118.0744269 34.1485881, -118.0750058 34.1484677, -118.0759327 34.1483115, -118.0765391 34.148172)</data>
+    </edge>
+    <edge source="268882189" target="13333696731" id="0">
+      <data key="d9">24740602</data>
+      <data key="d16">yes</data>
+      <data key="d10">motorway</data>
+      <data key="d11">5</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">229.7469292922374</data>
+    </edge>
+    <edge source="268882219" target="13327606907" id="0">
+      <data key="d9">1453284414</data>
+      <data key="d10">motorway</data>
+      <data key="d11">6</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">295.64285134083553</data>
+    </edge>
+    <edge source="268882238" target="1102602969" id="0">
+      <data key="d9">[38000682, 38000683, 52158160, 156466451, 52158169, 95026909]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">2</data>
+      <data key="d17">65 mph</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">792.7105645762485</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-117.9515909 34.1328405, -117.9519668 34.1330863, -117.9527353 34.1333558, -117.9529413 34.1334333, -117.9541097 34.1338442, -117.9546833 34.1340526, -117.9549464 34.1341449, -117.9551553 34.1342041, -117.9554273 34.1342562, -117.9556102 34.134287, -117.9558892 34.1342989, -117.9561252 34.1343013, -117.9564428 34.1342728, -117.9567775 34.1342005, -117.9570579 34.1341189, -117.9573311 34.1340088, -117.9575628 34.1338915, -117.9578134 34.1337303, -117.9579363 34.1336404, -117.9580518 34.1335411, -117.9581589 34.1334398, -117.9582679 34.1333206, -117.9584198 34.133142, -117.9585168 34.1330168, -117.9589665 34.1325553)</data>
+    </edge>
+    <edge source="268882238" target="268882249" id="0">
+      <data key="d9">[52158163, 156466477, 1337960575]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">4</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">240.77099055221797</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-117.9515909 34.1328405, -117.9520029 34.1329769, -117.9527175 34.1331761, -117.9529896 34.1332492, -117.9540717 34.1335246)</data>
+    </edge>
+    <edge source="268882249" target="322893052" id="0">
+      <data key="d9">[31548328, 31548361, 29355514, 31548347]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">1</data>
+      <data key="d17">65 mph</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">442.28002179770573</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-117.9540717 34.1335246, -117.9544424 34.1337369, -117.9555902 34.1341203, -117.955941 34.1342358, -117.9560669 34.1342814, -117.9561648 34.1343327, -117.9562719 34.1344088, -117.9563718 34.1345022, -117.9564465 34.1345941, -117.9565139 34.1347159, -117.9565516 34.1348329, -117.9565639 34.1349647, -117.9565559 34.1351645, -117.9564625 34.1356696, -117.9564032 34.1359335, -117.9564073 34.1362723)</data>
+    </edge>
+    <edge source="268882249" target="1102600744" id="0">
+      <data key="d9">[95027042, 95026716, 52158157]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">4</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">880.6968608888773</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-117.9540717 34.1335246, -117.9545801 34.1336569, -117.955602 34.1339289, -117.9559511 34.1340177, -117.9605763 34.1351795, -117.9619534 34.1354446, -117.9632885 34.1356094)</data>
+    </edge>
+    <edge source="279669910" target="279669949" id="0">
+      <data key="d9">866337573</data>
+      <data key="d10">motorway</data>
+      <data key="d11">6</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">268.1276670939784</data>
+    </edge>
+    <edge source="279669910" target="122897401" id="0">
+      <data key="d9">[292007073, 986158220, 25655820]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">['2', '1']</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">437.5257475932799</data>
+      <data key="d15">LINESTRING (-118.1405648 34.1520155, -118.1410483 34.152145, -118.1417267 34.1521978, -118.1424295 34.1522429, -118.1431397 34.1522917, -118.1434149 34.1523092, -118.1438891 34.1523462, -118.1445883 34.152408, -118.1452675 34.152518)</data>
+    </edge>
+    <edge source="279669949" target="1377536883" id="0">
+      <data key="d9">156460301</data>
+      <data key="d10">motorway</data>
+      <data key="d11">5</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Ventura Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">CA 134</data>
+      <data key="d13">False</data>
+      <data key="d14">550.6609110152053</data>
+      <data key="d15">LINESTRING (-118.1434784 34.1520445, -118.1466175 34.1520117, -118.1494619 34.1519713)</data>
+    </edge>
+    <edge source="279669949" target="279669952" id="0">
+      <data key="d9">520298142</data>
+      <data key="d10">motorway</data>
+      <data key="d11">2</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">236.14478403853622</data>
+      <data key="d15">LINESTRING (-118.1434784 34.1520445, -118.1439913 34.1521329, -118.1460307 34.1522236)</data>
+    </edge>
+    <edge source="279669952" target="852777075" id="0">
+      <data key="d9">[885062714, 25655836, 292007077]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">['2', '1']</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">356.9218376581345</data>
+      <data key="d15">LINESTRING (-118.1460307 34.1522236, -118.146459 34.1522874, -118.1467621 34.1523106, -118.1472851 34.1523476, -118.1476689 34.1523674, -118.1481968 34.1523637, -118.1487633 34.1523597, -118.1490723 34.1523668, -118.1494585 34.1524094, -118.1498881 34.1524737)</data>
+    </edge>
+    <edge source="279669952" target="279672869" id="0">
+      <data key="d9">156415827</data>
+      <data key="d10">motorway</data>
+      <data key="d11">2</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">864.7038859553685</data>
+      <data key="d15">LINESTRING (-118.1460307 34.1522236, -118.1476222 34.1522084, -118.1492268 34.1521821, -118.1497761 34.152175, -118.1501881 34.1521608, -118.1508833 34.1521111, -118.1517159 34.1519975, -118.1523338 34.1519264, -118.1527287 34.1518909, -118.1531063 34.1518909, -118.1534067 34.1519193, -118.1536814 34.1519477, -118.1540075 34.1520117, -118.1543079 34.152104, -118.1546083 34.1522248, -118.1549173 34.1523668, -118.1552263 34.1525444)</data>
+    </edge>
+    <edge source="279669988" target="177398561" id="0">
+      <data key="d9">32455858</data>
+      <data key="d16">yes</data>
+      <data key="d10">motorway</data>
+      <data key="d11">5</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Ventura Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">CA 134</data>
+      <data key="d13">False</data>
+      <data key="d14">260.1640081453556</data>
+    </edge>
+    <edge source="279670688" target="178489644" id="0">
+      <data key="d9">[25655920, 25655918, 156460310]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">2</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">1066.7827315433415</data>
+      <data key="d21">yes</data>
+      <data key="d15">LINESTRING (-118.1552708 34.1515603, -118.1549275 34.1514111, -118.1546271 34.1512975, -118.1542065 34.1511767, -118.153949 34.1511199, -118.153477 34.1510489, -118.1529791 34.1510063, -118.1524041 34.1509778, -118.1518977 34.1510063, -118.1514428 34.151056, -118.1494858 34.151404, -118.1488507 34.151468, -118.1479666 34.1515106, -118.1451685 34.1515603, -118.143858 34.1516464)</data>
+    </edge>
+    <edge source="321911536" target="604023956" id="0">
+      <data key="d9">[29643382, 47463287]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d17">65 mph</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">438.0249914974435</data>
+      <data key="d16">yes</data>
+      <data key="d11">2</data>
+      <data key="d15">LINESTRING (-118.0634107 34.1489278, -118.0654271 34.1491006, -118.0661285 34.149149, -118.0666223 34.1491786, -118.0668791 34.1491859, -118.068156 34.1491875)</data>
+    </edge>
+    <edge source="321911536" target="613184001" id="0">
+      <data key="d9">[48253054, 860675919]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">4</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">428.4169316878678</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.0634107 34.1489278, -118.0675319 34.1489037, -118.0680661 34.1489091)</data>
+    </edge>
+    <edge source="321924196" target="321911536" id="0">
+      <data key="d9">860675920</data>
+      <data key="d10">motorway</data>
+      <data key="d11">4</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">547.8602941991627</data>
+      <data key="d15">LINESTRING (-118.0574575 34.1489689, -118.058986 34.1489483, -118.060479 34.1489477, -118.0619513 34.1489418, -118.0634107 34.1489278)</data>
+    </edge>
+    <edge source="321925592" target="268162290" id="0">
+      <data key="d9">988339982</data>
+      <data key="d10">motorway</data>
+      <data key="d11">4</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">1021.0711801705118</data>
+      <data key="d15">LINESTRING (-118.0458561 34.1486944, -118.0432789 34.148712, -118.0425837 34.1486906, -118.0419829 34.1486764, -118.0408749 34.1486094, -118.0400337 34.1485525, -118.0393814 34.1484957, -118.037682 34.1483536, -118.0347936 34.1481142)</data>
+    </edge>
+    <edge source="322075318" target="268162304" id="0">
+      <data key="d9">[119961514, 1454101435, 119961524]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">4</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">660.6237691843248</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.0273024 34.1458838, -118.0271409 34.1458001, -118.0242427 34.1444057, -118.021077 34.1429261)</data>
+    </edge>
+    <edge source="322562336" target="322562552" id="0">
+      <data key="d9">[986163706, 29319238]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">['2', '1']</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">591.3148789277478</data>
+      <data key="d15">LINESTRING (-118.0986975 34.1530904, -118.0987534 34.1530777, -118.0991163 34.1530285, -118.0993681 34.1530055, -118.1013457 34.1529031, -118.1017193 34.1528795, -118.1024701 34.1528321, -118.1051034 34.1527038)</data>
+    </edge>
+    <edge source="322562552" target="29322371" id="0">
+      <data key="d9">[1337641736, 34461531, 978648692]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">6</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">207.85384921701342</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.1051034 34.1527038, -118.1060046 34.152678, -118.1065303 34.1526767, -118.1073616 34.1526674)</data>
+    </edge>
+    <edge source="322652780" target="322652809" id="0">
+      <data key="d9">[585990424, 980437310]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">['2', '1']</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">302.70856962368464</data>
+      <data key="d15">LINESTRING (-118.0046951 34.1353907, -118.0043757 34.1352773, -118.0040834 34.1352527, -118.0033414 34.1351985, -118.0029228 34.1351623, -118.0024851 34.1351268, -118.0021944 34.1351116, -118.0019349 34.1350981, -118.0014471 34.1350536)</data>
+    </edge>
+    <edge source="322652780" target="322654001" id="0">
+      <data key="d9">[119889880, 1343739913, 119889881]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">4</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">871.8809552534365</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.0046951 34.1353907, -118.0010107 34.135372, -118.0007085 34.135371, -117.9952221 34.1353624)</data>
+    </edge>
+    <edge source="322653739" target="322654001" id="0">
+      <data key="d9">[967754424, 29328457, 967754425]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">['2', '1']</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">429.60760049048315</data>
+      <data key="d15">LINESTRING (-117.9998655 34.1350502, -117.999267 34.1351454, -117.998649 34.1351738, -117.9983638 34.1351741, -117.9982027 34.1351742, -117.9975121 34.1351982, -117.9962879 34.1352354, -117.9952221 34.1353624)</data>
+    </edge>
+    <edge source="322654001" target="462532371" id="0">
+      <data key="d9">[38922570, 38922571]</data>
+      <data key="d16">yes</data>
+      <data key="d10">motorway</data>
+      <data key="d11">5</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">181.40728429952512</data>
+      <data key="d15">LINESTRING (-117.9952221 34.1353624, -117.9949484 34.1353606, -117.9932511 34.1353591)</data>
+    </edge>
+    <edge source="322718801" target="462531326" id="0">
+      <data key="d9">[182793393, 38922565]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">2</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">342.23745102058535</data>
+      <data key="d15">LINESTRING (-117.9869578 34.1359276, -117.9877244 34.135844, -117.9891123 34.1357258, -117.989955 34.1356569, -117.9906506 34.1355715)</data>
+    </edge>
+    <edge source="322726430" target="322899110" id="0">
+      <data key="d9">[119889707, 119889708, 71760183, 71760188, 86094462]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">['5', '4']</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">757.7071957398691</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-117.9731736 34.1353744, -117.9728393 34.1353948, -117.9726305 34.1354026, -117.9667717 34.1354561, -117.9664987 34.1354562, -117.9649425 34.1354574)</data>
+    </edge>
+    <edge source="322726431" target="122481462" id="0">
+      <data key="d9">[406467593, 406467595, 406467596, 13268602, 539428508, 406499358]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">['2', '1']</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">324.7261648128114</data>
+      <data key="d15">LINESTRING (-117.973047 34.135613, -117.9733898 34.135696, -117.9745983 34.1356919, -117.9751241 34.135668, -117.9757847 34.1356176, -117.9759474 34.1356105, -117.97603 34.1356295, -117.9761534 34.1356959, -117.976224 34.1357566, -117.9762319 34.1358719, -117.9763052 34.1359661)</data>
+    </edge>
+    <edge source="322726431" target="36740306" id="0">
+      <data key="d9">861332179</data>
+      <data key="d10">motorway</data>
+      <data key="d11">5</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">403.62844326642636</data>
+      <data key="d15">LINESTRING (-117.973047 34.135613, -117.9755746 34.1354813, -117.9764505 34.1354533, -117.9774268 34.1354484)</data>
+    </edge>
+    <edge source="322726437" target="461493589" id="0">
+      <data key="d9">29336346</data>
+      <data key="d10">motorway_link</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">215.79976915496462</data>
+      <data key="d15">LINESTRING (-117.9814747 34.1357337, -117.9818698 34.1357185, -117.9827512 34.1356717, -117.9834601 34.1356433, -117.9838021 34.1355608)</data>
+    </edge>
+    <edge source="322893052" target="322895473" id="0">
+      <data key="d9">[29355687, 406464975, 406464977, 991207192, 181990587]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">['2', '3', '1']</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">San Gabriel River Freeway</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">634.4533253318186</data>
+      <data key="d19">I 605</data>
+      <data key="d15">LINESTRING (-117.9564073 34.1362723, -117.9562175 34.1369053, -117.9560417 34.1374926, -117.9559632 34.1377521, -117.955799 34.1382708, -117.9556554 34.1387835, -117.9556044 34.1389907, -117.9555778 34.1391734, -117.9555742 34.1395857, -117.9555817 34.1396011, -117.9556263 34.1396909, -117.9556914 34.1396013, -117.9557077 34.1395784, -117.9557159 34.1392307, -117.9557396 34.1390225, -117.9558038 34.138745, -117.9560186 34.1380037, -117.9560466 34.1379174, -117.9561587 34.1375543)</data>
+    </edge>
+    <edge source="322895473" target="353018174" id="0">
+      <data key="d9">[29355705, 31547829]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">1</data>
+      <data key="d17">65 mph</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">192.5391762168447</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-117.9561587 34.1375543, -117.9565504 34.1365727, -117.9567003 34.136279, -117.9568409 34.1360508, -117.956916 34.1359449)</data>
+    </edge>
+    <edge source="322895473" target="1102602969" id="0">
+      <data key="d9">[29355520, 31548843, 31548844, 123951251, 95026780, 95027005]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">1</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">San Gabriel River Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 605</data>
+      <data key="d13">False</data>
+      <data key="d14">618.4863858456043</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-117.9561587 34.1375543, -117.9563421 34.1368646, -117.9564654 34.136477, -117.956533 34.1362775, -117.9566551 34.1359357, -117.9567841 34.1356665, -117.9569675 34.135327, -117.9571791 34.134994, -117.9573936 34.1347242, -117.9575423 34.1345471, -117.9577531 34.1342808, -117.9580492 34.133847, -117.9583541 34.1334023, -117.9586112 34.1330598, -117.9589665 34.1325553)</data>
+    </edge>
+    <edge source="322898465" target="322893052" id="0">
+      <data key="d9">[31548264, 31548268, 31548374]</data>
+      <data key="d16">yes</data>
+      <data key="d10">motorway</data>
+      <data key="d11">2</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">San Gabriel River Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 605</data>
+      <data key="d13">False</data>
+      <data key="d14">286.80403630307603</data>
+      <data key="d15">LINESTRING (-117.9573115 34.1338075, -117.9569841 34.1345245, -117.9568355 34.1348899, -117.956713 34.1352526, -117.9565068 34.1359339, -117.9564073 34.1362723)</data>
+    </edge>
+    <edge source="322899110" target="322899203" id="0">
+      <data key="d9">[81204808, 81204809, 29355546]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">2</data>
+      <data key="d17">65 mph</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">925.170332041913</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-117.9649425 34.1354574, -117.9644841 34.1353523, -117.9641274 34.1353223, -117.9636586 34.1352797, -117.9631137 34.1352182, -117.962507 34.1351271, -117.9619821 34.1350371, -117.9616144 34.1349529, -117.9612496 34.1348629, -117.9608934 34.1347185, -117.9605831 34.1345551, -117.9603613 34.1343917, -117.9601295 34.1341999, -117.9599021 34.1339322, -117.9597591 34.1337215, -117.9596491 34.1335038, -117.9595648 34.1332689, -117.9595201 34.1330722, -117.9594958 34.1328472, -117.9594887 34.1326641, -117.9595087 34.1324415, -117.9595445 34.1322403, -117.9596385 34.1319682, -117.9597163 34.1318127, -117.9598274 34.1316062, -117.9600182 34.1313307, -117.9603625 34.1308556, -117.9605792 34.1304816)</data>
+    </edge>
+    <edge source="322899110" target="446303440" id="0">
+      <data key="d9">[29355090, 988314044]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">4</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">372.06611988947714</data>
+      <data key="d15">LINESTRING (-117.9649425 34.1354574, -117.9641525 34.135454, -117.9631775 34.1354001, -117.9624877 34.1353273, -117.9615261 34.1351866, -117.9609374 34.1350768)</data>
+    </edge>
+    <edge source="322899203" target="322892189" id="0">
+      <data key="d9">29355650</data>
+      <data key="d10">motorway</data>
+      <data key="d11">4</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">San Gabriel River Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 605</data>
+      <data key="d13">False</data>
+      <data key="d14">129.0472511205813</data>
+    </edge>
+    <edge source="323067265" target="323067268" id="0">
+      <data key="d9">[406295737, 29369836]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">['2', '1']</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">252.6347414329392</data>
+      <data key="d15">LINESTRING (-117.9323514 34.1297656, -117.9314006 34.1300855, -117.9310982 34.1301919, -117.9304459 34.1303979, -117.9297996 34.1306018)</data>
+    </edge>
+    <edge source="323067268" target="446297087" id="0">
+      <data key="d9">[970062273, 970062274]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">['5', '4']</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">417.13451492071823</data>
+      <data key="d15">LINESTRING (-117.9297996 34.1306018, -117.9293951 34.1306586, -117.9293051 34.1306631, -117.9290163 34.1306776, -117.9285336 34.1306788, -117.9280958 34.1306612, -117.9277702 34.1306298, -117.9271536 34.1305295, -117.9266894 34.1304238, -117.9261583 34.1302667, -117.9257568 34.1301086, -117.9254272 34.1299607)</data>
+    </edge>
+    <edge source="323067643" target="323067648" id="0">
+      <data key="d9">[1021842473, 1021842474]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">['2', '1']</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">130.3547368539932</data>
+      <data key="d15">LINESTRING (-117.9336802 34.1306462, -117.9337493 34.1305016, -117.9338068 34.1303841, -117.933885 34.1302831, -117.9339645 34.130213, -117.9340465 34.1301512, -117.9341808 34.1300851, -117.9342303 34.1300683, -117.9343435 34.1300305, -117.9346954 34.1299321)</data>
+    </edge>
+    <edge source="326269593" target="29429900" id="0">
+      <data key="d9">[184465544, 998392423]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">['2', '1']</data>
+      <data key="d17">65 mph</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">291.55566207841713</data>
+      <data key="d15">LINESTRING (-118.0705519 34.1495865, -118.070568 34.1494566, -118.0705957 34.1493343, -118.0706419 34.149231, -118.0706756 34.1491785, -118.0706835 34.1491673, -118.0707691 34.1490749, -118.0708549 34.1490238, -118.0709703 34.148975, -118.0711333 34.1489416, -118.0721816 34.1487832, -118.0728527 34.1486814, -118.0731765 34.1485765)</data>
+    </edge>
+    <edge source="353018174" target="446303437" id="0">
+      <data key="d9">[31547844, 998418759, 998418760, 29355191, 31548189]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">['2', '1']</data>
+      <data key="d17">65 mph</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">498.87406738775167</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-117.956916 34.1359449, -117.9570882 34.1357001, -117.9578119 34.1347298, -117.9582922 34.1340849, -117.9585446 34.1337796, -117.9585994 34.1337152, -117.9586763 34.1336542, -117.9587446 34.1336157, -117.958839 34.1335944, -117.9589334 34.1335944, -117.9590393 34.1336003, -117.9591365 34.1336251, -117.9592209 34.1336725, -117.9592939 34.1337341, -117.9593339 34.1337802, -117.9593784 34.1338655, -117.9593899 34.1339448, -117.9593798 34.1340574, -117.9593412 34.1341284, -117.9592698 34.1342137, -117.9592295 34.1342414, -117.9591423 34.1343026, -117.9590407 34.1343417, -117.9589262 34.13435, -117.9588132 34.1343416, -117.9585135 34.1342857)</data>
+    </edge>
+    <edge source="353018174" target="1102600744" id="0">
+      <data key="d9">[1049620595, 1049620596, 31547838]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">['2', '1']</data>
+      <data key="d17">65 mph</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">633.487014515531</data>
+      <data key="d15">LINESTRING (-117.956916 34.1359449, -117.9571182 34.1357217, -117.9572222 34.1356136, -117.9574997 34.1353466, -117.9577149 34.1351908, -117.9579415 34.1350918, -117.9581537 34.135043, -117.9583778 34.1350251, -117.9586296 34.1350521, -117.9589447 34.1351115, -117.9599044 34.1352648, -117.9602632 34.1353136, -117.9608505 34.1353934, -117.961644 34.1354866, -117.9632885 34.1356094)</data>
+    </edge>
+    <edge source="353021833" target="322898465" id="0">
+      <data key="d9">29355505</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">1</data>
+      <data key="d17">65 mph</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">257.3670772503672</data>
+      <data key="d15">LINESTRING (-117.9570869 34.133927, -117.9567451 34.1338087, -117.9566363 34.1337529, -117.9565743 34.1336938, -117.956521 34.1336096, -117.9564953 34.1335263, -117.9564904 34.1334325, -117.9565032 34.1333586, -117.9565379 34.1332816, -117.9565878 34.1332169, -117.9566589 34.1331681, -117.9567361 34.1331184, -117.9568134 34.13309, -117.9569164 34.1330758, -117.9570108 34.1330758, -117.9570966 34.13309, -117.9571996 34.1331255, -117.9572855 34.1331823, -117.9573455 34.1332463, -117.9573885 34.1333173, -117.9574142 34.1334026, -117.9574228 34.1334949, -117.9574056 34.1335731, -117.9573115 34.1338075)</data>
+    </edge>
+    <edge source="353021833" target="12422556103" id="0">
+      <data key="d9">[38000785, 52286229, 52286230]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">1</data>
+      <data key="d17">65 mph</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">186.1509786264167</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-117.9570869 34.133927, -117.9559298 34.1336798, -117.9555759 34.1336065, -117.9554509 34.1335797, -117.955118 34.133597)</data>
+    </edge>
+    <edge source="364289154" target="13333300203" id="0">
+      <data key="d9">1457993855</data>
+      <data key="d10">motorway</data>
+      <data key="d11">6</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Ventura Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">CA 134</data>
+      <data key="d13">False</data>
+      <data key="d14">82.50136262059054</data>
+    </edge>
+    <edge source="364292886" target="322726430" id="0">
+      <data key="d9">86094462</data>
+      <data key="d10">motorway</data>
+      <data key="d11">5</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">222.79373562952696</data>
+    </edge>
+    <edge source="364293613" target="323067268" id="0">
+      <data key="d9">973942126</data>
+      <data key="d10">motorway</data>
+      <data key="d11">4</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">668.0078677779408</data>
+      <data key="d15">LINESTRING (-117.9367761 34.128951, -117.9301264 34.1305515, -117.9297996 34.1306018)</data>
+    </edge>
+    <edge source="397310084" target="13327846974" id="0">
+      <data key="d9">[1453260192, 34461345, 34461346]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">6</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">351.269775674029</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.0934608 34.1525837, -118.0939197 34.1526548, -118.0942973 34.1527038, -118.094778 34.1527393, -118.0949566 34.1527505, -118.0960912 34.1527677, -118.0972625 34.1527403)</data>
+    </edge>
+    <edge source="446297120" target="1102601810" id="0">
+      <data key="d9">[406295692, 29369839, 406295699, 406295764, 406295706, 406295743]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">469.23785183637773</data>
+      <data key="d11">2</data>
+      <data key="d15">LINESTRING (-117.9287316 34.1309196, -117.9296904 34.1309264, -117.9300405 34.1309013, -117.9306671 34.1308444, -117.9309146 34.1308143, -117.9313023 34.130756, -117.9314521 34.1307426, -117.9316062 34.1307474, -117.9317567 34.1307658, -117.9319019 34.1307994, -117.9320232 34.1308373, -117.9323903 34.1309953, -117.9325285 34.1310517, -117.9326533 34.1310947, -117.9327813 34.1311218, -117.9329112 34.1311361, -117.9330452 34.1311393, -117.9334178 34.1311322, -117.9334433 34.1311318, -117.933515 34.1311304, -117.9336241 34.1311013, -117.9336839 34.1310445)</data>
+    </edge>
+    <edge source="446297120" target="1110075180" id="0">
+      <data key="d9">1453284415</data>
+      <data key="d10">motorway</data>
+      <data key="d11">4</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">511.8768049035151</data>
+      <data key="d15">LINESTRING (-117.9287316 34.1309196, -117.9295675 34.1308567, -117.9301755 34.1307675, -117.9316636 34.1304321, -117.9341178 34.1298229)</data>
+    </edge>
+    <edge source="446303437" target="353021833" id="0">
+      <data key="d9">302013003</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">2</data>
+      <data key="d17">65 mph</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">137.227346163928</data>
+    </edge>
+    <edge source="446303440" target="446303437" id="0">
+      <data key="d9">38000784</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">1</data>
+      <data key="d17">65 mph</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">241.14008681376367</data>
+      <data key="d15">LINESTRING (-117.9609374 34.1350768, -117.9606621 34.1349066, -117.9600775 34.1347184, -117.9597039 34.1346097, -117.9585135 34.1342857)</data>
+    </edge>
+    <edge source="446303440" target="12422556103" id="0">
+      <data key="d9">[95026977, 95026853, 988270807]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">4</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">560.4749493902272</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-117.9609374 34.1350768, -117.9598904 34.1348207, -117.9588342 34.1345199, -117.957877 34.1342528, -117.9559488 34.1338054, -117.9555974 34.1337211, -117.955118 34.133597)</data>
+    </edge>
+    <edge source="461493589" target="462531326" id="0">
+      <data key="d9">[1342580674, 71760168, 71760170, 38855477, 38855478]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">4</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">630.3212958025013</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-117.9838021 34.1355608, -117.9862044 34.1355625, -117.9865018 34.1355621, -117.9886691 34.1355647, -117.988826 34.1355643, -117.9906506 34.1355715)</data>
+    </edge>
+    <edge source="462531326" target="853102656" id="0">
+      <data key="d9">[38922569, 38922559]</data>
+      <data key="d16">yes</data>
+      <data key="d10">motorway</data>
+      <data key="d11">5</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">355.02847449333245</data>
+      <data key="d15">LINESTRING (-117.9906506 34.1355715, -117.9909387 34.1355709, -117.994508 34.1355833)</data>
+    </edge>
+    <edge source="462532371" target="853102637" id="0">
+      <data key="d9">[38922563, 38922564, 29335389]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">557.2487534929129</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-117.9932511 34.1353591, -117.990937 34.1352469, -117.9906532 34.1352233, -117.9902352 34.1351952, -117.9879218 34.1351325, -117.9872147 34.135033)</data>
+    </edge>
+    <edge source="462532371" target="539779695" id="0">
+      <data key="d9">[38922561, 38922562, 71760174, 71760179, 988264596]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">4</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">613.3892165115187</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-117.9932511 34.1353591, -117.9909405 34.1353463, -117.9906509 34.1353441, -117.9888294 34.13537, -117.9886741 34.1353711, -117.9865869 34.135373)</data>
+    </edge>
+    <edge source="539712691" target="268162313" id="0">
+      <data key="d9">[406229601, 29288830]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">2</data>
+      <data key="d12">True</data>
+      <data key="d20">6.5</data>
+      <data key="d13">False</data>
+      <data key="d14">325.60916834634656</data>
+      <data key="d15">LINESTRING (-118.0171768 34.1401834, -118.0166186 34.1397023, -118.0160867 34.1392457, -118.0155622 34.1388083, -118.0151095 34.1384409, -118.0146002 34.1381991)</data>
+    </edge>
+    <edge source="539715526" target="268162312" id="0">
+      <data key="d9">[38855361, 761872266, 38855366]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">457.2179068688973</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.0179771 34.140294, -118.0181755 34.1403221, -118.0182955 34.1403361, -118.0183578 34.1403607, -118.018392 34.1403742, -118.0184425 34.1404132, -118.0185004 34.1404571, -118.0185458 34.1405025, -118.0185831 34.1405539, -118.0186088 34.1406057, -118.0186275 34.1406665, -118.0186323 34.1407223, -118.0186296 34.140785, -118.0186129 34.1408438, -118.0185895 34.1409014, -118.0185545 34.1409526, -118.0185084 34.1410022, -118.0184546 34.141042, -118.0183939 34.1410775, -118.0183292 34.1411024, -118.0182571 34.1411204, -118.0181837 34.1411269, -118.018111 34.1411266, -118.0180409 34.1411147, -118.0179696 34.1410956, -118.0178464 34.1410303, -118.0174723 34.1407412, -118.0171524 34.1404786, -118.0166309 34.140002, -118.0157883 34.1392998)</data>
+    </edge>
+    <edge source="539777368" target="36550437" id="0">
+      <data key="d9">[406229600, 156466448, 585990419, 585990420, 976301531]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">['2', '1']</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">400.92489121784723</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.0012422 34.1358968, -118.0013924 34.1358718, -118.0019163 34.1358377, -118.0027639 34.1357825, -118.0037677 34.1357171, -118.0050705 34.1356682, -118.0052751 34.1356644, -118.0055706 34.1355829)</data>
+    </edge>
+    <edge source="539779695" target="322726414" id="0">
+      <data key="d9">[1337641569, 29336334, 71760191]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">359.83776967536033</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-117.9865869 34.135373, -117.9865028 34.1353487, -117.9862033 34.1352613, -117.9847778 34.1351662, -117.9837332 34.1351209, -117.9831305 34.1350768, -117.9827177 34.135005)</data>
+    </edge>
+    <edge source="539779695" target="13335541473" id="0">
+      <data key="d9">[71760185, 1001438666, 1454101413]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">4</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">348.19834300356695</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-117.9865869 34.135373, -117.986504 34.1353743, -117.9862048 34.1353739, -117.982804 34.1353367)</data>
+    </edge>
+    <edge source="552459736" target="934126848" id="0">
+      <data key="d9">80082866</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">2</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">140.2580676679171</data>
+      <data key="d15">LINESTRING (-118.1546844 34.1424974, -118.1547906 34.143632, -118.1548464 34.1437464)</data>
+    </edge>
+    <edge source="552459736" target="552459342" id="0">
+      <data key="d9">[32455850, 301185331, 982801811]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">['2', '1']</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">640.1601224384906</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.1546844 34.1424974, -118.1547059 34.1428206, -118.1547011 34.1431552, -118.154677 34.143575, -118.1546699 34.1438076, -118.15465 34.1442357, -118.1545356 34.1462968, -118.1545313 34.146375, -118.1545044 34.1468044, -118.1545245 34.1469739, -118.1545497 34.1471118, -118.1545722 34.1472234, -118.1546264 34.1473769, -118.1546982 34.1475454, -118.1548222 34.1477635, -118.1549516 34.1479484, -118.1551152 34.1481339)</data>
+    </edge>
+    <edge source="604023956" target="321911697" id="0">
+      <data key="d9">[29274518, 29274680, 29274523, 29274524, 13264287]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d17">65 mph</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">717.9674238588289</data>
+      <data key="d16">yes</data>
+      <data key="d11">1</data>
+      <data key="d15">LINESTRING (-118.068156 34.1491875, -118.0686663 34.149145, -118.0692697 34.1491315, -118.0697565 34.1491005, -118.0705201 34.149043, -118.0714124 34.1489801, -118.0723769 34.1488958, -118.0732446 34.1488434, -118.0736686 34.1488199, -118.0738385 34.148817, -118.0739986 34.1488382, -118.0741144 34.1488647, -118.0742072 34.1489002, -118.0742917 34.14895, -118.0743894 34.149025, -118.0744523 34.1491, -118.074541 34.1492364, -118.0745879 34.149404, -118.0746026 34.1497025, -118.0746112 34.1498872, -118.0746093 34.1500301, -118.0745958 34.1500682, -118.0745882 34.1500788, -118.0745668 34.1501088, -118.0744821 34.1501687)</data>
+    </edge>
+    <edge source="604023956" target="11118261652" id="0">
+      <data key="d9">[987734864, 47463289, 405542250, 405541019]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d17">65 mph</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">285.21437004714596</data>
+      <data key="d11">['2', '3']</data>
+      <data key="d15">LINESTRING (-118.068156 34.1491875, -118.0685214 34.1492303, -118.0688862 34.1492614, -118.0692111 34.1492822, -118.0695544 34.1493033, -118.069893 34.14933, -118.0699701 34.1493438, -118.0700611 34.1493667, -118.0701478 34.1494054, -118.0702126 34.1494511, -118.0702719 34.1494953, -118.0703118 34.1495299, -118.0703805 34.1496102, -118.0704354 34.1497043, -118.0704552 34.1497831, -118.0704657 34.1499013, -118.0704594 34.1501062, -118.0704591 34.1501235, -118.0704586 34.1501306, -118.0704984 34.1502023)</data>
+    </edge>
+    <edge source="612638344" target="26795156" id="0">
+      <data key="d9">[1343744060, 119961517]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">5</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">681.9780241275915</data>
+      <data key="d15">LINESTRING (-118.0616247 34.1485425, -118.0556003 34.1485943, -118.0542145 34.1486218)</data>
+    </edge>
+    <edge source="613184001" target="29429900" id="0">
+      <data key="d9">[48253056, 1453260188]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">['5', '4']</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">472.1507216351785</data>
+      <data key="d15">LINESTRING (-118.0680661 34.1489091, -118.0693596 34.1488813, -118.0698639 34.1488652, -118.0714886 34.1487602, -118.0724194 34.1486663, -118.0731765 34.1485765)</data>
+    </edge>
+    <edge source="664492542" target="36740286" id="0">
+      <data key="d9">52158158</data>
+      <data key="d10">motorway</data>
+      <data key="d11">3</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">San Gabriel River Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 605</data>
+      <data key="d13">False</data>
+      <data key="d14">117.61332901761223</data>
+      <data key="d15">LINESTRING (-117.9610818 34.129304, -117.960402 34.1301078, -117.960349 34.1301705)</data>
+    </edge>
+    <edge source="806276613" target="185744804" id="0">
+      <data key="d9">[39978976, 966764610, 39978973, 17940591]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">['2', '1']</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">599.4740751387261</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.0948091 34.1530667, -118.0950532 34.1530252, -118.0976353 34.1528859, -118.0982322 34.1528616, -118.0988601 34.1528209, -118.0989771 34.1528151, -118.1013067 34.1527069)</data>
+    </edge>
+    <edge source="844945145" target="1687115177" id="0">
+      <data key="d9">[866531345, 1343728842]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">7</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">119.95299444547416</data>
+      <data key="d15">LINESTRING (-118.1256484 34.1522003, -118.1262029 34.1521454, -118.1269437 34.1520792)</data>
+    </edge>
+    <edge source="852777115" target="279669988" id="0">
+      <data key="d9">[1039363663, 17199632, 1049527089, 25655922, 25655921]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">['2', '1']</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">415.3101484159663</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.151442 34.1523705, -118.1515666 34.152311, -118.1516205 34.1522794, -118.1516597 34.152262, -118.1518274 34.1521537, -118.1519104 34.1520714, -118.1520506 34.1519193, -118.1521622 34.1517915, -118.1522823 34.1516636, -118.1523853 34.1515784, -118.1524712 34.1515145, -118.1525775 34.1514523, -118.1529947 34.151209, -118.1537243 34.1508184, -118.1549649 34.1500795)</data>
+    </edge>
+    <edge source="852867729" target="178490324" id="0">
+      <data key="d9">[182793400, 982793997]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">['2', '1']</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">488.71553023022085</data>
+      <data key="d15">LINESTRING (-118.1458339 34.1512564, -118.1456649 34.1513109, -118.1453618 34.1513491, -118.1436912 34.1514375, -118.1432527 34.1514623, -118.1423235 34.151515, -118.140551 34.1516314)</data>
+    </edge>
+    <edge source="853061423" target="321924196" id="0">
+      <data key="d9">71757306</data>
+      <data key="d10">motorway</data>
+      <data key="d11">4</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">378.0152343461651</data>
+    </edge>
+    <edge source="853102656" target="1931511067" id="0">
+      <data key="d9">[71760178, 71760173, 29328470]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">1</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">459.72782757557815</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-117.994508 34.1355833, -117.9949468 34.1356327, -117.9952164 34.1356429, -117.9959919 34.1356765, -117.996763 34.1357405, -117.9972179 34.1357476, -117.9983766 34.1357547, -117.9986341 34.135776, -117.9989571 34.1358161, -117.9994834 34.1358784)</data>
+    </edge>
+    <edge source="853102656" target="36550437" id="0">
+      <data key="d9">[862930639, 585990421, 119889878, 119889879, 585990422, 38922586, 38922588]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">4</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">1018.1782472098874</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-117.994508 34.1355833, -117.9949471 34.1355811, -117.9952177 34.1355815, -118.0007073 34.1355924, -118.0010078 34.1355929, -118.0024633 34.1355918, -118.0050701 34.1355834, -118.0052743 34.1355831, -118.0055706 34.1355829)</data>
+    </edge>
+    <edge source="934126848" target="1687098985" id="0">
+      <data key="d9">1002571691</data>
+      <data key="d10">motorway</data>
+      <data key="d11">3</data>
+      <data key="d17">55 mph</data>
+      <data key="d18">Long Beach Freeway</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">124.76524984775745</data>
+      <data key="d15">LINESTRING (-118.1548464 34.1437464, -118.1548464 34.1441775, -118.1548553 34.1448684)</data>
+    </edge>
+    <edge source="938898673" target="13333300204" id="0">
+      <data key="d9">[121507762, 1453838735]</data>
+      <data key="d16">yes</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">1</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">248.32482746428306</data>
+      <data key="d15">LINESTRING (-118.1504529 34.1517313, -118.1501546 34.1517772, -118.1496798 34.1518283, -118.1492346 34.1518505, -118.1487491 34.1518661, -118.1486659 34.151866, -118.1478933 34.1518502, -118.1477813 34.1517981)</data>
+    </edge>
+    <edge source="1102599024" target="322726431" id="0">
+      <data key="d9">[1453264194, 119889709, 119889710, 71760176, 71760182]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">5</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">660.5784351563847</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-117.9658701 34.1356606, -117.9665001 34.13565, -117.9667743 34.1356513, -117.9726308 34.1356216, -117.9728358 34.1356182, -117.973047 34.135613)</data>
+    </edge>
+    <edge source="1102600744" target="1102599024" id="0">
+      <data key="d9">95026716</data>
+      <data key="d10">motorway</data>
+      <data key="d11">4</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">237.746427202318</data>
+      <data key="d15">LINESTRING (-117.9632885 34.1356094, -117.9637995 34.1356232, -117.9648131 34.1356651, -117.9658701 34.1356606)</data>
+    </edge>
+    <edge source="1102602969" target="322899203" id="0">
+      <data key="d9">[81204810, 123951247]</data>
+      <data key="d16">yes</data>
+      <data key="d10">motorway</data>
+      <data key="d11">3</data>
+      <data key="d18">San Gabriel River Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 605</data>
+      <data key="d13">False</data>
+      <data key="d14">274.2847184785955</data>
+      <data key="d15">LINESTRING (-117.9589665 34.1325553, -117.9591872 34.13228, -117.9594426 34.131918, -117.9605792 34.1304816)</data>
+    </edge>
+    <edge source="1102604029" target="268882189" id="0">
+      <data key="d9">[95027072, 31544518, 52158167, 52158168, 31544509, 31544510, 31544575]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">2</data>
+      <data key="d17">65 mph</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">1140.7504074179858</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-117.9609545 34.1292346, -117.9597776 34.1305623, -117.959081 34.1313842, -117.9588653 34.1316287, -117.9586893 34.1318193, -117.9585121 34.1319896, -117.9582873 34.1321804, -117.9580685 34.1323414, -117.957831 34.1324954, -117.957562 34.1326434, -117.9573404 34.1327547, -117.9571315 34.13284, -117.956874 34.1329323, -117.9566508 34.1330034, -117.9564105 34.1330744, -117.9562045 34.133117, -117.9559957 34.1331597, -117.9557654 34.1331917, -117.9555271 34.1332122, -117.9552042 34.1332267, -117.9548029 34.1332136, -117.9544408 34.1331799, -117.9542971 34.1331596, -117.9537044 34.1330533, -117.9531836 34.1329376, -117.9529629 34.1328871, -117.9522521 34.1327122, -117.9518048 34.1325806, -117.9508241 34.1323162)</data>
+    </edge>
+    <edge source="1102606094" target="1110075180" id="0">
+      <data key="d9">[29369874, 406295757]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">['2', '1']</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">333.36362015880263</data>
+      <data key="d15">LINESTRING (-117.9335478 34.1304704, -117.9334394 34.1306865, -117.9333804 34.1308106, -117.9333192 34.1308788, -117.9332391 34.1309376, -117.9331476 34.1309797, -117.9330319 34.1310034, -117.9328823 34.1309991, -117.9327495 34.1309566, -117.9326504 34.1308945, -117.9325766 34.130824, -117.9325332 34.1307397, -117.932517 34.1306729, -117.9325165 34.1305937, -117.9325468 34.1304892, -117.9325983 34.130411, -117.9326767 34.13034, -117.9328012 34.1302725, -117.9330336 34.130195, -117.9332461 34.1301215, -117.9341178 34.1298229)</data>
+    </edge>
+    <edge source="1346251751" target="612638344" id="0">
+      <data key="d9">[997464001, 119961516]</data>
+      <data key="d16">yes</data>
+      <data key="d10">motorway</data>
+      <data key="d11">4</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">591.8165503543609</data>
+      <data key="d15">LINESTRING (-118.0680555 34.1485276, -118.0675283 34.1485288, -118.0636988 34.1485623, -118.0616247 34.1485425)</data>
+    </edge>
+    <edge source="1377536883" target="279669988" id="0">
+      <data key="d9">123570148</data>
+      <data key="d10">motorway</data>
+      <data key="d11">4</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Ventura Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">CA 134</data>
+      <data key="d13">False</data>
+      <data key="d14">555.4802650122623</data>
+      <data key="d15">LINESTRING (-118.1494619 34.1519713, -118.1498036 34.1519484, -118.1500644 34.1519171, -118.1503007 34.1518955, -118.1507604 34.1518144, -118.151137 34.1517122, -118.1519027 34.1514848, -118.152473 34.151302, -118.1531446 34.1510346, -118.1537002 34.1507597, -118.1540258 34.1505826, -118.1549649 34.1500795)</data>
+    </edge>
+    <edge source="1377536883" target="279670282" id="0">
+      <data key="d9">[25655877, 123570166, 25655871]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">2</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">543.5471254299096</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.1494619 34.1519713, -118.150294 34.1519895, -118.1505145 34.1519744, -118.1507293 34.1519539, -118.1519164 34.1517995, -118.1528916 34.1516679, -118.1535791 34.1515699, -118.1538856 34.1514922, -118.1541894 34.1513898, -118.1544381 34.1512747, -118.1546403 34.1511713, -118.1549179 34.1510017, -118.1550876 34.1508692)</data>
+    </edge>
+    <edge source="1687098985" target="7217665643" id="0">
+      <data key="d9">80082447</data>
+      <data key="d10">motorway</data>
+      <data key="d11">3</data>
+      <data key="d17">55 mph</data>
+      <data key="d18">Long Beach Freeway</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">339.3116986187607</data>
+      <data key="d15">LINESTRING (-118.1548553 34.1448684, -118.1549124 34.1463059, -118.1549781 34.147197, -118.1550658 34.1479138)</data>
+    </edge>
+    <edge source="1687098985" target="364289154" id="0">
+      <data key="d9">[156458297, 1027613883, 1027613884]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">['2', '1']</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">959.3006480721359</data>
+      <data key="d15">LINESTRING (-118.1548553 34.1448684, -118.1548282 34.1470601, -118.1548185 34.1476286, -118.1547928 34.1481219, -118.1547598 34.1483689, -118.1546918 34.1486548, -118.1546044 34.1488923, -118.1544574 34.1491918, -118.1542821 34.1494858, -118.1540068 34.1498229, -118.1536453 34.1501514, -118.1529815 34.1505958, -118.152461 34.1508599, -118.1520397 34.1510339, -118.1515164 34.151226, -118.1506433 34.1514582, -118.1503891 34.1515903)</data>
+    </edge>
+    <edge source="1687115161" target="122550246" id="0">
+      <data key="d9">561847848</data>
+      <data key="d10">motorway</data>
+      <data key="d11">5</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">490.0448866073846</data>
+    </edge>
+    <edge source="1687115161" target="185743917" id="0">
+      <data key="d9">156460309</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">2</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">491.72402146412173</data>
+      <data key="d15">LINESTRING (-118.1047935 34.1523396, -118.1044652 34.1522271, -118.1027149 34.152131, -118.1000625 34.1520316, -118.0994842 34.1520065)</data>
+    </edge>
+    <edge source="1687115177" target="122688260" id="0">
+      <data key="d9">[156460316, 292007071]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">2</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">435.63371003083535</data>
+      <data key="d15">LINESTRING (-118.1269437 34.1520792, -118.1274845 34.1521585, -118.1285658 34.1521778, -118.1296827 34.1521998, -118.1308139 34.152256, -118.1312297 34.1522865, -118.1316576 34.1523535)</data>
+    </edge>
+    <edge source="1687115177" target="13327748357" id="0">
+      <data key="d9">866531344</data>
+      <data key="d10">motorway</data>
+      <data key="d11">6</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">890.7861239772644</data>
+      <data key="d15">LINESTRING (-118.1269437 34.1520792, -118.127615 34.1520383, -118.1282678 34.1520105, -118.1292806 34.1519892, -118.136621 34.1520187)</data>
+    </edge>
+    <edge source="1687115183" target="1687115151" id="0">
+      <data key="d9">[156460304, 119259537, 119259551]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">408.398633237893</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.1164148 34.1525817, -118.1170084 34.1526537, -118.1170725 34.1526585, -118.1176031 34.1526842, -118.1180586 34.1527005, -118.1191314 34.152696, -118.1203814 34.1527981, -118.1208332 34.1528581)</data>
+    </edge>
+    <edge source="1687115183" target="13327846997" id="0">
+      <data key="d9">[119259553, 119259554, 864070442, 119259535, 119259549]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">5</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">740.8496673250002</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.1164148 34.1525817, -118.1170756 34.1525589, -118.11761 34.1525495, -118.1182494 34.1525363, -118.1211455 34.15248, -118.121697 34.1524656, -118.1237359 34.1523656, -118.1244564 34.1523035)</data>
+    </edge>
+    <edge source="1687158745" target="268162439" id="0">
+      <data key="d9">[1151394336, 1151394337, 156466472, 406228752, 406228754, 156466484, 406228757, 406228759, 406228760]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">['2', '1']</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">875.3725226895218</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.0275485 34.1462399, -118.0277055 34.1463976, -118.0279309 34.1465262, -118.0282419 34.1467074, -118.0287614 34.1470084, -118.0288659 34.1470737, -118.0290949 34.1472078, -118.0292903 34.147362, -118.0294344 34.1475125, -118.0297854 34.1482239, -118.0298844 34.1483267, -118.0300367 34.1484393, -118.0302057 34.1484936, -118.0303693 34.1485059, -118.0311834 34.1484261, -118.0314084 34.1484011, -118.0314288 34.1483985, -118.0315205 34.1483886, -118.0316849 34.1483731, -118.0317879 34.1483721, -118.0318547 34.1483704, -118.0332346 34.1484138, -118.0335329 34.1484259, -118.0339985 34.1484487, -118.0351727 34.1485277, -118.0357795 34.1485058)</data>
+    </edge>
+    <edge source="1687158745" target="268162437" id="0">
+      <data key="d9">[71757315, 71757321, 862449628, 1151394334, 1151394335]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">['4', '5']</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">525.1320123574085</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.0275485 34.1462399, -118.0282429 34.1465711, -118.0287506 34.1468252, -118.0296285 34.1472285, -118.0300223 34.147413, -118.0304111 34.147579, -118.0309017 34.1477496, -118.0313236 34.1478771, -118.0318934 34.1480149, -118.0322734 34.1480945, -118.0327172 34.1481592)</data>
+    </edge>
+    <edge source="1784830607" target="934126848" id="0">
+      <data key="d9">[1002571690, 1122295250, 167078563]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">['2', '3', '1']</data>
+      <data key="d17">['55 mph', '65 mph']</data>
+      <data key="d18">Long Beach Freeway</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">566.5417540859016</data>
+      <data key="d15">LINESTRING (-118.1541043 34.1387115, -118.154219 34.1391044, -118.1543888 34.1395579, -118.1544475 34.1398103, -118.1545378 34.1401899, -118.154779 34.1415178, -118.1548464 34.1437464)</data>
+    </edge>
+    <edge source="1833697499" target="1687115161" id="0">
+      <data key="d9">[119259552, 561847849, 119259547, 1343732134]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">6</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">215.4102357614915</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.1071342 34.1523221, -118.1065274 34.1523351, -118.106015 34.1523354, -118.1055364 34.1523392, -118.1047935 34.1523396)</data>
+    </edge>
+    <edge source="1931511071" target="1346251751" id="0">
+      <data key="d9">[182793385, 1027610694, 1027610695]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">['2', '1']</data>
+      <data key="d17">65 mph</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">512.1994422990673</data>
+      <data key="d15">LINESTRING (-118.0733308 34.1476759, -118.0732844 34.1478118, -118.0732393 34.1478817, -118.073223 34.147913, -118.0731747 34.147955, -118.0731239 34.1479878, -118.0730482 34.1480092, -118.0729814 34.1480126, -118.0729564 34.1480163, -118.0722263 34.1480188, -118.0715784 34.1480506, -118.0709574 34.1481371, -118.0704679 34.1482171, -118.0699677 34.1483103, -118.0694871 34.1483813, -118.069049 34.148417, -118.0685777 34.1484623, -118.0680555 34.1485276)</data>
+    </edge>
+    <edge source="1931523072" target="364873706" id="0">
+      <data key="d9">[17088233, 32455862, 32455860, 182794582]</data>
+      <data key="d16">yes</data>
+      <data key="d10">motorway_link</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">371.6526975684759</data>
+      <data key="d15">LINESTRING (-118.1555435 34.1495384, -118.15484 34.1498153, -118.1537593 34.150286, -118.1535824 34.1503695, -118.1533816 34.1504427, -118.1532369 34.1504856, -118.1530377 34.150514, -118.1528311 34.1505246, -118.152596 34.1505113, -118.1523557 34.1504971, -118.1521669 34.1504971, -118.1520038 34.1505113, -118.1517875 34.150557)</data>
+    </edge>
+    <edge source="1931523072" target="364289154" id="0">
+      <data key="d9">[156458295, 607103551]</data>
+      <data key="d16">yes</data>
+      <data key="d10">motorway</data>
+      <data key="d11">5</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Ventura Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">CA 134</data>
+      <data key="d13">False</data>
+      <data key="d14">531.7047428430781</data>
+      <data key="d15">LINESTRING (-118.1555435 34.1495384, -118.1548847 34.1499099, -118.1532855 34.1507555, -118.1525158 34.1510673, -118.1518183 34.1512968, -118.1512101 34.1514614, -118.1503891 34.1515903)</data>
+    </edge>
+    <edge source="3480273622" target="613184001" id="0">
+      <data key="d9">[998403448, 405542249, 48253051, 41939550]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">['2', '1']</data>
+      <data key="d17">65 mph</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">219.46924340088313</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.0677418 34.1490774, -118.0676847 34.1492779, -118.0676643 34.1493134, -118.067589 34.149367, -118.0674884 34.1494347, -118.0674012 34.1494736, -118.067294 34.1494913, -118.0672081 34.1494869, -118.0671462 34.1494615, -118.0671094 34.1494387, -118.0670742 34.149407, -118.0670469 34.1493772, -118.0670289 34.1493448, -118.0670181 34.149301, -118.0670135 34.1492573, -118.0670311 34.1492056, -118.0670579 34.1491539, -118.0671047 34.1491136, -118.0671545 34.1490784, -118.0672212 34.1490548, -118.067294 34.1490363, -118.0675434 34.1490098, -118.0680661 34.1489091)</data>
+    </edge>
+    <edge source="4085601850" target="322726430" id="0">
+      <data key="d9">[520509233, 29336339, 1020758686]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">['2', '1']</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">404.15763659001567</data>
+      <data key="d15">LINESTRING (-117.9775187 34.1348555, -117.9774183 34.1348657, -117.9772501 34.1348827, -117.976361 34.134988, -117.9755596 34.1350951, -117.9747655 34.1351618, -117.9731736 34.1353744)</data>
+    </edge>
+    <edge source="5221232637" target="5221232641" id="0">
+      <data key="d9">539606653</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">1</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">20.416518287625852</data>
+      <data key="d15">LINESTRING (-118.0314971 34.1472243, -118.031455 34.1472827, -118.0314306 34.1473069, -118.031416 34.1473311, -118.0313515 34.1473512)</data>
+    </edge>
+    <edge source="5221232641" target="322075318" id="0">
+      <data key="d9">[539606658, 967516711, 292096843, 1151394330, 1151394331]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">407.03826693886873</data>
+      <data key="d11">['2', '1']</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.0313515 34.1473512, -118.0312309 34.1473136, -118.0304894 34.147075, -118.0302002 34.1469753, -118.0295624 34.1467554, -118.0291754 34.1466077, -118.0288479 34.146488, -118.0287461 34.14645, -118.0282368 34.1462257, -118.0273024 34.1458838)</data>
+    </edge>
+    <edge source="5226293487" target="7464907668" id="0">
+      <data key="d9">[38855360, 406229154, 71757324, 406229150]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">['2', '1']</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">558.0544782487391</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.0159587 34.1401911, -118.01596 34.1403171, -118.015961 34.1404029, -118.0159714 34.1413156, -118.0159791 34.1414278, -118.015995 34.1414809, -118.0160174 34.141539, -118.0160581 34.1416019, -118.0161002 34.1416499, -118.0161785 34.1417154, -118.0162398 34.1417507, -118.0163203 34.1417874, -118.0164047 34.1418106, -118.0164865 34.1418235, -118.0165321 34.1418262, -118.0165809 34.1418256, -118.0166952 34.1418161, -118.0173165 34.1417553, -118.0174549 34.1417534, -118.0176117 34.141774, -118.0177421 34.141801, -118.018314 34.142004, -118.018629 34.1421258, -118.0189248 34.1422387, -118.0192181 34.14237, -118.0200711 34.1426677)</data>
+    </edge>
+    <edge source="7464907668" target="1687158745" id="0">
+      <data key="d9">[119961522, 119961521, 1073489082, 156466450]</data>
+      <data key="d16">yes</data>
+      <data key="d10">motorway</data>
+      <data key="d11">5</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">794.5578558096443</data>
+      <data key="d15">LINESTRING (-118.0200711 34.1426677, -118.0208387 34.1430415, -118.0245051 34.1448033, -118.0266654 34.1458132, -118.0275485 34.1462399)</data>
+    </edge>
+    <edge source="9171144301" target="268673790" id="0">
+      <data key="d9">992635305</data>
+      <data key="d10">motorway</data>
+      <data key="d11">6</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">187.6475963941427</data>
+    </edge>
+    <edge source="12422556103" target="268882189" id="0">
+      <data key="d9">[95026977, 52158165, 52158166]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">4</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">420.9613768662615</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-117.955118 34.133597, -117.9536895 34.1332549, -117.9530541 34.1330946, -117.952798 34.1330245, -117.9519316 34.1327455, -117.9508241 34.1323162)</data>
+    </edge>
+    <edge source="13233844838" target="268671512" id="0">
+      <data key="d9">[71757300, 71757310]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">2</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">382.9294268123805</data>
+      <data key="d17">65 mph</data>
+      <data key="d15">LINESTRING (-118.0817062 34.1472078, -118.0816234 34.1472096, -118.0814511 34.1472782, -118.0811478 34.1473667, -118.080863 34.1473977, -118.0799114 34.1474405, -118.078482 34.1475319, -118.0776085 34.1476799)</data>
+    </edge>
+    <edge source="13235215479" target="1833697499" id="0">
+      <data key="d9">[1021057554, 172463547]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">['2', '1']</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">551.8349922853916</data>
+      <data key="d15">LINESTRING (-118.1130935 34.1518393, -118.1129687 34.1518817, -118.1125841 34.1519502, -118.1097448 34.1521313, -118.108547 34.1522077, -118.1071342 34.1523221)</data>
+    </edge>
+    <edge source="13240128593" target="182130731" id="0">
+      <data key="d9">[119259545, 119259532, 1426765461, 13262015]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">['2', '1']</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">505.6064543670243</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.1213268 34.1517828, -118.121215 34.1517922, -118.12092 34.1518328, -118.1184949 34.1519952, -118.1182399 34.1520112, -118.1177551 34.1520431, -118.1176349 34.1520582, -118.1170902 34.1520852, -118.1158659 34.152252)</data>
+    </edge>
+    <edge source="13276237362" target="181077295" id="0">
+      <data key="d9">[156460298, 1002599018]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">['2', '1']</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">415.1243962816674</data>
+      <data key="d15">LINESTRING (-118.1323001 34.1512632, -118.1321756 34.1512869, -118.1317164 34.1513731, -118.1301142 34.1514599, -118.1300683 34.1514626, -118.1286724 34.1515441, -118.1278222 34.1516597)</data>
+    </edge>
+    <edge source="13298107290" target="13298107292" id="0">
+      <data key="d9">755844264</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">2</data>
+      <data key="d12">False</data>
+      <data key="d13">False</data>
+      <data key="d14">14.219443742139509</data>
+    </edge>
+    <edge source="13298107292" target="13298107290" id="0">
+      <data key="d9">755844264</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">2</data>
+      <data key="d12">False</data>
+      <data key="d13">True</data>
+      <data key="d14">14.219443742139509</data>
+    </edge>
+    <edge source="13327574856" target="853061423" id="0">
+      <data key="d9">119961519</data>
+      <data key="d10">motorway</data>
+      <data key="d11">4</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">158.67723471102585</data>
+      <data key="d15">LINESTRING (-118.0516255 34.1490038, -118.0524592 34.1490017, -118.0533498 34.1489968)</data>
+    </edge>
+    <edge source="13327574856" target="397310084" id="0">
+      <data key="d9">[1453260193, 1453260180, 1453260181, 1463841366, 1453260183, 1453260184, 1453260185, 1453260186, 1453260187, 1453260182, 1453260189, 1453260190, 1463841371]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">1</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210 EXPR</data>
+      <data key="d13">False</data>
+      <data key="d14">4011.2179794429685</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.0516255 34.1490038, -118.051891 34.1489302, -118.0526742 34.1489213, -118.0535808 34.1489158, -118.0545558 34.1489113, -118.05563 34.1489047, -118.0568746 34.1488947, -118.0581929 34.148888, -118.059255 34.1488825, -118.0609515 34.1488703, -118.0627097 34.1488558, -118.0644907 34.1488458, -118.066273 34.1488392, -118.0675235 34.1488268, -118.0680713 34.1488249, -118.0693455 34.1488037, -118.0704466 34.1487582, -118.0715114 34.1486805, -118.0726889 34.1485573, -118.0732585 34.1484834, -118.0735822 34.1484403, -118.0750009 34.1482598, -118.0763716 34.1481022, -118.0775584 34.1480101, -118.0795567 34.147928, -118.0809367 34.1478902, -118.0817516 34.1478696, -118.0823359 34.1478596, -118.0829765 34.1478703, -118.0835934 34.1479291, -118.0843297 34.1480589, -118.0849962 34.1482287, -118.0856654 34.1484496, -118.0861053 34.1486228, -118.0864708 34.148803, -118.0866737 34.148902, -118.0867289 34.148928, -118.087264 34.1492332, -118.0878595 34.1496394, -118.0880486 34.1497851, -118.0882712 34.1499613, -118.0886681 34.1502571, -118.0891496 34.1506272, -118.0897155 34.15103, -118.0901725 34.1512976, -118.0907438 34.1515931, -118.0911411 34.1517825, -118.0917393 34.15202, -118.0922797 34.1521932, -118.0928018 34.1523333, -118.0932805 34.1524415, -118.0934608 34.1525837)</data>
+    </edge>
+    <edge source="13327606907" target="13327606941" id="0">
+      <data key="d9">[1453264192, 1453264193, 1453264195, 1453264196, 1453264197, 1453264198, 1453264199, 1453264200, 1453264203, 1453264188, 1453264189, 1453264190, 1453264191]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">1</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210 EXPR</data>
+      <data key="d13">False</data>
+      <data key="d14">3145.6302353040946</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-117.945787 34.1307493, -117.9460819 34.1307441, -117.9472902 34.1311848, -117.948284 34.1315495, -117.9486863 34.1316988, -117.9507392 34.1324503, -117.951512 34.1327234, -117.9524387 34.1330342, -117.9527405 34.1331164, -117.9530087 34.1331918, -117.9536283 34.1333495, -117.9556017 34.1338546, -117.9559518 34.1339495, -117.9565385 34.1341088, -117.9593146 34.134817, -117.9607818 34.1351678, -117.9616575 34.1353287, -117.9621725 34.1354097, -117.963075 34.135513, -117.9637899 34.1355663, -117.9643115 34.1355874, -117.9652517 34.135594, -117.9664995 34.1355902, -117.9667805 34.1355874, -117.9688686 34.135574, -117.9715347 34.1355585, -117.972631 34.1355413, -117.9728329 34.1355385, -117.9734592 34.1355097, -117.9747587 34.1354442, -117.9756533 34.135392, -117.9765196 34.1353653, -117.9774262 34.1353687, -117.977728 34.1353742, -117.97877 34.1353892, -117.9789242 34.1354637)</data>
+    </edge>
+    <edge source="13327606907" target="268882238" id="0">
+      <data key="d9">[1453264201, 1337631147, 1343729028, 24740609]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">5</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">582.6182896174352</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-117.945787 34.1307493, -117.9482396 34.131628, -117.9499103 34.1322331, -117.950694 34.1325202, -117.9515909 34.1328405)</data>
+    </edge>
+    <edge source="13327606941" target="36740307" id="0">
+      <data key="d9">1453264202</data>
+      <data key="d10">motorway</data>
+      <data key="d11">5</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">357.39779381129847</data>
+    </edge>
+    <edge source="13327626978" target="36550453" id="0">
+      <data key="d9">[38922185, 38922180, 38922183]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">4</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">535.5269106510559</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.0108465 34.1368537, -118.0120583 34.1372443, -118.0128225 34.1375022, -118.0135172 34.1377927, -118.0139892 34.1380607, -118.0141899 34.138183, -118.0144107 34.1383371, -118.0145498 34.138464, -118.0148401 34.1386903, -118.015047 34.1388747, -118.0156239 34.1394404)</data>
+    </edge>
+    <edge source="13327626978" target="13327647717" id="0">
+      <data key="d9">[1453268610, 1453268596, 1453268597, 1453268598, 1453268599, 1453268600, 1453268601, 1453268602, 1453268603, 1453268604, 1453268605, 1453268606, 1453268607]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">1</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210 EXPR</data>
+      <data key="d13">False</data>
+      <data key="d14">3800.376035514855</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.0108465 34.1368537, -118.0111514 34.1368635, -118.0122643 34.1372238, -118.0129964 34.1374743, -118.0135196 34.1377038, -118.0139789 34.1379454, -118.0144188 34.1382271, -118.0149078 34.1386119, -118.0151362 34.1388204, -118.015347 34.1390385, -118.015595 34.1392825, -118.0163056 34.1400011, -118.0167839 34.1404859, -118.0169245 34.1406189, -118.017192 34.1408871, -118.0174995 34.1411512, -118.0180237 34.1415367, -118.0184415 34.1417807, -118.0187598 34.1419471, -118.0193678 34.1422355, -118.0208378 34.1429371, -118.0218796 34.1434353, -118.0237734 34.144337, -118.0243934 34.144634, -118.0268211 34.1458089, -118.0282394 34.1464698, -118.0287488 34.1467196, -118.0300112 34.1473197, -118.0306945 34.1475976, -118.0313206 34.1477856, -118.0318974 34.1479335, -118.0325512 34.1480549, -118.033051 34.1481244, -118.0355129 34.1483958, -118.0373774 34.148601, -118.039482 34.1488321, -118.0401849 34.1489064, -118.0415125 34.1489807, -118.0427054 34.1489855, -118.0456144 34.1489629, -118.047616 34.1489508, -118.0477925 34.1490307)</data>
+    </edge>
+    <edge source="13327647717" target="13327574856" id="0">
+      <data key="d9">[119961520, 1453268609, 1453260191]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">5</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">352.7390070547527</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.0477925 34.1490307, -118.0500715 34.1490089, -118.0504135 34.1490069, -118.0516255 34.1490038)</data>
+    </edge>
+    <edge source="13327748357" target="13366754126" id="0">
+      <data key="d9">123951231</data>
+      <data key="d10">motorway</data>
+      <data key="d11">6</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">25.17658516626584</data>
+    </edge>
+    <edge source="13327766714" target="446297120" id="0">
+      <data key="d9">866184577</data>
+      <data key="d10">motorway</data>
+      <data key="d11">4</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">420.66139935785776</data>
+      <data key="d15">LINESTRING (-117.9244514 34.1297427, -117.9255627 34.1302609, -117.9261311 34.1304798, -117.9267222 34.1306564, -117.9272228 34.1307635, -117.9278685 34.1308611, -117.9283916 34.1308993, -117.9287316 34.1309196)</data>
+    </edge>
+    <edge source="13327766714" target="13327766729" id="0">
+      <data key="d9">1453284417</data>
+      <data key="d10">motorway</data>
+      <data key="d11">1</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210 EXPR</data>
+      <data key="d13">False</data>
+      <data key="d14">852.1703802389738</data>
+      <data key="d15">LINESTRING (-117.9244514 34.1297427, -117.9247337 34.1297804, -117.9252007 34.1300042, -117.925876 34.130296, -117.9264368 34.1304957, -117.9271104 34.1306638, -117.9276833 34.1307544, -117.9283846 34.130819, -117.9287787 34.1308205, -117.9292596 34.1308018, -117.9298464 34.1307414, -117.9302474 34.1306725, -117.9307301 34.1305546, -117.9314245 34.1303865, -117.9324245 34.1301422, -117.9333098 34.1299281)</data>
+    </edge>
+    <edge source="13327846974" target="13327846997" id="0">
+      <data key="d9">[1453291489, 1453291490, 1453291491, 1453291492, 1453291493, 1453291494, 1453291495, 1453291496, 1453291497, 1453291498, 1453291501]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">1</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210 EXPR</data>
+      <data key="d13">False</data>
+      <data key="d14">2506.6959254716817</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.0972625 34.1527403, -118.0975549 34.1526403, -118.09823 34.152636, -118.0988582 34.1526317, -118.1001382 34.1526274, -118.1016677 34.1526188, -118.1025306 34.1526102, -118.1037042 34.1526073, -118.1060079 34.1525929, -118.1065295 34.1525872, -118.1073865 34.1525771, -118.1086694 34.1525785, -118.1102458 34.1525642, -118.1118205 34.1525498, -118.112893 34.152526, -118.1135172 34.1525175, -118.1150965 34.1524966, -118.1170786 34.1524595, -118.117615 34.1524506, -118.1201469 34.1524033, -118.1211388 34.1523824, -118.1216963 34.1523767, -118.1223795 34.1523559, -118.123218 34.1523128, -118.1242094 34.1522344, -118.1244564 34.1523035)</data>
+    </edge>
+    <edge source="13327846974" target="185744804" id="0">
+      <data key="d9">[34461356, 34461355, 1453291500]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">5</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">372.1886517718813</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.0972625 34.1527403, -118.0982308 34.1527176, -118.0988589 34.1527078, -118.1013067 34.1527069)</data>
+    </edge>
+    <edge source="13327846997" target="844945145" id="0">
+      <data key="d9">1453291499</data>
+      <data key="d10">motorway</data>
+      <data key="d11">6</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">110.28569675165907</data>
+    </edge>
+    <edge source="13328118297" target="268671567" id="0">
+      <data key="d9">[1453870840, 1453322705, 34534151]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">6</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">355.1369067538452</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.097389 34.1523843, -118.0953068 34.1524041, -118.0949911 34.1523986, -118.0946907 34.1523844, -118.0943646 34.152356, -118.0939761 34.1523139, -118.0935465 34.1522327)</data>
+    </edge>
+    <edge source="13328147212" target="13328118297" id="0">
+      <data key="d9">[1453322697, 1453322698, 1453322699, 1453322700, 1453322701, 1453322702, 1453322703, 1453322704, 1453322707]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">1</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210 EXPR</data>
+      <data key="d13">False</data>
+      <data key="d14">1924.1726207024499</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.1182462 34.1522034, -118.1180603 34.1522815, -118.1176234 34.1522845, -118.1170836 34.1522971, -118.1154903 34.1523258, -118.1141457 34.1523459, -118.113514 34.1523608, -118.1128686 34.1523703, -118.1112994 34.1523911, -118.1096415 34.1524098, -118.1082717 34.1524141, -118.1068655 34.1524242, -118.1065282 34.1524263, -118.1060129 34.1524298, -118.1056103 34.1524342, -118.1037527 34.15244, -118.1021867 34.1524529, -118.100843 34.1524615, -118.0988559 34.1524743, -118.0982285 34.1524778, -118.0976069 34.1524802, -118.097389 34.1523843)</data>
+    </edge>
+    <edge source="13328147212" target="182130731" id="0">
+      <data key="d9">[119259536, 1453322706, 119259533]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">5</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">219.10399166657336</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.1182462 34.1522034, -118.1176268 34.1522178, -118.1170859 34.1522241, -118.1158659 34.152252)</data>
+    </edge>
+    <edge source="13333251231" target="13328147212" id="0">
+      <data key="d9">[119259544, 119259538, 1453834934]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">6</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">357.40185256731644</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.1221287 34.152115, -118.1216941 34.1521263, -118.1211079 34.152137, -118.1182462 34.1522034)</data>
+    </edge>
+    <edge source="13333251246" target="181077295" id="0">
+      <data key="d9">123951238</data>
+      <data key="d10">motorway</data>
+      <data key="d11">5</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">268.62701278681106</data>
+      <data key="d15">LINESTRING (-118.1307413 34.1516486, -118.1290495 34.1516455, -118.1278222 34.1516597)</data>
+    </edge>
+    <edge source="13333251246" target="13333251231" id="0">
+      <data key="d9">1453834935</data>
+      <data key="d10">motorway</data>
+      <data key="d11">1</data>
+      <data key="d17">65 mph</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210 EXPR</data>
+      <data key="d13">False</data>
+      <data key="d14">799.5135053770302</data>
+      <data key="d15">LINESTRING (-118.1307413 34.1516486, -118.1305736 34.1517348, -118.1302249 34.1517337, -118.12925 34.1517348, -118.1285687 34.1517481, -118.1283554 34.151757, -118.1278552 34.1517759, -118.1274274 34.1518003, -118.1266804 34.151848, -118.1256799 34.1519368, -118.1246983 34.1520289, -118.1236991 34.1521088, -118.1231627 34.152151, -118.1227899 34.1521687, -118.1223419 34.1521954, -118.1221287 34.152115)</data>
+    </edge>
+    <edge source="13333260283" target="13333251246" id="0">
+      <data key="d9">1457993856</data>
+      <data key="d10">motorway</data>
+      <data key="d11">6</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">364.73137894629787</data>
+    </edge>
+    <edge source="13333300203" target="178489644" id="0">
+      <data key="d9">123570157</data>
+      <data key="d10">motorway</data>
+      <data key="d11">5</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Ventura Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">CA 134</data>
+      <data key="d13">False</data>
+      <data key="d14">519.2088939456096</data>
+      <data key="d15">LINESTRING (-118.1494979 34.1516713, -118.1488958 34.1517015, -118.1483325 34.1517137, -118.1470606 34.1517173, -118.143858 34.1516464)</data>
+    </edge>
+    <edge source="13333300203" target="13333300204" id="0">
+      <data key="d9">1453838733</data>
+      <data key="d10">motorway</data>
+      <data key="d11">1</data>
+      <data key="d17">65 mph</data>
+      <data key="d12">True</data>
+      <data key="d19">CA 134 EXPR</data>
+      <data key="d13">False</data>
+      <data key="d14">162.23121871915433</data>
+      <data key="d15">LINESTRING (-118.1494979 34.1516713, -118.1493022 34.151788, -118.1489139 34.1518086, -118.1487516 34.1518075, -118.1483205 34.1518058, -118.1477813 34.1517981)</data>
+    </edge>
+    <edge source="13333300204" target="13333260283" id="0">
+      <data key="d9">[1453838732, 1453838734]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">['2', '1']</data>
+      <data key="d12">True</data>
+      <data key="d19">CA 134 EXPR</data>
+      <data key="d13">False</data>
+      <data key="d14">1206.3650820574298</data>
+      <data key="d15">LINESTRING (-118.1477813 34.1517981, -118.1469204 34.1517969, -118.146455 34.1518014, -118.14559 34.1517847, -118.1448068 34.1517736, -118.1442381 34.1517636, -118.1433316 34.1517648, -118.1423968 34.1517603, -118.141733 34.1517625, -118.1411523 34.1517625, -118.1400727 34.1517592, -118.1386243 34.1517559, -118.1376439 34.1517514, -118.1366985 34.1517514, -118.1355116 34.1517459, -118.1348705 34.1517464, -118.1347049 34.1516559)</data>
+    </edge>
+    <edge source="13333569151" target="13333613239" id="0">
+      <data key="d9">[1453870841, 119961515, 119961525]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">5</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">364.7287138151962</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.0526501 34.148639, -118.0504126 34.1486748, -118.0500686 34.1486761, -118.0486871 34.1486821)</data>
+    </edge>
+    <edge source="13333613239" target="321925592" id="0">
+      <data key="d9">1453877268</data>
+      <data key="d10">motorway</data>
+      <data key="d11">4</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">260.52135444387784</data>
+    </edge>
+    <edge source="13333613239" target="268162293" id="0">
+      <data key="d9">1453876751</data>
+      <data key="d10">motorway</data>
+      <data key="d11">1</data>
+      <data key="d17">65 mph</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210 EXPR</data>
+      <data key="d13">False</data>
+      <data key="d14">1426.3249125252253</data>
+      <data key="d15">LINESTRING (-118.0486871 34.1486821, -118.048553 34.1487498, -118.0481534 34.1487521, -118.0473045 34.1487504, -118.0463281 34.1487582, -118.0453545 34.1487637, -118.0433294 34.1487781, -118.0428627 34.1487737, -118.0417711 34.1487337, -118.0409798 34.1486893, -118.0399337 34.1486139, -118.0394255 34.1485617, -118.0387549 34.1485151, -118.0379958 34.1484507, -118.0369739 34.1483664, -118.0359346 34.1482831, -118.0344433 34.1481577, -118.0334837 34.1480856, -118.0332788 34.1479914)</data>
+    </edge>
+    <edge source="13333696731" target="13335464345" id="0">
+      <data key="d9">[1453885401, 1454090115]</data>
+      <data key="d16">yes</data>
+      <data key="d10">motorway</data>
+      <data key="d11">6</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">332.23752121963673</data>
+      <data key="d15">LINESTRING (-117.9485473 34.1314693, -117.948382 34.1314112, -117.945232 34.1302876)</data>
+    </edge>
+    <edge source="13333696777" target="13333696731" id="0">
+      <data key="d9">[1453885088, 1453885089, 1453885078, 1453885079, 1453885080, 1453885081, 1453885082, 1453885083, 1453885084, 1453885085, 1453885086, 1453885087]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">1</data>
+      <data key="d17">65 mph</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210 EXPR</data>
+      <data key="d13">False</data>
+      <data key="d14">2884.725685091352</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-117.9789683 34.1352815, -117.9787968 34.1353409, -117.9782295 34.1353276, -117.9777346 34.1353187, -117.9774249 34.1353132, -117.9773034 34.135314, -117.9762849 34.1353209, -117.9755111 34.1353487, -117.9748352 34.1353831, -117.9737636 34.1354464, -117.9728356 34.1354797, -117.9726291 34.1354853, -117.9720712 34.1354974, -117.9716367 34.1355052, -117.9709527 34.1355074, -117.9704672 34.1355097, -117.9695995 34.135513, -117.9684971 34.1355274, -117.967329 34.1355352, -117.9667711 34.1355352, -117.9664976 34.1355363, -117.9653563 34.1355407, -117.9646106 34.1355452, -117.9642874 34.1355363, -117.9639401 34.135523, -117.9636021 34.1354997, -117.9633003 34.1354764, -117.9628712 34.1354408, -117.9624635 34.1353986, -117.9621014 34.1353465, -117.9616588 34.1352821, -117.9611734 34.1351944, -117.9607455 34.1351045, -117.9603633 34.1350157, -117.95991 34.1348936, -117.9592878 34.1347315, -117.9584657 34.1345261, -117.9577723 34.1343463, -117.9573767 34.1342486, -117.9565881 34.134041, -117.9559538 34.1338923, -117.9555984 34.1337991, -117.9544477 34.1335104, -117.9535693 34.1332884, -117.9530288 34.1331513, -117.9527593 34.1330764, -117.9519506 34.1328288, -117.9512183 34.1325702, -117.9507637 34.1324126, -117.9495406 34.1319596, -117.9486233 34.1316288, -117.9485473 34.1314693)</data>
+    </edge>
+    <edge source="13333696777" target="364292886" id="0">
+      <data key="d9">[1453885402, 1163862860, 86094422]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">4</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">310.95963873717903</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-117.9789683 34.1352815, -117.9777361 34.1352578, -117.9774249 34.1352481, -117.9755903 34.1352596)</data>
+    </edge>
+    <edge source="13335464316" target="13335463695" id="0">
+      <data key="d9">1454090117</data>
+      <data key="d10">motorway</data>
+      <data key="d11">1</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210 EXPR</data>
+      <data key="d13">False</data>
+      <data key="d14">736.8239162210156</data>
+      <data key="d15">LINESTRING (-117.93299 34.1299548, -117.9324214 34.1300958, -117.9316731 34.1302745, -117.9310562 34.1304255, -117.9308027 34.1304887, -117.9304031 34.1305853, -117.9301335 34.1306408, -117.9297473 34.1307008, -117.9295662 34.1307252, -117.9292296 34.1307563, -117.9288541 34.1307729, -117.9283123 34.1307629, -117.9280132 34.1307407, -117.9277048 34.1307074, -117.9274204 34.1306653, -117.9272501 34.1306408, -117.9269256 34.1305676, -117.9265742 34.1304788, -117.926255 34.13038, -117.92596 34.1302723, -117.9257105 34.1301757, -117.9252924 34.129977)</data>
+    </edge>
+    <edge source="13335464345" target="268882196" id="0">
+      <data key="d9">156466482</data>
+      <data key="d10">motorway</data>
+      <data key="d11">5</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">187.6103088815748</data>
+    </edge>
+    <edge source="13335464345" target="13335464341" id="0">
+      <data key="d9">1454090117</data>
+      <data key="d10">motorway</data>
+      <data key="d11">1</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210 EXPR</data>
+      <data key="d13">False</data>
+      <data key="d14">166.7854493973479</data>
+      <data key="d15">LINESTRING (-117.945232 34.1302876, -117.9449963 34.1302967, -117.9448079 34.1302295, -117.9442178 34.1300125, -117.9435553 34.1297683)</data>
+    </edge>
+    <edge source="13335541473" target="13333696777" id="0">
+      <data key="d9">71760190</data>
+      <data key="d10">motorway</data>
+      <data key="d11">5</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">353.08879027366504</data>
+      <data key="d15">LINESTRING (-117.982804 34.1353367, -117.9801505 34.1353071, -117.9789683 34.1352815)</data>
+    </edge>
+    <edge source="13335585154" target="13335541473" id="0">
+      <data key="d9">[1454101411, 1454101412, 1454101414, 1454101415, 1454101416, 1454101417, 1454101418, 1454101419, 1454101420, 1454101421, 1454101422, 1454101423, 1454101424, 1454101425, 1454101426, 1454101427, 1454101429, 1454101430, 1454101431, 1454101432, 1454101433, 1454101434, 1454101436, 1454101437, 1454101439]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">1</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210 EXPR</data>
+      <data key="d13">False</data>
+      <data key="d14">4718.2363201697935</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.0297624 34.1470666, -118.0294436 34.1469857, -118.0289876 34.1467681, -118.0287484 34.1466592, -118.0282388 34.146413, -118.027381 34.1460034, -118.0269647 34.1458049, -118.0265837 34.1456216, -118.0252996 34.1450078, -118.0243241 34.1445291, -118.0236407 34.1442142, -118.0229607 34.1438901, -118.0223022 34.1435749, -118.0215392 34.1432075, -118.0208371 34.142872, -118.0200318 34.1424894, -118.0194933 34.1422346, -118.0185632 34.1417801, -118.0182387 34.1416003, -118.0179383 34.1414094, -118.0175883 34.141153, -118.0170867 34.1407145, -118.0168641 34.1404865, -118.0163907 34.1400011, -118.0160621 34.1396745, -118.0155256 34.1391261, -118.0150187 34.1386377, -118.014607 34.1382947, -118.0144235 34.1381634, -118.0139736 34.1378853, -118.0135301 34.1376553, -118.0131854 34.1374933, -118.0129574 34.1374023, -118.0126154 34.1372791, -118.0122721 34.1371736, -118.0119208 34.1370559, -118.0113857 34.1368872, -118.0109377 34.1367396, -118.0103195 34.136542, -118.0099426 34.1364221, -118.0097822 34.1363742, -118.0093463 34.136228, -118.0085063 34.1359626, -118.007931 34.1357783, -118.0077338 34.135725, -118.0074053 34.135644, -118.006905 34.1355474, -118.0063552 34.1354886, -118.0060937 34.1354675, -118.0058496 34.1354608, -118.0055438 34.1354597, -118.0052731 34.1354593, -118.0050694 34.1354592, -118.0043891 34.1354541, -118.0039975 34.1354564, -118.0028656 34.1354475, -118.0025035 34.1354442, -118.0019067 34.1354331, -118.0010099 34.1354391, -118.0007081 34.1354375, -117.9999433 34.1354331, -117.9992943 34.1354353, -117.9987592 34.1354331, -117.9983005 34.1354353, -117.9973798 34.1354342, -117.996769 34.1354331, -117.9952207 34.1354335, -117.994948 34.1354325, -117.9946701 34.1354364, -117.9941779 34.1354286, -117.9935315 34.1354286, -117.9928114 34.1354297, -117.9920818 34.1354319, -117.9914823 34.1354419, -117.9909405 34.1354425, -117.9906522 34.1354419, -117.990329 34.1354408, -117.989759 34.1354408, -117.9888256 34.1354434, -117.988668 34.1354427, -117.9884635 34.135443, -117.987577 34.135443, -117.9870017 34.1354419, -117.9865069 34.1354375, -117.986201 34.1354364, -117.985265 34.1354342, -117.9847929 34.1354364, -117.9844093 34.1354364, -117.9841974 34.1354353, -117.9837415 34.1354275, -117.983083 34.1354197, -117.982804 34.1353367)</data>
+    </edge>
+    <edge source="13335585154" target="322075318" id="0">
+      <data key="d9">[1151394332, 1151394333, 1454101438]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">4</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">261.81578824040287</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.0297624 34.1470666, -118.0287457 34.1465791, -118.0282379 34.1463327, -118.0275797 34.1460166, -118.0273024 34.1458838)</data>
+    </edge>
+    <edge source="13366754126" target="279669910" id="0">
+      <data key="d9">123951231</data>
+      <data key="d10">motorway</data>
+      <data key="d11">6</data>
+      <data key="d17">65 mph</data>
+      <data key="d18">Foothill Freeway</data>
+      <data key="d12">True</data>
+      <data key="d19">I 210</data>
+      <data key="d13">False</data>
+      <data key="d14">337.7305030430989</data>
+    </edge>
+    <edge source="13366754126" target="13327748339" id="0">
+      <data key="d9">[1453280291, 1453280292]</data>
+      <data key="d10">motorway</data>
+      <data key="d11">1</data>
+      <data key="d12">True</data>
+      <data key="d19">CA 134 EXPR</data>
+      <data key="d13">False</data>
+      <data key="d14">1869.2207711674432</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.1368946 34.1520184, -118.1371247 34.1519133, -118.1384007 34.1519176, -118.1390049 34.1519204, -118.1405934 34.1519219, -118.1423798 34.1519276, -118.1440776 34.1519362, -118.1456054 34.1519291, -118.1468588 34.1519262, -118.1483258 34.1519276, -118.1494334 34.1519118, -118.1498847 34.151868, -118.1503483 34.1518048, -118.1508221 34.1517057, -118.1514915 34.1515289, -118.1519194 34.1513982, -118.1527353 34.1511159, -118.1537149 34.1506806, -118.1544002 34.1503178, -118.1549367 34.1500199, -118.1563741 34.1492475)</data>
+    </edge>
+    <edge source="13475247714" target="612638344" id="0">
+      <data key="d9">[750661577, 750661578, 13261456, 48206907, 48206908]</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">['2', '1']</data>
+      <data key="d17">65 mph</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">875.6217079192179</data>
+      <data key="d16">yes</data>
+      <data key="d15">LINESTRING (-118.0695891 34.1469852, -118.0696369 34.1470448, -118.0697911 34.14724, -118.0698346 34.1473705, -118.0698514 34.1474836, -118.0698527 34.1476135, -118.0698259 34.1477356, -118.0697676 34.1478716, -118.0697304 34.1479334, -118.0696851 34.1479953, -118.0695691 34.148108, -118.0694786 34.1481751, -118.0693572 34.1482356, -118.0692251 34.1482767, -118.0690893 34.1483022, -118.0689535 34.1483144, -118.0680427 34.1483561, -118.0675246 34.1483722, -118.0669386 34.148386, -118.0662174 34.148395, -118.0645751 34.1484604, -118.0616247 34.1485425)</data>
+    </edge>
+    <edge source="13525138112" target="8230294397" id="0">
+      <data key="d9">156458298</data>
+      <data key="d10">motorway_link</data>
+      <data key="d11">2</data>
+      <data key="d12">True</data>
+      <data key="d13">False</data>
+      <data key="d14">180.45491322792603</data>
+    </edge>
+    <data key="d0">2026-05-29 11:41:25</data>
+    <data key="d1">OSMnx 2.0.7</data>
+    <data key="d2">epsg:4326</data>
+    <data key="d3">True</data>
+  </graph>
+</graphml>

@@ -17,8 +17,21 @@ from .io import (
     scenario_from_dataframes,
     scenario_to_dataframes,
 )
+from .caltrans import (
+    caltrans_postmiles_for_corridor,
+    extract_route_number,
+    load_postmiles,
+)
+from .cells import cells_from_corridor
 from .metrics import Metrics, compute_metrics
 from .model import Cell, Freeway, FreewayArrays, Scenario
+from .osm import (
+    Corridor,
+    MainlineSegment,
+    RampJunction,
+    corridor_from_graph,
+    summarize_refs,
+)
 from .results import SimulationResult
 from . import examples
 
@@ -41,5 +54,14 @@ __all__ = [
     "freeway_from_ctmsim_mat",
     "ctmsim_initial_densities",
     "ctmsim_demand_at_sim_steps",
+    "Corridor",
+    "MainlineSegment",
+    "RampJunction",
+    "corridor_from_graph",
+    "cells_from_corridor",
+    "summarize_refs",
+    "extract_route_number",
+    "load_postmiles",
+    "caltrans_postmiles_for_corridor",
     "examples",
 ]

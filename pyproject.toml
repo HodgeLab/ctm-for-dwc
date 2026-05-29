@@ -15,6 +15,7 @@ dependencies = [
     "networkx",
     "numpy",
     "osm2gmns",
+    "osmnx",
     "pandas",
     "python-dotenv",
     "scikit-learn",
