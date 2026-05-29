@@ -1,6 +1,6 @@
-"""Step 3: extract a CTM :class:`Corridor` from an osmnx ``MultiDiGraph``.
+"""Step 1: extract a CTM :class:`Corridor` from an osmnx ``MultiDiGraph``.
 
-This module owns the spatial side of Step 3 in ``docs/ctm_module.md``. The
+This module owns the spatial side of Step 1 in ``docs/ctm_module.md``. The
 :class:`Corridor` dataclass is the typed handoff between the OSM-driven
 extraction here and the cell-layout logic in ``cells.py`` (Layer 2).
 

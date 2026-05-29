@@ -1,11 +1,11 @@
-"""Step 3 end-to-end demo: OSM (osmnx) -> Corridor -> CTM cell table.
+"""Steps 1+2 end-to-end demo: OSM (osmnx) -> Corridor -> CTM cell table.
 
 Loads a freeway network from OSM (either a cached graphml file or a fresh
 osmnx download), runs the corridor extraction in
 :mod:`transportation_models.utils.ctm.osm`, lays out cells with
 :func:`transportation_models.utils.ctm.cells.cells_from_corridor`, and writes:
 
-* ``cells.csv``            -- the freeway-schema cell table (Step 2/4 fill in
+* ``cells.csv``            -- the freeway-schema cell table (Step 4 fills in
                               the FD parameters before this can be passed to
                               ``io.freeway_from_dataframe``). Includes
                               ``caltrans_pm_start``/``caltrans_pm_end`` when
@@ -99,7 +99,7 @@ def _resolve_postmiles_arg(value: str | None, ref: str):
 def _resolve_pems_metadata_arg(value: str | None, district: int | None):
     """Translate ``--pems-metadata`` into a file path (or None).
 
-    * ``None``      -> ``None`` (Step 4 skipped, cells get no vds_* columns).
+    * ``None``      -> ``None`` (Step 2 skipped, cells get no vds_* columns).
     * ``"auto"``    -> :func:`download_pems_station_metadata` for the requested
                        district (latest available year). Needs ``--district``
                        and PeMS credentials in the env.
@@ -372,7 +372,7 @@ def main() -> None:
             "snapshot for --district via the PeMS clearinghouse; needs "
             "PEMS_USERNAME / PEMS_PASSWORD in the environment), or a "
             "filesystem path to a pre-downloaded station_meta.txt file. "
-            "Omitting this skips Step 4 (cells.csv has no vds_* columns)."
+            "Omitting this skips Step 2 (cells.csv has no vds_* columns)."
         ),
     )
     parser.add_argument(
@@ -421,7 +421,7 @@ def main() -> None:
     )
     cells_df = cells_from_corridor(corridor)
 
-    # Step 4 (optional): load PeMS station metadata, project VDSs onto the
+    # Step 2 (optional): load PeMS station metadata, project VDSs onto the
     # corridor, and assign them to cells with the M&H 2014 upstream fallback.
     pems_path = _resolve_pems_metadata_arg(args.pems_metadata, args.district)
     if pems_path is not None:

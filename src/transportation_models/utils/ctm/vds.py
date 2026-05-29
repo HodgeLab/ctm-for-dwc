@@ -1,4 +1,4 @@
-"""Step 4: map PeMS vehicle detector stations (VDSs) onto CTM cells.
+"""Step 2: map PeMS vehicle detector stations (VDSs) onto CTM cells.
 
 Three thin layers, each independently testable, mirroring the Step-3 layout:
 
@@ -14,7 +14,7 @@ Three thin layers, each independently testable, mirroring the Step-3 layout:
 
 The dissertation's I-210 case study has one mainline VDS per cell; this
 module's output is the data ``cells_from_corridor`` needs to honor that
-convention end-to-end. Step 2 (FD calibration) consumes the resulting
+convention end-to-end. Step 4 (FD calibration) consumes the resulting
 ``vds_id`` column to look up the matching time-series file per cell.
 
 PeMS station_meta schema

@@ -1,4 +1,4 @@
-"""Step 3, layer 2: lay out CTM cells along an extracted :class:`Corridor`.
+"""Step 1, layer 2: lay out CTM cells along an extracted :class:`Corridor`.
 
 Cell boundaries are placed at the union of:
 
@@ -6,7 +6,7 @@ Cell boundaries are placed at the union of:
 * off-ramp gore postmiles,
 * mainline lane-count changes,
 * the corridor endpoints,
-* any extra break postmiles the caller passes in (Step 4 uses this to push
+* any extra break postmiles the caller passes in (Step 2 uses this to push
   VDS postmiles in so each cell contains at most one detector).
 
 Per the CTMSIM convention (User Guide §5, area 4), a ramp is "always at the
@@ -49,7 +49,7 @@ def cells_from_corridor(
     extra_break_postmiles : iterable of float, optional
         Additional postmiles at which to force a cell boundary. Values
         outside ``[corridor.pm_start, corridor.pm_end]`` are silently
-        ignored. Step 4 (VDS → cell) uses this to guarantee one detector
+        ignored. Step 2 (VDS → cell) uses this to guarantee one detector
         per cell.
 
     Returns
@@ -73,7 +73,7 @@ def cells_from_corridor(
         ``length``, ``on_ramp``, and ``off_ramp`` match the optional/required
         columns expected by
         :func:`transportation_models.utils.ctm.io.freeway_from_dataframe`;
-        Step 2 (FD calibration) and Step 4 (VDS-to-cell mapping) fill in the
+        Step 4 (FD calibration) and Step 2 (VDS-to-cell mapping) fill in the
         rest of the freeway schema before that function is called.
     """
     pm_lo = corridor.pm_start

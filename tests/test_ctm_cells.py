@@ -162,7 +162,7 @@ def test_lane_change_creates_a_break_even_without_ramps():
 
 
 def test_extra_break_postmiles_force_boundaries():
-    """Caller-supplied breakpoints (Step 4's VDS postmiles) create cell boundaries."""
+    """Caller-supplied breakpoints (Step 2's VDS postmiles) create cell boundaries."""
     corridor = _corridor([_seg(0.0, 3.0, 4)])
     cells = cells_from_corridor(corridor, extra_break_postmiles=[1.0, 2.0])
     assert list(cells["pm_start"]) == [0.0, 1.0, 2.0]

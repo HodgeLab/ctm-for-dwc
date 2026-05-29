@@ -2,28 +2,23 @@
 The cell transmission model (CTM) is a first-order macroscopic transportation model introduced by 
 [Daganzo](https://www.sciencedirect.com/science/article/pii/0191261594900027?via%3Dihub) and adapted by [Munoz](https://ieeexplore.ieee.org/document/1383703). Later, [Kurzhanskiy](https://www2.eecs.berkeley.edu/Pubs/TechRpts/2007/EECS-2007-148.html) introduced the link-node cell transmission model (LN-CTM). In any case, the model discretizes a freeway into a set of n cells, each characterized by a fundamental diagram, and iteratively evolves the density of traffic within each cell according to a set of [state update equations](#ctm-state-update-equations). The [Caltrans Performance Measurement System (PeMS) database](https://dot.ca.gov/programs/traffic-operations/mpr/pems-source) is a frequently used data source for CTM case studies, thanks to its densely-instrumented network. 
 
-Application of the CTM to a given freeway corridor involves the following steps: 
+Application of the CTM to a given freeway corridor involves the following steps:
 
-1) Identification of vehicle detector stations (VDSs) associated with the corridor and collection of data from each VDS
-2) Calibration of fundamental diagram parameters for each available VDS
-3) Mapping of roadway to CTM cells
-4) Mapping of VDSs to CTM cells
+1) Mapping of roadway to CTM cells
+2) Mapping of VDSs to CTM cells
+3) Identification of vehicle detector stations (VDSs) associated with the corridor and collection of timeseries data from each VDS
+4) Calibration of fundamental diagram parameters for each available VDS
 5) Tuning of CTM cell lengths
 6) Ramp flow estimation
 
-## Step 1: VDS Identification and Download
-`transportation_models.utils.data_downloading` includes two classes, `PeMSDownloader` and `PeMSExtractor` for interfacing with the PeMS database and downloading VDS data.
+The numbering reflects the actual data-pipeline order: the cell layout (Step 1)
+comes first because everything downstream is keyed by cell; VDS-to-cell mapping
+(Step 2) defines which detector each cell will be calibrated against; the
+per-cell VDS timeseries (Step 3) and the fundamental-diagram calibration
+(Step 4) follow; cell-length tuning (Step 5) and ramp-flow estimation (Step 6)
+complete the per-cell model.
 
-## Step 2: Fundamental Diagram Calibration
-`transportation_models.utils.data_processing` includes a class, `PeMSDataProcessor` with methods for calibrating fundamental diagram parameters.
-Key parameters are:
-1) Capacity $q_{max,i}$
-2) Free-flow speed $v_{f,i}$
-3) Congestion-wave speed $w_i$
-4) Jam density $\rho_{jam,i}$
-5) Critical density $\rho_{crit,i}$
-
-## Step 3: Roadway --> Cell Mapping
+## Step 1: Roadway --> Cell Mapping
 Implemented in `transportation_models.utils.ctm.osm` (corridor extraction),
 `transportation_models.utils.ctm.cells` (cell layout), and
 `transportation_models.utils.ctm.caltrans` (optional Caltrans postmile
@@ -80,11 +75,11 @@ caches it under `data/caltrans/` (gitignored).
 **Stage 3: cell layout.** `cells_from_corridor(corridor)` collects breakpoints
 from the union of on-ramp gores, off-ramp gores, mainline lane-count changes,
 the corridor endpoints, and any `extra_break_postmiles` the caller passes in
-(Step 4 uses the last to enforce "one VDS per cell"). Adjacent breakpoints
+(Step 2 uses the last to enforce "one VDS per cell"). Adjacent breakpoints
 become cells, and each cell records `length`, `lanes`, `on_ramp`, `off_ramp`,
 the ramp names if present, and — when Caltrans PMs were attached in stage 2 —
 `caltrans_pm_start`/`caltrans_pm_end`. The resulting DataFrame slots directly
-into `freeway_from_dataframe` once Step 2 supplies the FD parameters.
+into `freeway_from_dataframe` once Step 4 supplies the FD parameters.
 
 The CTMSIM/dissertation convention that "on-ramps live at the *start* of a
 cell, off-ramps at the *end*" is encoded exactly here: a cell's `on_ramp`
@@ -115,13 +110,13 @@ fixture (`ctmsim_configs/w060412.mat`) confirms the corridor's Caltrans PMs
 span the dissertation's PM 24-39 range when anchored at Vernon Ave and the
 SR-134 split.
 
-## Step 4: VDS --> Cell Mapping
+## Step 2: VDS --> Cell Mapping
 Implemented in `transportation_models.utils.ctm.vds`. End-to-end demo:
 `scripts/build_ctm_from_osm.py --pems-metadata {auto|PATH}`.
 
-Step 4 attaches a PeMS vehicle detector station (VDS) to every cell produced
-by Step 3, in three thin layers mirroring the Step-3 layout. The output is
-the data Step 2 (FD calibration) needs to look up time series per cell.
+Step 2 attaches a PeMS vehicle detector station (VDS) to every cell produced
+by Step 1, in three thin layers mirroring the Step-1 layout. The output is
+the data Step 4 (FD calibration) needs to look up time series per cell.
 
 **Stage 1: PeMS metadata → filtered VDS GeoDataFrame.**
 `load_pems_station_metadata(source, *, freeway, direction, mainline_only=True)`
@@ -166,7 +161,7 @@ verify the projection sits where it should.
 `assign_vds_to_cells(cells_df, vds_projected, *, fallback="upstream",
 tiebreaker="midpoint")` walks the cells produced by `cells_from_corridor`
 and attaches a VDS to each one. The interval check matches the ramp
-convention from Step 3 — VDSs in $(\text{pm\_start}, \text{pm\_end}]$
+convention from Step 1 — VDSs in $(\text{pm\_start}, \text{pm\_end}]$
 belong to that cell, so a VDS exactly on a cell boundary goes to the
 upstream cell:
 
@@ -195,7 +190,7 @@ matches the cell's `lanes` column when multiple candidates are available.
 on `missing`), `vds_pm`, `vds_source` (`direct` / `direct_tiebreak` /
 `nearest_upstream` / `missing`), `vds_distance_mi` (signed; nonzero only
 for `nearest_upstream`), and `vds_n_candidates` (count of direct
-candidates; >1 means a tiebreaker fired). Step 2 picks up the
+candidates; >1 means a tiebreaker fired). Step 4 picks up the
 `vds_id` column to find the matching `.gz` time-series file per cell.
 
 **Validation.** Running the demo on the cached I-210 W graph with the
@@ -213,6 +208,33 @@ python scripts/build_ctm_from_osm.py \
 in the corridor span (~2.1 / mi, in the ballpark of CTMSIM's ~2.8 / mi),
 with median lateral distance to the centerline under 3 m and Caltrans-PM
 projection within 0.5 mi of PeMS's reported `Abs_PM` for most stations.
+
+## Step 3: VDS Timeseries Download
+`transportation_models.utils.data_downloading` includes two classes,
+`PeMSDownloader` and `PeMSExtractor` for interfacing with the PeMS database
+and downloading per-VDS 5-minute timeseries data (mainline flow / speed /
+occupancy `.gz` files from the clearinghouse). Step 2 has already pinned a
+specific `vds_id` to every cell, so this step only needs to fetch — and the
+union of cells' `vds_id`s gives the exact list to query.
+
+(Station metadata downloads — the *spatial* side of "VDS identification" —
+live in Step 2 as `download_pems_station_metadata`; this step is
+specifically the *timeseries* download that Step 4 calibrates against.)
+
+## Step 4: Fundamental Diagram Calibration
+`transportation_models.utils.data_processing` includes a class,
+`PeMSDataProcessor` with methods for calibrating fundamental diagram
+parameters from the per-VDS timeseries downloaded in Step 3.
+Key parameters are:
+1) Capacity $q_{max,i}$
+2) Free-flow speed $v_{f,i}$
+3) Congestion-wave speed $w_i$
+4) Jam density $\rho_{jam,i}$
+5) Critical density $\rho_{crit,i}$
+
+The output of this step is joined back onto the `cells.csv` table on
+`vds_id`, completing the freeway schema required by
+`utils.ctm.io.freeway_from_dataframe`.
 
 ## Step 5: Cell Length Tuning
 Not currently implemented.
@@ -247,7 +269,7 @@ The LN-CTM is a Godunov discretization of the LWR conservation law with a triang
 | $d_i(k)$ | on-ramp demand at cell $i$ | veh/h |
 | $V_i(k)$ | mean speed in cell $i$ | mi/h |
 
-The five FD parameters $q_{max,i},\,v_{f,i},\,w_i,\,\rho_{jam,i},\,\rho_{crit,i}$ are the ones calibrated in Step 2. The triangle has only three degrees of freedom, so they satisfy
+The five FD parameters $q_{max,i},\,v_{f,i},\,w_i,\,\rho_{jam,i},\,\rho_{crit,i}$ are the ones calibrated in Step 4. The triangle has only three degrees of freedom, so they satisfy
 
 $$q_{max,i} = v_{f,i}\,\rho_{crit,i} = w_i\,(\rho_{jam,i} - \rho_{crit,i})$$
 
