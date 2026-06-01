@@ -34,11 +34,40 @@ optional columns (fall back to :class:`Cell` defaults if missing or NaN)
 Scenario schema
 ===============
 
-``scenario_from_dataframes`` takes the freeway, the boundary ``inflow`` (1-D,
-one value per step -- a Series or single-column DataFrame), and optional
-wide DataFrames for ``demand`` and ``beta`` (rows = steps, columns = cell
-indices). Cells absent from a wide DataFrame default to zero. Initial
-density ``rho0`` and queue ``q0`` can be passed as arrays / scalars.
+``scenario_from_dataframes`` builds a :class:`Scenario` from time-varying
+inputs in wide format (rows = sim steps, columns = cell indices). Sim
+horizon ``T`` is set by the length of ``inflow``.
+
+required
+    inflow              veh/h            f_0(k), upstream boundary demand. 1-D,
+                                         length T (Series / single-column
+                                         DataFrame / array-like).
+
+optional (default to zero / scalar broadcast)
+    demand              veh/h            d_i(k) on-ramp arrival demand.
+                                         Wide ``T x n_cells``; cells absent
+                                         from the columns get a zero
+                                         column. **Cells whose freeway has
+                                         ``on_ramp=False`` must carry a zero
+                                         column** (omit it or set it to 0)
+                                         -- the scenario validator rejects
+                                         non-zero demand on cells without
+                                         an on-ramp.
+    beta                -                beta_i(k) off-ramp split ratio,
+                                         unitless in [0, 1). Wide
+                                         ``T x n_cells``; cells absent default
+                                         to zero. **Cells whose freeway has
+                                         ``off_ramp=False`` must carry a zero
+                                         column** -- non-zero split ratios on
+                                         cells without an off-ramp are
+                                         rejected.
+    rho0                veh/mi           rho_i(0) initial density. Scalar
+                                         (broadcast to all cells) or array
+                                         of length ``n_cells``.
+    q0                  veh              q_i(0) initial on-ramp queue.
+                                         Same shape as ``rho0``; usually 0.
+
+Wide-frame columns must be integer cell indices in ``[0, n_cells)``.
 
 The upstream pipeline that builds the per-cell freeway table -- VDS-level
 FD calibration, the VDS-to-cell mapping, ramp placement -- is a separate
@@ -177,17 +206,33 @@ def scenario_from_dataframes(
 ) -> Scenario:
     """Build a :class:`Scenario` from wide-format time-varying DataFrames.
 
+    Units, shapes, and the no-ramp = zero-column convention are documented
+    in the module-level "Scenario schema" section above.
+
     Parameters
     ----------
     freeway : Freeway
-        Used to size the scenario (``n_cells``) and to validate ramp consistency.
+        Used to size the scenario (``n_cells``) and to validate ramp
+        consistency between ``demand`` / ``beta`` and the freeway's
+        ``on_ramp`` / ``off_ramp`` flags.
     inflow : Series / DataFrame / array-like, shape (T,)
-        Upstream boundary demand ``f_0(k)`` -- required; its length sets ``T``.
-    demand, beta : pd.DataFrame, optional
-        Wide ``(T x n_cells)`` frames; cells absent from the columns default to
-        zero. Column labels must be integer cell indices in ``[0, n_cells)``.
-    rho0, q0 : array-like or scalar, optional
-        Initial density and on-ramp queue, broadcast to ``(n_cells,)``.
+        Upstream boundary demand ``f_0(k)`` in veh/h. Required; its length
+        sets the sim horizon ``T``.
+    demand : pandas.DataFrame, optional
+        Wide ``T x n_cells`` on-ramp demand in veh/h. Columns must be
+        integer cell indices in ``[0, n_cells)``; cells absent from the
+        columns get a zero column. Cells with ``on_ramp=False`` must have
+        a zero (or absent) column -- the scenario validator rejects
+        non-zero demand on cells without an on-ramp.
+    beta : pandas.DataFrame, optional
+        Wide ``T x n_cells`` off-ramp split ratio, unitless in ``[0, 1)``.
+        Same column convention as ``demand``. Cells with ``off_ramp=False``
+        must have a zero (or absent) column.
+    rho0 : array-like or scalar, optional
+        Initial density ``rho_i(0)`` in veh/mi. Broadcast to ``(n_cells,)``.
+    q0 : array-like or scalar, optional
+        Initial on-ramp queue ``q_i(0)`` in veh. Broadcast to ``(n_cells,)``;
+        usually 0.
     """
     inflow_arr = _inflow_to_array(inflow)
     n = freeway.n_cells

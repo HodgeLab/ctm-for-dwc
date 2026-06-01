@@ -86,11 +86,15 @@ min_length=0.2, max_length=1.0)` annotates the cells DataFrame with a
 `length_warning` column flagging cells outside `[min_length, max_length]`
 miles. Two regimes get flagged:
 
-* `"too_short"` (length < 0.2 mi): forces the CFL-bounded sampling period
-  to be uncomfortably small. The CTM update requires
-  $v_{f,i}\,\Delta T \le l_i$ (Kurzhanskiy 2007 eq. 4.1), so at $v_f$ =
-  65 mph a 0.2-mi cell already caps $\Delta T$ near 11 s — anything
-  shorter pushes the engine toward sub-10-s timesteps.
+* `"too_short"` (length < 0.2 mi): forces the **CFL-bounded
+  (Courant–Friedrichs–Lewy)** sampling period to be uncomfortably
+  small. The CTM update requires $v_{f,i}\,\Delta T \le l_i$
+  (Kurzhanskiy 2007 eq. 4.1) — a vehicle at free-flow speed must not
+  traverse more than one cell per sim step — so at $v_f$ = 65 mph a
+  0.2-mi cell already caps $\Delta T$ near 11 s, and anything shorter
+  pushes the engine toward sub-10-s timesteps. Later steps (notably
+  Step 6's $\Delta T$ advisory) refer back to this CFL bound; the
+  acronym is introduced here.
 * `"too_long"` (length > 1.0 mi): the cell averages over too much
   spatial heterogeneity (multiple lane-add/-drop sections or more than
   one bottleneck) for the CTM dynamics to stay realistic.
@@ -572,7 +576,199 @@ schema as `freeway_to_dataframe`'s output minus the `gamma` / `xi`
 columns (which fall back to the cell defaults).
 
 ## Step 7: Ramp Flow Estimation
-Not currently implemented.
+**Not currently implemented.** Step 4 calibrates the ramp *capacities*
+$R_i$ / $S_i$ (see "Ramp capacities" sub-section there), and Step 8
+extracts the boundary inflow $f_0(k)$ and the initial state
+$\rho_i(0)$. What's still missing are the two **time-varying** ramp
+inputs that the scenario validator expects whenever the freeway has
+ramp cells: the on-ramp demand $d_i(k)$ and the off-ramp split ratio
+$\beta_i(k)$.
+
+When this step lands, it should expose two adapters in
+`utils/ctm/scenario.py` (alongside the existing `inflow_from_vds` and
+`initial_state_from_vds`), mirroring the inflow extractor's
+window-aware, no-`× 12`-round-trip resampling. Target signatures:
+
+* **`demand_from_ramp_vds(cells_df, timeseries_dir, dt, *, start, end)
+  -> pandas.DataFrame`**
+  Wide `T × n_cells` on-ramp demand in veh/h. For each cell with
+  `on_ramp=True` and a non-NaN `on_ramp_vds_id`, read the ramp VDS's
+  5-min timeseries, slice to `[start, end)`, resample to sim dt with
+  the same constant-hold (≤ 5 min) / hourly-aggregate (> 5 min) rule
+  as `inflow_from_vds`, and emit a column keyed by the cell's integer
+  index. Cells without an on-ramp **must** be absent (or zero) so the
+  scenario validator accepts the frame.
+
+* **`beta_from_off_ramp_vds(cells_df, timeseries_dir, dt, *, start,
+  end) -> pandas.DataFrame`**
+  Wide `T × n_cells` off-ramp split ratio, unitless in $[0, 1)$. For
+  each cell with `off_ramp=True`, compute
+  $\beta_i(k) = s_i(k) / (f_i(k) + s_i(k))$
+  from the off-ramp VDS ($s_i$, taken straight from the
+  `off_ramp_vds_id` timeseries) and the cell's *downstream* mainline
+  flow $f_i$ (the VDS attached to the next cell, by the same
+  `vds_id` lookup). Same windowing + resampling rule. Clip to
+  $[0, 1)$ so the scenario validator accepts the frame.
+
+Once these two land, Step 8's Stage-2 code snippet drops in their
+return values directly as the `demand=` and `beta=` arguments to
+`scenario_from_dataframes`; nothing else changes.
+
+## Step 8: Running a CTM Simulation
+
+With Steps 1-6 done you have a corridor-shaped, FD-calibrated freeway;
+this step wires it through the engine. The pieces already exist as
+typed Python entry points -- no new module is needed -- but the
+**input data shaping** for a real-data scenario is currently manual
+(see "Unfinished work" below).
+
+### Inputs
+
+| object       | source                                       | what feeds it                                  |
+|--------------|----------------------------------------------|------------------------------------------------|
+| `Freeway`    | `utils.ctm.io.freeway_from_dataframe`        | Step 6 `freeway.csv`                           |
+| `dt`         | user choice                                  | Step 6 CFL advisory (suggested Δt is loud-printed) |
+| `Scenario`   | `utils.ctm.io.scenario_from_dataframes`      | inflow + demand + beta + rho0 + q0 (see below) |
+
+### Stage 1: Build the `Freeway`
+
+```python
+import pandas as pd
+from transportation_models.utils.ctm import freeway_from_dataframe
+
+df = pd.read_csv("scripts/output/ctm_corridor/I_210_W/freeway.csv")
+dt_h = 10.0 / 3600.0                          # 10 s, from Step 6 advisory
+freeway = freeway_from_dataframe(df, dt=dt_h)  # also runs validate()
+```
+
+`freeway_from_dataframe` runs Cell-level and Freeway-level validation
+(triangular-FD identity, CFL rule, ramp/capacity consistency) on the
+way through, so any malformed Step 6 output fails loudly here.
+
+### Stage 2: Build the `Scenario`
+
+`scenario_from_dataframes(freeway, *, inflow, demand=None, beta=None, rho0=0.0, q0=0.0)`
+expects:
+
+| arg      | type / shape           | unit          | meaning                                                  |
+|----------|------------------------|---------------|----------------------------------------------------------|
+| `inflow` | 1-D, length `T`        | veh/h         | upstream boundary demand $f_0(k)$                        |
+| `demand` | wide `T × n_cells`     | veh/h         | on-ramp demand $d_i(k)$; cells without an on-ramp must have a zero (or absent) column |
+| `beta`   | wide `T × n_cells`     | unitless ∈ [0,1) | off-ramp split ratio $\beta_i(k)$; same convention for cells without an off-ramp |
+| `rho0`   | scalar or `(n_cells,)` | veh/mi        | initial density $\rho_i(0)$                              |
+| `q0`     | scalar or `(n_cells,)` | veh           | initial on-ramp queue $q_i(0)$ (usually 0)               |
+
+The boundary `inflow` and the initial `rho0` come straight off PeMS via
+two adapters in `utils/ctm/scenario.py`. Both accept timestamp bounds
+so a wide downloaded window can feed a narrow sim run without
+re-downloading:
+
+```python
+import pandas as pd
+from transportation_models.utils.ctm import (
+    inflow_from_vds, initial_state_from_vds, scenario_from_dataframes,
+)
+
+cells = pd.read_csv("scripts/output/ctm_corridor/I_210_W/cells.csv")
+ts_dir = "data/pems/csv_files"
+
+sim_start = pd.Timestamp("2022-04-12 06:00")
+sim_end   = pd.Timestamp("2022-04-12 09:00")   # exclusive
+
+# Upstream boundary inflow from the upstream-most mainline VDS:
+upstream_vds = int(cells.iloc[0]["vds_id"])
+inflow = inflow_from_vds(
+    f"{ts_dir}/{upstream_vds}.csv",
+    dt=dt_h, start=sim_start, end=sim_end,
+)
+# Per-cell initial density at sim_start (raises if any lanes != vds_lanes):
+rho0 = initial_state_from_vds(cells, ts_dir, at_time=sim_start)
+
+# demand and beta still need Step 7's adapters; see "Unfinished work" below.
+scenario = scenario_from_dataframes(
+    freeway,
+    inflow=inflow,
+    # demand=demand_df,    # Step 7
+    # beta=beta_df,        # Step 7
+    rho0=rho0,
+    q0=0.0,
+)
+```
+
+`inflow_from_vds` resamples PeMS's 5-minute counts directly to sim
+cadence — no intermediate `× 12` round-trip. When `dt ≤ 5 min` (the
+common case), each 5-min sample is constant-held across the sim steps
+it covers; when `dt > 5 min`, the 12 samples per hour are summed
+(giving veh/h directly) and then constant-held to sim dt. Misaligned
+bounds, NaN samples in the window, and short CSVs are rejected with a
+pointer to the source data.
+
+`initial_state_from_vds` requires `lanes == vds_lanes` on every cell
+(the OSM- and PeMS-reported lane counts agree); mismatches must be
+resolved in `cells.csv` first — typically by editing `lanes` to match
+the authoritative PeMS value (Step 5's manual-edit window). With the
+equality enforced, the per-cell density reduces to the VDS's
+total-roadway density, `total_flow / avg_speed`; neither lane-count
+column appears in the formula — they're read only for the precondition.
+
+The freeway and scenario are revalidated again inside `simulate`, so
+any cell/step shape mismatch surfaces before the loop runs.
+
+### Stage 3: Run the simulation and inspect
+
+```python
+from transportation_models.utils.ctm import simulate, compute_metrics
+
+result = simulate(freeway, scenario)        # SimulationResult
+frames = result.to_dataframes()             # wide frames per quantity
+metrics = compute_metrics(result)           # VHT, VMT, delay, productivity loss
+```
+
+`SimulationResult` carries per-step `density`, `queue`, `mainline_flow`,
+`off_ramp`, `on_ramp`, `speed`, and `boundary_inflow` arrays (state is
+`(n_cells, T+1)`, flows are `(n_cells, T)`). `compute_metrics` reduces
+those into per-cell + total VHT/VMT/delay/productivity-loss series
+(Kurzhanskiy 2007 eqs. 4.9-4.17).
+
+### Round-trip against CTMSIM (already wired)
+
+For users coming from CTMSIM, the same engine accepts a CTMSIM
+configuration directly:
+
+```python
+from transportation_models.utils.ctm import (
+    freeway_from_ctmsim_mat, ctmsim_initial_densities,
+    ctmsim_demand_at_sim_steps, simulate,
+)
+
+freeway = freeway_from_ctmsim_mat("ctmsim_configs/w060412.mat")
+rho0 = ctmsim_initial_densities("ctmsim_configs/w060412.mat")
+demand = ctmsim_demand_at_sim_steps("ctmsim_configs/w060412.mat")
+# ... build inflow, beta, q0 the same way ...
+```
+
+The I-210 W reference run in `tests/test_ctm_ctmsim_compare.py` exercises
+this path end-to-end against the dissertation's MATLAB output.
+
+### Unfinished work
+
+Two of the four PeMS → scenario adapters are in place
+(`inflow_from_vds`, `initial_state_from_vds` in
+`utils/ctm/scenario.py`). The remaining two — on-ramp demand $d_i(k)$
+and off-ramp split ratio $\beta_i(k)$ — are deferred to **Step 7**;
+see that section above for the punch list and target signatures.
+
+Until they land, a freeway with ramp cells will not pass
+`scenario_from_dataframes`'s validator unless the user hand-builds the
+`demand` and `beta` frames. A ramp-less corridor (or one where the
+user is willing to assume zero ramp activity) can already run
+end-to-end through `simulate` with just the two adapters in this step.
+
+A thin CLI demo (`scripts/build_ctm_scenario.py`) that bundles all
+four adapters against a `cells.csv` + the Step-3 timeseries directory,
+and writes `inflow.csv`, `demand.csv`, `beta.csv`, `rho0.csv` next to
+the Step-6 `freeway.csv`, is also still TODO. It can wait until Step 7
+unblocks the other two adapters.
 
 
 ## CTM State Update Equations

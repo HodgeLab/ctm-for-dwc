@@ -50,6 +50,7 @@ from .osm import (
     summarize_refs,
 )
 from .results import SimulationResult
+from .scenario import inflow_from_vds, initial_state_from_vds
 from .vds import (
     DEFAULT_PEMS_DIR,
     assign_ramp_vds_to_cells,
@@ -95,6 +96,8 @@ __all__ = [
     "CFLAdvisory",
     "compute_cfl_advisory",
     "format_cfl_advisory",
+    "inflow_from_vds",
+    "initial_state_from_vds",
     "summarize_refs",
     "extract_route_number",
     "load_postmiles",
