@@ -11,7 +11,11 @@ import pandas as pd
 import pytest
 from shapely.geometry import LineString, Point
 
-from transportation_models.utils.ctm.cells import cells_from_corridor
+from transportation_models.utils.ctm.cells import (
+    cells_from_corridor,
+    cells_to_geodataframe,
+    ramp_junctions_to_geodataframe,
+)
 from transportation_models.utils.ctm.osm import (
     Corridor,
     MainlineSegment,
@@ -221,3 +225,121 @@ def test_columns_and_dtypes_match_freeway_schema_subset():
     assert cells["lanes"].dtype == int
     assert cells["on_ramp"].dtype == bool
     assert cells["off_ramp"].dtype == bool
+
+
+# ---- cells_to_geodataframe (GIS overlay) ---------------------------------
+
+
+def _geo_seg(pm_start, pm_end, lanes, coords) -> MainlineSegment:
+    """A MainlineSegment with explicit lat/lon coords (degree units)."""
+    return MainlineSegment(
+        u=int(pm_start * 1000), v=int(pm_end * 1000),
+        geometry=LineString(coords),
+        length=pm_end - pm_start, lanes=lanes,
+        pm_start=pm_start, pm_end=pm_end,
+    )
+
+
+def test_cells_to_geodataframe_returns_one_linestring_per_cell():
+    # Single segment running 0..2 mi along a horizontal line at lat=34.
+    corridor = _corridor(
+        [_geo_seg(0.0, 2.0, 4, [(-118.40, 34.05), (-118.42, 34.05)])],
+    )
+    cells = cells_from_corridor(
+        corridor, extra_break_postmiles=[0.5, 1.5],
+    )
+    gdf = cells_to_geodataframe(cells, corridor)
+    assert len(gdf) == 3
+    assert str(gdf.crs).endswith(":4326")
+    # All three cells get LineString geometries.
+    for geom in gdf.geometry:
+        assert geom.geom_type == "LineString"
+    # Cell 0 covers postmiles 0..0.5; its LineString should start at the
+    # corridor's upstream end (-118.40, 34.05) and end at the 25% point.
+    first = gdf.geometry.iloc[0]
+    start_x, start_y = list(first.coords)[0]
+    assert start_x == pytest.approx(-118.40, abs=1e-6)
+    assert start_y == pytest.approx(34.05, abs=1e-6)
+    # First cell length spans 25% of the segment -> end at -118.405 (= 25%
+    # between -118.40 and -118.42).
+    end_x, end_y = list(first.coords)[-1]
+    assert end_x == pytest.approx(-118.405, abs=1e-6)
+
+
+def test_cells_to_geodataframe_carries_through_input_columns():
+    corridor = _corridor(
+        [_geo_seg(0.0, 1.0, 4, [(-118.40, 34.05), (-118.41, 34.05)])],
+        ramps=[_ramp("on", 0.5, name="HillOn")],
+    )
+    cells = cells_from_corridor(corridor)
+    gdf = cells_to_geodataframe(cells, corridor)
+    # Every column from cells_df is preserved in the GeoDataFrame.
+    for col in cells.columns:
+        assert col in gdf.columns
+    # And the rows are in the same order.
+    assert list(gdf["pm_start"]) == list(cells["pm_start"])
+    # On-ramp flag carries through.
+    assert bool(gdf["on_ramp"].iloc[1]) is True
+    assert gdf["on_ramp_name"].iloc[1] == "HillOn"
+
+
+def test_cells_to_geodataframe_spans_multiple_corridor_segments(tmp_path):
+    """A cell that straddles two mainline segments produces a continuous geometry
+    after linemerge."""
+    corridor = _corridor([
+        _geo_seg(0.0, 1.0, 4, [(-118.40, 34.05), (-118.41, 34.05)]),
+        _geo_seg(1.0, 2.0, 4, [(-118.41, 34.05), (-118.42, 34.05)]),
+    ])
+    # One cell covering the full corridor -> spans both segments.
+    cells = cells_from_corridor(corridor)
+    assert len(cells) == 1
+    gdf = cells_to_geodataframe(cells, corridor)
+    geom = gdf.geometry.iloc[0]
+    # linemerge should yield a single LineString from upstream end to downstream.
+    assert geom.geom_type == "LineString"
+    start_x, _ = list(geom.coords)[0]
+    end_x, _ = list(geom.coords)[-1]
+    assert start_x == pytest.approx(-118.40, abs=1e-6)
+    assert end_x == pytest.approx(-118.42, abs=1e-6)
+
+
+def test_cells_to_geodataframe_writes_valid_geojson(tmp_path):
+    """End-to-end smoke test: the result loads back via geopandas.read_file."""
+    import geopandas as gpd
+    corridor = _corridor([
+        _geo_seg(0.0, 1.0, 4, [(-118.40, 34.05), (-118.41, 34.05)]),
+    ])
+    cells = cells_from_corridor(corridor)
+    gdf = cells_to_geodataframe(cells, corridor)
+    out = tmp_path / "cells.geojson"
+    gdf.to_file(out, driver="GeoJSON")
+    reread = gpd.read_file(out)
+    assert len(reread) == len(gdf)
+    assert reread.geometry.iloc[0].geom_type == "LineString"
+
+
+# ---- ramp_junctions_to_geodataframe --------------------------------------
+
+
+def test_ramp_junctions_to_geodataframe_one_point_per_junction():
+    corridor = _corridor(
+        [_geo_seg(0.0, 1.0, 4, [(-118.40, 34.05), (-118.41, 34.05)])],
+        ramps=[
+            _ramp("on", 0.25, name="UpstreamOn"),
+            _ramp("off", 0.75, name="DownstreamOff"),
+        ],
+    )
+    gdf = ramp_junctions_to_geodataframe(corridor)
+    assert len(gdf) == 2
+    assert set(gdf["kind"]) == {"on", "off"}
+    assert {"postmile", "mainline_node", "ramp_terminus_node",
+            "lanes", "name"}.issubset(gdf.columns)
+    assert all(g.geom_type == "Point" for g in gdf.geometry)
+
+
+def test_ramp_junctions_to_geodataframe_empty_when_no_ramps():
+    corridor = _corridor(
+        [_geo_seg(0.0, 1.0, 4, [(-118.40, 34.05), (-118.41, 34.05)])],
+    )
+    gdf = ramp_junctions_to_geodataframe(corridor)
+    assert gdf.empty

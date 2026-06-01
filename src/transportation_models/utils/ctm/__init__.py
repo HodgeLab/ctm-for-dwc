@@ -24,7 +24,11 @@ from .caltrans import (
     extract_route_number,
     load_postmiles,
 )
-from .cells import cells_from_corridor
+from .cells import (
+    cells_from_corridor,
+    cells_to_geodataframe,
+    ramp_junctions_to_geodataframe,
+)
 from .metrics import Metrics, compute_metrics
 from .model import Cell, Freeway, FreewayArrays, Scenario
 from .osm import (
@@ -37,6 +41,7 @@ from .osm import (
 from .results import SimulationResult
 from .vds import (
     DEFAULT_PEMS_DIR,
+    assign_ramp_vds_to_cells,
     assign_vds_to_cells,
     download_pems_station_metadata,
     load_pems_station_metadata,
@@ -68,6 +73,8 @@ __all__ = [
     "RampJunction",
     "corridor_from_graph",
     "cells_from_corridor",
+    "cells_to_geodataframe",
+    "ramp_junctions_to_geodataframe",
     "summarize_refs",
     "extract_route_number",
     "load_postmiles",
@@ -77,6 +84,7 @@ __all__ = [
     "load_pems_station_metadata",
     "project_vds_to_corridor",
     "assign_vds_to_cells",
+    "assign_ramp_vds_to_cells",
     "download_pems_station_metadata",
     "DEFAULT_PEMS_DIR",
     "examples",

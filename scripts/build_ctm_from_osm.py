@@ -9,7 +9,15 @@ osmnx download), runs the corridor extraction in
                               the FD parameters before this can be passed to
                               ``io.freeway_from_dataframe``). Includes
                               ``caltrans_pm_start``/``caltrans_pm_end`` when
-                              ``--postmiles`` is supplied.
+                              ``--postmiles`` is supplied, and
+                              ``vds_*`` / ``on_ramp_vds_id`` /
+                              ``off_ramp_vds_id`` when ``--pems-metadata``
+                              is supplied.
+* ``cells.geojson``        -- one LineString per cell with all of cells.csv's
+                              columns as properties. Drop into QGIS / Google
+                              Earth to overlay the cell layout on satellite
+                              imagery.
+* ``ramps.geojson``        -- one POINT per ramp gore. Same QGIS workflow.
 * ``corridor_map.png``     -- folium-free matplotlib overlay of mainline +
                               ramps, colored by lane count
 * ``cell_layout.png``      -- strip plot of cells along the corridor with
@@ -52,6 +60,7 @@ Run from the repo root::
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -63,9 +72,14 @@ from transportation_models.utils.ctm.caltrans import (
     download_caltrans_postmiles,
     extract_route_number,
 )
-from transportation_models.utils.ctm.cells import cells_from_corridor
+from transportation_models.utils.ctm.cells import (
+    cells_from_corridor,
+    cells_to_geodataframe,
+    ramp_junctions_to_geodataframe,
+)
 from transportation_models.utils.ctm.osm import Corridor, corridor_from_graph
 from transportation_models.utils.ctm.vds import (
+    assign_ramp_vds_to_cells,
     assign_vds_to_cells,
     download_pems_station_metadata,
     load_pems_station_metadata,
@@ -337,6 +351,20 @@ def print_summary(corridor: Corridor, cells_df) -> None:
         if multi:
             print(f"  multi-VDS cells   : {multi} "
                   f"(tiebreaker resolved them)")
+        if "vds_lanes" in cells_df.columns:
+            both = cells_df[cells_df["vds_lanes"].notna()]
+            mismatch = int((both["lanes"] != both["vds_lanes"]).sum())
+            if mismatch:
+                print(f"  lane mismatches   : {mismatch} cells where OSM "
+                      f"`lanes` != PeMS `vds_lanes` (PeMS is usually the "
+                      f"authoritative source)")
+        if "on_ramp_vds_id" in cells_df.columns:
+            n_on_resolved = int(cells_df["on_ramp_vds_id"].notna().sum())
+            n_on_total = int(cells_df["on_ramp"].sum())
+            n_off_resolved = int(cells_df["off_ramp_vds_id"].notna().sum())
+            n_off_total = int(cells_df["off_ramp"].sum())
+            print(f"  ramp VDSs matched : on-ramp {n_on_resolved}/"
+                  f"{n_on_total}, off-ramp {n_off_resolved}/{n_off_total}")
 
 
 # ---- main -----------------------------------------------------------------
@@ -351,8 +379,17 @@ def main() -> None:
     parser.add_argument("--ref", required=True, help="OSM ref, e.g. 'I 210'")
     parser.add_argument("--direction", required=True,
                         help="N/S/E/W or numeric bearing in degrees")
-    parser.add_argument("--pm-range", default=None,
-                        help="optional 'pm_start,pm_end' crop in cumulative mi")
+    parser.add_argument(
+        "--pm-range", default=None,
+        help=(
+            "optional 'pm_start,pm_end' crop in *cumulative* mi from the "
+            "corridor's upstream end (NOT Caltrans postmiles). Whole "
+            "mainline segments are kept iff both endpoints lie inside the "
+            "range; segments that straddle a bound are dropped entirely. "
+            "Use a wide range (e.g. 2,6) rather than a tight one to avoid "
+            "excluding every segment."
+        ),
+    )
     parser.add_argument(
         "--postmiles",
         default=None,
@@ -402,6 +439,8 @@ def main() -> None:
     if args.pm_range is not None:
         lo, hi = (float(v) for v in args.pm_range.split(","))
         pm_range = (lo, hi)
+        print(f"pm-range crop requested: {lo:.3f}-{hi:.3f} cumulative mi",
+              file=sys.stderr)
 
     # Resolve --postmiles into something corridor_from_graph accepts (Path or
     # None). 'auto' triggers a route-filtered Caltrans download; an explicit
@@ -427,18 +466,36 @@ def main() -> None:
     # downstream-assignment fallback for cells that lack their own detector.
     pems_path = _resolve_pems_metadata_arg(args.pems_metadata, args.district)
     if pems_path is not None:
-        vds_gdf = load_pems_station_metadata(
-            pems_path,
-            freeway=args.ref,
-            direction=args.direction if isinstance(direction, str) else args.direction,
+        mainline_vds = load_pems_station_metadata(
+            pems_path, freeway=args.ref, direction=args.direction,
         )
-        projected = project_vds_to_corridor(vds_gdf, corridor)
+        projected = project_vds_to_corridor(mainline_vds, corridor)
         cells_df = assign_vds_to_cells(
             cells_df, projected, tiebreaker=args.vds_tiebreaker,
         )
+        # Ramp-VDS pass (separate from the mainline assignment): pull the
+        # on-ramp (Type=OR) and off-ramp (Type=FR) detectors and snap each
+        # corridor ramp gore to its nearest matching ramp VDS, so cells.csv
+        # surfaces both the mainline detector and the ramp detectors for
+        # validation.
+        ramp_vds = load_pems_station_metadata(
+            pems_path, freeway=args.ref, direction=args.direction,
+            mainline_only=False,
+        )
+        ramp_vds = ramp_vds[ramp_vds["type"].astype(str).str.upper().isin({"OR", "FR"})]
+        cells_df = assign_ramp_vds_to_cells(cells_df, corridor, ramp_vds)
 
     cells_csv = out_dir / "cells.csv"
     cells_df.to_csv(cells_csv, index=False)
+
+    # GeoJSON sidecars: one LineString per cell + one Point per ramp gore.
+    # These let users load the cell layout into QGIS / Google Earth on top
+    # of a basemap for visual validation against satellite imagery.
+    cells_gdf = cells_to_geodataframe(cells_df, corridor)
+    cells_gdf.to_file(out_dir / "cells.geojson", driver="GeoJSON")
+    ramps_gdf = ramp_junctions_to_geodataframe(corridor)
+    if not ramps_gdf.empty:
+        ramps_gdf.to_file(out_dir / "ramps.geojson", driver="GeoJSON")
 
     plot_corridor_map(graph, corridor, out_dir / "corridor_map.png")
     plot_cell_layout(corridor, cells_df, out_dir / "cell_layout.png")

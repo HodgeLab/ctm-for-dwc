@@ -24,7 +24,10 @@ from __future__ import annotations
 
 from typing import Iterable, Optional
 
+import geopandas as gpd
 import pandas as pd
+from shapely.geometry import LineString, Point
+from shapely.ops import linemerge, substring
 
 from .osm import Corridor
 
@@ -129,7 +132,103 @@ def cells_from_corridor(
     return pd.DataFrame(rows, columns=columns)
 
 
+# ---- GIS output -----------------------------------------------------------
+
+
+def cells_to_geodataframe(
+    cells_df: pd.DataFrame, corridor: Corridor,
+) -> gpd.GeoDataFrame:
+    """Wrap ``cells_df`` with a per-cell LineString from the corridor's mainline.
+
+    Each row's geometry is the substring of the corridor's mainline polyline
+    that runs from ``pm_start`` to ``pm_end`` (in cumulative miles). The
+    output GeoDataFrame is in ``corridor.crs`` (EPSG:4326 by default) and is
+    suitable for ``GeoDataFrame.to_file(..., driver='GeoJSON')`` so the cell
+    layout can be loaded into QGIS / Google Earth / Mapbox alongside the
+    underlying basemap.
+    """
+    geometries = [
+        _substring_along_corridor(corridor, row.pm_start, row.pm_end)
+        for row in cells_df.itertuples(index=False)
+    ]
+    return gpd.GeoDataFrame(cells_df.copy(), geometry=geometries, crs=corridor.crs)
+
+
+def ramp_junctions_to_geodataframe(corridor: Corridor) -> gpd.GeoDataFrame:
+    """Return one POINT per ramp junction, suitable for QGIS overlay.
+
+    Carries `kind` ("on" / "off"), `postmile` (cumulative mi), the OSM
+    `mainline_node` / `ramp_terminus_node` ids, `lanes`, and `name`.
+    """
+    rows = [
+        {
+            "kind": r.kind,
+            "postmile": r.postmile,
+            "mainline_node": r.mainline_node,
+            "ramp_terminus_node": r.ramp_terminus_node,
+            "lanes": r.lanes,
+            "name": r.name,
+        }
+        for r in corridor.ramp_junctions
+    ]
+    geometries = [r.geometry for r in corridor.ramp_junctions]
+    return gpd.GeoDataFrame(rows, geometry=geometries, crs=corridor.crs)
+
+
 # ---- Helpers --------------------------------------------------------------
+
+
+def _substring_along_corridor(
+    corridor: Corridor, pm_start: float, pm_end: float,
+):
+    """Sub-LineString of the corridor's mainline between two cumulative postmiles.
+
+    Walks each mainline segment, takes the slice that overlaps the requested
+    range via :func:`shapely.ops.substring` (normalized by segment length),
+    and merges the pieces. Returns a ``LineString`` for single-segment cells
+    and a (possibly merged) ``LineString`` / ``MultiLineString`` for cells
+    spanning multiple corridor segments. Degenerate ``pm_start == pm_end``
+    cells return a ``Point`` at that location.
+    """
+    pieces: list[LineString] = []
+    for seg in corridor.mainline_segments:
+        if seg.pm_end <= pm_start + 1e-12:
+            continue
+        if seg.pm_start >= pm_end - 1e-12:
+            break
+        slice_start_mi = max(pm_start, seg.pm_start)
+        slice_end_mi = min(pm_end, seg.pm_end)
+        if seg.length <= 0.0:
+            continue
+        start_frac = (slice_start_mi - seg.pm_start) / seg.length
+        end_frac = (slice_end_mi - seg.pm_start) / seg.length
+        # `substring` clamps start/end into [0, 1] internally.
+        sub = substring(seg.geometry, start_frac, end_frac, normalized=True)
+        if isinstance(sub, Point):
+            continue
+        pieces.append(sub)
+
+    if not pieces:
+        # Zero-length cell -- return a point at the cell's start position.
+        return _point_along_corridor(corridor, pm_start)
+    if len(pieces) == 1:
+        return pieces[0]
+    merged = linemerge(pieces)
+    return merged
+
+
+def _point_along_corridor(corridor: Corridor, pm: float) -> Point:
+    """Single-point interpolation at the given cumulative postmile."""
+    for seg in corridor.mainline_segments:
+        if seg.pm_start - 1e-9 <= pm <= seg.pm_end + 1e-9:
+            if seg.length <= 0.0:
+                return Point(seg.geometry.coords[0])
+            t = (pm - seg.pm_start) / seg.length
+            return seg.geometry.interpolate(t, normalized=True)
+    # Fall back to corridor endpoints if pm is outside the range.
+    if pm < corridor.pm_start:
+        return Point(corridor.mainline_segments[0].geometry.coords[0])
+    return Point(corridor.mainline_segments[-1].geometry.coords[-1])
 
 
 def _q(pm: float) -> float:

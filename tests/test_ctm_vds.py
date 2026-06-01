@@ -15,8 +15,13 @@ import pandas as pd
 import pytest
 from shapely.geometry import LineString, Point
 
-from transportation_models.utils.ctm.osm import Corridor, MainlineSegment
+from transportation_models.utils.ctm.osm import (
+    Corridor,
+    MainlineSegment,
+    RampJunction,
+)
 from transportation_models.utils.ctm.vds import (
+    assign_ramp_vds_to_cells,
     assign_vds_to_cells,
     load_pems_station_metadata,
     project_vds_to_corridor,
@@ -324,3 +329,139 @@ def test_assign_boundary_vds_belongs_to_upstream_cell():
     assert out["vds_source"].iloc[0] == "direct"
     # Downstream cell falls back upstream.
     assert out["vds_source"].iloc[1] == "nearest_upstream"
+
+
+# ---- vds_lanes surfacing --------------------------------------------------
+
+
+def test_assign_vds_to_cells_propagates_vds_lanes_column():
+    """Direct + upstream-inherit cells should both carry the assigned VDS's lane count."""
+    cells = _cells_df([(0.0, 1.0), (1.0, 2.0), (2.0, 3.0)], lanes=4)
+    vds = _projected([(101, 0.5), (103, 2.5)], lane_counts=[4, 5])
+    out = assign_vds_to_cells(cells, vds)
+    assert "vds_lanes" in out.columns
+    # Direct hits get the candidate's lane count.
+    assert out["vds_lanes"].iloc[0] == 4
+    assert out["vds_lanes"].iloc[2] == 5
+    # Upstream-inherit cells take the upstream VDS's lane count.
+    assert out["vds_lanes"].iloc[1] == 4
+    assert out["vds_source"].iloc[1] == "nearest_upstream"
+
+
+def test_assign_vds_to_cells_vds_lanes_is_NA_for_missing_cells():
+    """Cells upstream of every VDS keep vds_lanes as <NA>, matching vds_id."""
+    cells = _cells_df([(0.0, 1.0), (1.0, 2.0)])
+    vds = _projected([(101, 1.5)])
+    out = assign_vds_to_cells(cells, vds)
+    assert out["vds_source"].iloc[0] == "missing"
+    assert pd.isna(out["vds_id"].iloc[0])
+    assert pd.isna(out["vds_lanes"].iloc[0])
+
+
+# ---- assign_ramp_vds_to_cells --------------------------------------------
+
+
+def _corridor_with_ramps(ramps):
+    """Build a minimal Corridor with the given RampJunction list."""
+    return Corridor(
+        ref="I 880", direction="N", target_bearing=0.0,
+        mainline_segments=[
+            MainlineSegment(
+                u=1, v=2,
+                geometry=LineString([(-122.05, 37.50), (-122.05, 37.52)]),
+                length=1.0, lanes=4, pm_start=0.0, pm_end=1.0,
+            ),
+        ],
+        ramp_junctions=ramps,
+    )
+
+
+def _ramp_at(kind, pm, lon, lat) -> RampJunction:
+    return RampJunction(
+        kind=kind, postmile=pm,
+        mainline_node=int(pm * 1000), ramp_terminus_node=-1,
+        geometry=Point(lon, lat), lanes=1, name=f"R{int(pm*1000)}",
+    )
+
+
+def _ramp_vds_gdf(rows: list[dict]) -> gpd.GeoDataFrame:
+    """Build a PeMS-style ramp-VDS GeoDataFrame."""
+    df = pd.DataFrame(rows)
+    return gpd.GeoDataFrame(
+        df, geometry=[Point(r.longitude, r.latitude) for _, r in df.iterrows()],
+        crs="EPSG:4326",
+    )
+
+
+def test_assign_ramp_vds_matches_each_gore_to_nearest_typed_detector():
+    """On-ramp gores get an OR VDS; off-ramp gores get an FR VDS."""
+    corridor = _corridor_with_ramps([
+        _ramp_at("on", 0.25, -122.0500, 37.5050),
+        _ramp_at("off", 0.75, -122.0500, 37.5150),
+    ])
+    # OR VDS within 100 m of the on-ramp gore; FR VDS within 100 m of off-ramp.
+    vds = _ramp_vds_gdf([
+        {"vds_id": 9001, "type": "OR",
+         "latitude": 37.5051, "longitude": -122.0500, "lanes": 1, "name": "On"},
+        {"vds_id": 9002, "type": "FR",
+         "latitude": 37.5149, "longitude": -122.0500, "lanes": 1, "name": "Off"},
+        # Decoy: an FR VDS close to the on-ramp gore -- must NOT be picked
+        # because of the type mismatch.
+        {"vds_id": 9003, "type": "FR",
+         "latitude": 37.5050, "longitude": -122.0500, "lanes": 1, "name": "Decoy"},
+    ])
+    cells = pd.DataFrame([
+        {"pm_start": 0.0, "pm_end": 0.5, "length": 0.5, "lanes": 4,
+         "on_ramp": False, "off_ramp": False},
+        {"pm_start": 0.25, "pm_end": 0.75, "length": 0.5, "lanes": 4,
+         "on_ramp": True, "off_ramp": True},
+    ])
+    out = assign_ramp_vds_to_cells(cells, corridor, vds)
+    # Row 0: no ramps -> both ramp-VDS columns are NA.
+    assert pd.isna(out["on_ramp_vds_id"].iloc[0])
+    assert pd.isna(out["off_ramp_vds_id"].iloc[0])
+    # Row 1: on-ramp at pm_start=0.25 -> matches OR 9001;
+    #        off-ramp at pm_end=0.75 -> matches FR 9002.
+    assert out["on_ramp_vds_id"].iloc[1] == 9001
+    assert out["off_ramp_vds_id"].iloc[1] == 9002
+
+
+def test_assign_ramp_vds_respects_distance_threshold():
+    """A ramp VDS farther than max_distance_m from the gore should not match."""
+    corridor = _corridor_with_ramps([
+        _ramp_at("on", 0.25, -122.0500, 37.5050),
+    ])
+    # Lat diff of 0.01 degrees -> ~1100 m, well outside the default 200 m.
+    far_away_vds = _ramp_vds_gdf([
+        {"vds_id": 9001, "type": "OR",
+         "latitude": 37.5150, "longitude": -122.0500,
+         "lanes": 1, "name": "FarOn"},
+    ])
+    cells = pd.DataFrame([{
+        "pm_start": 0.25, "pm_end": 0.5, "length": 0.25, "lanes": 4,
+        "on_ramp": True, "off_ramp": False,
+    }])
+    out = assign_ramp_vds_to_cells(cells, corridor, far_away_vds)
+    # Distance gate triggers -> no match.
+    assert pd.isna(out["on_ramp_vds_id"].iloc[0])
+    # And bumping the threshold above the actual distance recovers the match.
+    out = assign_ramp_vds_to_cells(
+        cells, corridor, far_away_vds, max_distance_m=2000.0,
+    )
+    assert out["on_ramp_vds_id"].iloc[0] == 9001
+
+
+def test_assign_ramp_vds_empty_input_returns_NA_columns():
+    """No ramp VDSs at all -> on/off columns added but all-NA."""
+    corridor = _corridor_with_ramps([
+        _ramp_at("on", 0.25, -122.0500, 37.5050),
+    ])
+    cells = pd.DataFrame([{
+        "pm_start": 0.25, "pm_end": 0.5, "length": 0.25, "lanes": 4,
+        "on_ramp": True, "off_ramp": False,
+    }])
+    out = assign_ramp_vds_to_cells(
+        cells, corridor, gpd.GeoDataFrame(geometry=[], crs="EPSG:4326"),
+    )
+    assert "on_ramp_vds_id" in out.columns
+    assert pd.isna(out["on_ramp_vds_id"].iloc[0])

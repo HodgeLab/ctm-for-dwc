@@ -496,6 +496,7 @@ def assign_vds_to_cells(
     assigned_pm: list[float] = [float("nan")] * n
     assigned_source: list[str] = ["missing"] * n
     assigned_distance: list[float] = [float("nan")] * n
+    assigned_lanes: list[Optional[int]] = [None] * n
     n_candidates: list[int] = [0] * n
 
     pm_start = out["pm_start"].to_numpy()
@@ -534,21 +535,26 @@ def assign_vds_to_cells(
             assigned_pm[i] = float(chosen["pm_cum"])
             assigned_source[i] = "direct" if len(in_cell) == 1 else "direct_tiebreak"
             assigned_distance[i] = 0.0
+            if pd.notna(chosen.get("lanes")):
+                assigned_lanes[i] = int(chosen["lanes"])
 
     # Upstream fallback: walk forward; cells without a direct VDS inherit
     # whatever the most recent upstream cell holds.
     if fallback == "upstream":
         last_id: Optional[int] = None
         last_pm: float = float("nan")
+        last_lanes: Optional[int] = None
         for i in range(n):
             if assigned_id[i] is not None:
                 last_id = assigned_id[i]
                 last_pm = assigned_pm[i]
+                last_lanes = assigned_lanes[i]
                 continue
             if last_id is None:
                 continue  # still upstream of every VDS -> stays "missing"
             assigned_id[i] = last_id
             assigned_pm[i] = last_pm
+            assigned_lanes[i] = last_lanes
             assigned_source[i] = "nearest_upstream"
             # Negative distance because the source VDS is upstream of the
             # cell's midpoint.
@@ -556,10 +562,104 @@ def assign_vds_to_cells(
 
     out["vds_id"] = pd.array(assigned_id, dtype="Int64")
     out["vds_pm"] = assigned_pm
+    out["vds_lanes"] = pd.array(assigned_lanes, dtype="Int64")
     out["vds_source"] = assigned_source
     out["vds_distance_mi"] = assigned_distance
     out["vds_n_candidates"] = n_candidates
     return out
+
+
+def assign_ramp_vds_to_cells(
+    cells_df: pd.DataFrame,
+    corridor: Corridor,
+    ramp_vds_gdf: gpd.GeoDataFrame,
+    *,
+    max_distance_m: float = 200.0,
+) -> pd.DataFrame:
+    """Attach the nearest on-ramp / off-ramp PeMS VDS to each cell.
+
+    Splits ``ramp_vds_gdf`` into PeMS ``Type='OR'`` (on-ramp) and
+    ``Type='FR'`` (off-ramp) detectors, then for every cell that has
+    ``on_ramp=True`` / ``off_ramp=True`` finds the matching corridor
+    :class:`RampJunction` and assigns the closest matching-type ramp VDS
+    within ``max_distance_m`` meters (great-circle, not along-corridor).
+    Cells without a ramp on the relevant side, or whose nearest candidate is
+    farther than the threshold, get ``<NA>``.
+
+    Adds two ``Int64`` columns to ``cells_df`` and returns a copy:
+
+    =================  =========================================================
+    on_ramp_vds_id     PeMS station id of the on-ramp detector attached to the
+                       on-ramp gore at ``pm_start`` (or ``<NA>``)
+    off_ramp_vds_id    PeMS station id of the off-ramp detector attached to the
+                       off-ramp gore at ``pm_end`` (or ``<NA>``)
+    =================  =========================================================
+    """
+    out = cells_df.copy()
+    n = len(out)
+    on_ids: list[Optional[int]] = [None] * n
+    off_ids: list[Optional[int]] = [None] * n
+
+    if ramp_vds_gdf is None or ramp_vds_gdf.empty:
+        out["on_ramp_vds_id"] = pd.array(on_ids, dtype="Int64")
+        out["off_ramp_vds_id"] = pd.array(off_ids, dtype="Int64")
+        return out
+
+    or_vds = ramp_vds_gdf[ramp_vds_gdf["type"].astype(str).str.upper() == "OR"]
+    fr_vds = ramp_vds_gdf[ramp_vds_gdf["type"].astype(str).str.upper() == "FR"]
+    on_assignments = _assign_ramp_vds_per_gore(
+        [r for r in corridor.ramp_junctions if r.kind == "on"],
+        or_vds, max_distance_m,
+    )
+    off_assignments = _assign_ramp_vds_per_gore(
+        [r for r in corridor.ramp_junctions if r.kind == "off"],
+        fr_vds, max_distance_m,
+    )
+
+    pm_start = out["pm_start"].to_numpy() if "pm_start" in out.columns else None
+    pm_end = out["pm_end"].to_numpy() if "pm_end" in out.columns else None
+    for i in range(n):
+        if pm_start is not None and out.iloc[i].get("on_ramp"):
+            on_ids[i] = _pick_ramp_vds_at(on_assignments, pm_start[i])
+        if pm_end is not None and out.iloc[i].get("off_ramp"):
+            off_ids[i] = _pick_ramp_vds_at(off_assignments, pm_end[i])
+
+    out["on_ramp_vds_id"] = pd.array(on_ids, dtype="Int64")
+    out["off_ramp_vds_id"] = pd.array(off_ids, dtype="Int64")
+    return out
+
+
+def _assign_ramp_vds_per_gore(
+    gores, vds_gdf, max_distance_m: float,
+) -> dict[float, int]:
+    """Map ``gore.postmile -> nearest VDS id`` within ``max_distance_m`` meters."""
+    assignments: dict[float, int] = {}
+    if vds_gdf is None or vds_gdf.empty or not gores:
+        return assignments
+    vds_lat = vds_gdf["latitude"].to_numpy(dtype=float)
+    vds_lon = vds_gdf["longitude"].to_numpy(dtype=float)
+    vds_id = vds_gdf["vds_id"].to_numpy(dtype=int)
+    for gore in gores:
+        gx, gy = gore.geometry.x, gore.geometry.y
+        # Great-circle distance from gore to every candidate VDS.
+        dists = np.array([
+            _haversine_m(gy, gx, lat, lon)
+            for lat, lon in zip(vds_lat, vds_lon)
+        ])
+        if dists.size == 0:
+            continue
+        j = int(np.argmin(dists))
+        if dists[j] <= max_distance_m:
+            assignments[round(gore.postmile, 6)] = int(vds_id[j])
+    return assignments
+
+
+def _pick_ramp_vds_at(
+    assignments: dict[float, int], postmile: float,
+) -> Optional[int]:
+    """Look up the ramp VDS id matched at this gore postmile (or None)."""
+    key = round(float(postmile), 6)
+    return assignments.get(key)
 
 
 # ---- Internals ------------------------------------------------------------
