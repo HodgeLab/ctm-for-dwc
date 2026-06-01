@@ -22,6 +22,8 @@ an off-ramp at the corridor's downstream end belongs to the last cell.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Iterable, Optional
 
 import geopandas as gpd
@@ -30,7 +32,7 @@ import pandas as pd
 from shapely.geometry import LineString, Point
 from shapely.ops import linemerge, substring
 
-from .osm import Corridor
+from .osm import Corridor, MainlineSegment, RampJunction
 
 # All postmile comparisons are quantized to this many decimal places (~6 cm at
 # mile scale). Keeps floating-point noise from creating zero-length cells when
@@ -226,6 +228,27 @@ def cells_to_geodataframe(
     return gpd.GeoDataFrame(cells_df.copy(), geometry=geometries, crs=corridor.crs)
 
 
+def mainline_segments_to_geodataframe(corridor: Corridor) -> gpd.GeoDataFrame:
+    """Return one LineString per :class:`MainlineSegment`, suitable for round-tripping.
+
+    Carries the upstream/downstream OSM node ids, cumulative postmile
+    endpoints, and lane count -- everything :func:`corridor_from_artifacts`
+    needs to rebuild a :class:`Corridor` without the live osmnx graph.
+    """
+    rows = [
+        {
+            "u": int(seg.u),
+            "v": int(seg.v),
+            "pm_start": float(seg.pm_start),
+            "pm_end": float(seg.pm_end),
+            "lanes": int(seg.lanes),
+        }
+        for seg in corridor.mainline_segments
+    ]
+    geometries = [seg.geometry for seg in corridor.mainline_segments]
+    return gpd.GeoDataFrame(rows, geometry=geometries, crs=corridor.crs)
+
+
 def ramp_junctions_to_geodataframe(corridor: Corridor) -> gpd.GeoDataFrame:
     """Return one POINT per ramp junction, suitable for QGIS overlay.
 
@@ -245,6 +268,115 @@ def ramp_junctions_to_geodataframe(corridor: Corridor) -> gpd.GeoDataFrame:
     ]
     geometries = [r.geometry for r in corridor.ramp_junctions]
     return gpd.GeoDataFrame(rows, geometry=geometries, crs=corridor.crs)
+
+
+# ---- Corridor artifact round-trip ----------------------------------------
+
+
+# Filenames written by `corridor_to_artifacts` / read by `corridor_from_artifacts`.
+MAINLINE_GEOJSON = "mainline.geojson"
+RAMPS_GEOJSON = "ramps.geojson"
+CORRIDOR_JSON = "corridor.json"
+
+
+def corridor_to_artifacts(corridor: Corridor, out_dir: Path | str) -> None:
+    """Persist ``corridor`` as ``mainline.geojson`` + ``ramps.geojson`` + ``corridor.json``.
+
+    These three files are sufficient to reconstruct an equivalent
+    :class:`Corridor` via :func:`corridor_from_artifacts` -- the regenerator
+    script (:mod:`scripts.regenerate_cell_artifacts`) uses them to rebuild the
+    cell GeoJSON and the PNG plots after the user hand-edits ``cells.csv``,
+    without needing the original osmnx graph.
+
+    The corridor JSON carries scalar metadata (``ref``, ``direction``,
+    ``target_bearing``, ``crs``) plus the optional Caltrans-postmile lookup
+    (``caltrans_postmiles`` keyed by OSM node id, as a string-keyed dict for
+    JSON compatibility).
+    """
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    mainline_gdf = mainline_segments_to_geodataframe(corridor)
+    mainline_gdf.to_file(out_dir / MAINLINE_GEOJSON, driver="GeoJSON")
+
+    ramps_gdf = ramp_junctions_to_geodataframe(corridor)
+    if not ramps_gdf.empty:
+        ramps_gdf.to_file(out_dir / RAMPS_GEOJSON, driver="GeoJSON")
+
+    meta: dict = {
+        "ref": corridor.ref,
+        "direction": corridor.direction,
+        "target_bearing": float(corridor.target_bearing),
+        "crs": corridor.crs,
+    }
+    if corridor.caltrans_postmiles is not None:
+        meta["caltrans_postmiles"] = {
+            str(int(node_id)): float(pm)
+            for node_id, pm in corridor.caltrans_postmiles.items()
+        }
+    (out_dir / CORRIDOR_JSON).write_text(json.dumps(meta, indent=2))
+
+
+def corridor_from_artifacts(in_dir: Path | str) -> Corridor:
+    """Reconstruct a :class:`Corridor` from the sidecars written by ``corridor_to_artifacts``.
+
+    Required files in ``in_dir``: ``mainline.geojson`` and ``corridor.json``.
+    ``ramps.geojson`` is optional -- corridors with no ramps don't have one.
+
+    The reconstructed corridor round-trips with the original for all fields
+    used downstream by ``cells_to_geodataframe`` and the plotting helpers:
+    geometry, postmiles, lane counts, ramp gore positions, and the optional
+    Caltrans postmile lookup.
+    """
+    in_dir = Path(in_dir)
+    meta = json.loads((in_dir / CORRIDOR_JSON).read_text())
+
+    mainline_gdf = gpd.read_file(in_dir / MAINLINE_GEOJSON)
+    mainline_gdf = mainline_gdf.sort_values("pm_start").reset_index(drop=True)
+    segments = [
+        MainlineSegment(
+            u=int(row.u),
+            v=int(row.v),
+            geometry=row.geometry,
+            length=float(row.pm_end) - float(row.pm_start),
+            lanes=int(row.lanes),
+            pm_start=float(row.pm_start),
+            pm_end=float(row.pm_end),
+        )
+        for row in mainline_gdf.itertuples(index=False)
+    ]
+
+    ramps: list[RampJunction] = []
+    ramps_path = in_dir / RAMPS_GEOJSON
+    if ramps_path.exists():
+        ramps_gdf = gpd.read_file(ramps_path).sort_values(
+            ["postmile", "kind"]
+        ).reset_index(drop=True)
+        for row in ramps_gdf.itertuples(index=False):
+            name = row.name if isinstance(row.name, str) else None
+            ramps.append(RampJunction(
+                kind=row.kind,
+                postmile=float(row.postmile),
+                mainline_node=int(row.mainline_node),
+                ramp_terminus_node=int(row.ramp_terminus_node),
+                geometry=row.geometry,
+                lanes=int(row.lanes),
+                name=name,
+            ))
+
+    caltrans = None
+    if "caltrans_postmiles" in meta:
+        caltrans = {int(k): float(v) for k, v in meta["caltrans_postmiles"].items()}
+
+    return Corridor(
+        ref=meta["ref"],
+        direction=meta["direction"],
+        target_bearing=float(meta["target_bearing"]),
+        mainline_segments=segments,
+        ramp_junctions=ramps,
+        crs=meta.get("crs", "EPSG:4326"),
+        caltrans_postmiles=caltrans,
+    )
 
 
 # ---- Helpers --------------------------------------------------------------

@@ -27,7 +27,10 @@ from .caltrans import (
 from .cells import (
     cells_from_corridor,
     cells_to_geodataframe,
+    corridor_from_artifacts,
+    corridor_to_artifacts,
     flag_cell_length_warnings,
+    mainline_segments_to_geodataframe,
     ramp_junctions_to_geodataframe,
 )
 from .metrics import Metrics, compute_metrics
@@ -75,7 +78,10 @@ __all__ = [
     "corridor_from_graph",
     "cells_from_corridor",
     "cells_to_geodataframe",
+    "corridor_from_artifacts",
+    "corridor_to_artifacts",
     "flag_cell_length_warnings",
+    "mainline_segments_to_geodataframe",
     "ramp_junctions_to_geodataframe",
     "summarize_refs",
     "extract_route_number",

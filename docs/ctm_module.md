@@ -103,6 +103,16 @@ Step 5 (cell-length tuning) addresses the long-cell case by splitting;
 the short-cell case typically calls for merging upstream-or-downstream
 with a neighbor or accepting the tighter $\Delta T$.
 
+**Round-trip sidecars.** Alongside `cells.csv` / `cells.geojson` /
+the two PNGs, the build script also writes `mainline.geojson`,
+`ramps.geojson`, and `corridor.json` — together these capture the
+corridor's geometry + metadata (`ref`, `direction`, `target_bearing`,
+`crs`, optional Caltrans postmile lookup) without depending on the live
+osmnx graph. `corridor_to_artifacts` / `corridor_from_artifacts` in
+`utils.ctm.cells` write and read this trio; Step 5's regenerator script
+uses them to rebuild `cells.geojson` and the PNGs after a user
+hand-edits `cells.csv`.
+
 The CTMSIM/dissertation convention that "on-ramps live at the *start* of a
 cell, off-ramps at the *end*" is encoded exactly here: a cell's `on_ramp`
 flag is True iff its `pm_start` sits on an on-ramp gore, and `off_ramp` iff
@@ -404,23 +414,42 @@ DataFrame is empty; the plotter emits a non-empty PNG). The integration
 tests use ~4 weeks of synthetic 5-minute CSVs under `tmp_path` so the
 suite stays light without hitting real PeMS data.
 
-## Step 5: Manual Validation of Cell Mappings & Cell Length Tuning
+## Step 5: Manual Validation of Cell Mappings
 
-### Phase 1: Manual Validation
 The automatic mappings in Steps 1 and 2 get you 90% of the way there, however 
 some manual inspection of the result is necessary. For this purpose, .geojson 
 files are generated in `build_ctm_from_osm.py`, which makes it easy to overlay
-the cell mapping results onto a Google Earth or OpenStreetMap basemap in a GIS
+the cell mapping results onto a satellite image or OpenStreetMap basemap in a GIS
 software like QGIS.
 
-Specific validation steps include:
-* Inspect lane counts 
+Specific aspects to consider:
+* Lane discrepancies between OSM, PeMS, and satellite images
+* Cell merging for length
+* VDS assignment overrides
+* Ramp VDS assignments
 
-### Phase 2: Cell Length Tuning
-Not currently implemented.
+After making any manual adjustments, re-generate the derived artifacts
+(`cells.geojson`, `corridor_map.png`, `cell_layout.png`) from the
+updated `cells.csv` with `scripts/regenerate_cell_artifacts.py`:
+
+```
+python scripts/regenerate_cell_artifacts.py \
+    --dir scripts/output/ctm_corridor/I_210_W
+```
+
+The regenerator reads the round-trip sidecars from Step 1
+(`mainline.geojson`, `ramps.geojson`, `corridor.json`) so it does **not**
+need the original osmnx graph or Caltrans postmile dataset. It also
+re-runs `flag_cell_length_warnings` on the edited table so the
+`length_warning` column stays consistent with the new lengths.
+
+## Step 6: CTM Freeway Assembly
+In this step, we use the outputs from Steps 2 and 5 to assemble a CTM-compatible freeway representation
+
+### Stage 3: $\Delta_t$ choice
 A requirement of the CTM is that each cell length is at least as large as the distance covered by vehicles moving at free-flow speed through that cell, i.e., $v_{f,i} ΔT ≤ l_i$. 
 
-## Step 6: Ramp Flow Estimation
+## Step 7: Ramp Flow Estimation
 Not currently implemented.
 
 

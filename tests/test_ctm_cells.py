@@ -14,6 +14,8 @@ from shapely.geometry import LineString, Point
 from transportation_models.utils.ctm.cells import (
     cells_from_corridor,
     cells_to_geodataframe,
+    corridor_from_artifacts,
+    corridor_to_artifacts,
     flag_cell_length_warnings,
     ramp_junctions_to_geodataframe,
 )
@@ -414,6 +416,123 @@ def test_flag_cell_length_warnings_overwrites_existing_column():
     first["length_warning"] = "stale"
     second = flag_cell_length_warnings(first)
     assert list(second["length_warning"]) == ["too_short", "ok", "too_long"]
+
+
+# ---- corridor_to_artifacts / corridor_from_artifacts round-trip ----------
+
+
+def _round_trip_corridor() -> Corridor:
+    """A 3-segment, 2-ramp corridor with Caltrans PMs set, for sidecar tests."""
+    segs = [
+        _geo_seg(0.0, 0.5, 4, [(-118.400, 34.05), (-118.405, 34.05)]),
+        _geo_seg(0.5, 1.3, 5, [(-118.405, 34.05), (-118.415, 34.05)]),
+        _geo_seg(1.3, 2.0, 5, [(-118.415, 34.05), (-118.425, 34.05)]),
+    ]
+    corridor = _corridor(segs, ramps=[
+        _ramp("on", 0.2, name="HillOn"),
+        _ramp("off", 1.6, name="AllenOff"),
+    ])
+    # Caltrans PMs at each mainline node id (decreasing for westbound).
+    corridor.caltrans_postmiles = {
+        segs[0].u: 38.0, segs[0].v: 37.5,
+        segs[1].v: 36.7, segs[2].v: 36.0,
+    }
+    return corridor
+
+
+def test_corridor_to_artifacts_writes_three_files(tmp_path):
+    corridor = _round_trip_corridor()
+    corridor_to_artifacts(corridor, tmp_path)
+    assert (tmp_path / "mainline.geojson").exists()
+    assert (tmp_path / "ramps.geojson").exists()
+    assert (tmp_path / "corridor.json").exists()
+
+
+def test_corridor_artifacts_round_trip_preserves_scalars(tmp_path):
+    """ref / direction / target_bearing / crs survive a write + read cycle."""
+    corridor = _round_trip_corridor()
+    corridor_to_artifacts(corridor, tmp_path)
+    reloaded = corridor_from_artifacts(tmp_path)
+    assert reloaded.ref == corridor.ref
+    assert reloaded.direction == corridor.direction
+    assert reloaded.target_bearing == pytest.approx(corridor.target_bearing)
+    assert str(reloaded.crs).endswith(":4326")
+
+
+def test_corridor_artifacts_round_trip_preserves_mainline(tmp_path):
+    corridor = _round_trip_corridor()
+    corridor_to_artifacts(corridor, tmp_path)
+    reloaded = corridor_from_artifacts(tmp_path)
+    assert len(reloaded.mainline_segments) == len(corridor.mainline_segments)
+    for orig, reread in zip(corridor.mainline_segments, reloaded.mainline_segments):
+        assert reread.u == orig.u
+        assert reread.v == orig.v
+        assert reread.lanes == orig.lanes
+        assert reread.pm_start == pytest.approx(orig.pm_start)
+        assert reread.pm_end == pytest.approx(orig.pm_end)
+        assert reread.length == pytest.approx(orig.pm_end - orig.pm_start)
+        assert list(reread.geometry.coords) == list(orig.geometry.coords)
+
+
+def test_corridor_artifacts_round_trip_preserves_ramps(tmp_path):
+    corridor = _round_trip_corridor()
+    corridor_to_artifacts(corridor, tmp_path)
+    reloaded = corridor_from_artifacts(tmp_path)
+    assert len(reloaded.ramp_junctions) == len(corridor.ramp_junctions)
+    # Ramps come out sorted by (postmile, kind) -- same order as input.
+    for orig, reread in zip(corridor.ramp_junctions, reloaded.ramp_junctions):
+        assert reread.kind == orig.kind
+        assert reread.postmile == pytest.approx(orig.postmile)
+        assert reread.name == orig.name
+        assert reread.mainline_node == orig.mainline_node
+        assert reread.ramp_terminus_node == orig.ramp_terminus_node
+
+
+def test_corridor_artifacts_round_trip_preserves_caltrans_postmiles(tmp_path):
+    """Caltrans PM dict survives JSON encoding (int keys, float values)."""
+    corridor = _round_trip_corridor()
+    corridor_to_artifacts(corridor, tmp_path)
+    reloaded = corridor_from_artifacts(tmp_path)
+    assert reloaded.caltrans_postmiles is not None
+    assert reloaded.caltrans_postmiles.keys() == corridor.caltrans_postmiles.keys()
+    for k, v in corridor.caltrans_postmiles.items():
+        assert reloaded.caltrans_postmiles[k] == pytest.approx(v)
+
+
+def test_corridor_artifacts_round_trip_omits_caltrans_when_unset(tmp_path):
+    corridor = _corridor(
+        [_geo_seg(0.0, 1.0, 4, [(-118.40, 34.05), (-118.41, 34.05)])],
+    )
+    corridor_to_artifacts(corridor, tmp_path)
+    reloaded = corridor_from_artifacts(tmp_path)
+    assert reloaded.caltrans_postmiles is None
+
+
+def test_corridor_artifacts_round_trip_no_ramps(tmp_path):
+    """A corridor with no ramps writes no ramps.geojson and still round-trips."""
+    corridor = _corridor(
+        [_geo_seg(0.0, 1.0, 4, [(-118.40, 34.05), (-118.41, 34.05)])],
+    )
+    corridor_to_artifacts(corridor, tmp_path)
+    assert not (tmp_path / "ramps.geojson").exists()
+    reloaded = corridor_from_artifacts(tmp_path)
+    assert reloaded.ramp_junctions == []
+
+
+def test_corridor_artifacts_round_trip_cells_geojson_identical(tmp_path):
+    """The reconstructed corridor produces the same cells.geojson geometries."""
+    corridor = _round_trip_corridor()
+    cells = cells_from_corridor(corridor)
+    original_gdf = cells_to_geodataframe(cells, corridor)
+
+    corridor_to_artifacts(corridor, tmp_path)
+    reloaded = corridor_from_artifacts(tmp_path)
+    rebuilt_gdf = cells_to_geodataframe(cells, reloaded)
+
+    assert len(rebuilt_gdf) == len(original_gdf)
+    for o, r in zip(original_gdf.geometry, rebuilt_gdf.geometry):
+        assert o.geom_type == r.geom_type
+        assert list(o.coords) == list(r.coords)
 
 
 def test_flag_cell_length_warnings_works_on_real_cells_from_corridor_output():

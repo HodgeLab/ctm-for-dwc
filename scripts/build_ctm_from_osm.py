@@ -18,6 +18,17 @@ osmnx download), runs the corridor extraction in
                               Earth to overlay the cell layout on satellite
                               imagery.
 * ``ramps.geojson``        -- one POINT per ramp gore. Same QGIS workflow.
+* ``mainline.geojson``     -- one LineString per :class:`MainlineSegment`
+                              (u, v, pm_start, pm_end, lanes). Together with
+                              ``ramps.geojson`` + ``corridor.json`` this lets
+                              ``scripts/regenerate_cell_artifacts.py`` rebuild
+                              the cell GeoJSON + PNGs after manual edits to
+                              ``cells.csv`` (Step 5) without needing the
+                              original osmnx graph.
+* ``corridor.json``        -- corridor metadata (``ref``, ``direction``,
+                              ``target_bearing``, ``crs``) and the optional
+                              Caltrans postmile lookup, completing the
+                              round-trip sidecar set.
 * ``corridor_map.png``     -- folium-free matplotlib overlay of mainline +
                               ramps, colored by lane count
 * ``cell_layout.png``      -- strip plot of cells along the corridor with
@@ -63,10 +74,7 @@ import argparse
 import sys
 from pathlib import Path
 
-import matplotlib.pyplot as plt
-import numpy as np
 import osmnx as ox
-from matplotlib.collections import LineCollection
 
 from transportation_models.utils.ctm.caltrans import (
     download_caltrans_postmiles,
@@ -75,10 +83,14 @@ from transportation_models.utils.ctm.caltrans import (
 from transportation_models.utils.ctm.cells import (
     cells_from_corridor,
     cells_to_geodataframe,
+    corridor_to_artifacts,
     flag_cell_length_warnings,
-    ramp_junctions_to_geodataframe,
 )
 from transportation_models.utils.ctm.osm import Corridor, corridor_from_graph
+from transportation_models.utils.ctm.plots import (
+    plot_cell_layout,
+    plot_corridor_map,
+)
 from transportation_models.utils.ctm.vds import (
     assign_ramp_vds_to_cells,
     assign_vds_to_cells,
@@ -167,150 +179,6 @@ def load_graph(args: argparse.Namespace):
     g = ox.simplify_graph(g)
     print(f"  simplified: {g.number_of_nodes()} nodes, {g.number_of_edges()} edges")
     return g
-
-
-# ---- Plotting -------------------------------------------------------------
-
-
-# Distinct colors per lane count so the corridor map reads at a glance.
-_LANE_COLORS = {
-    2: "#1f77b4", 3: "#2ca02c", 4: "#ff7f0e",
-    5: "#d62728", 6: "#9467bd", 7: "#8c564b",
-}
-_DEFAULT_LANE_COLOR = "#7f7f7f"
-
-
-def _lane_color(lanes: int) -> str:
-    return _LANE_COLORS.get(int(lanes), _DEFAULT_LANE_COLOR)
-
-
-def plot_corridor_map(graph, corridor: Corridor, out_path: Path) -> None:
-    """Overlay mainline (colored by lane count) + ramp gores on a lat/lon map."""
-    fig, ax = plt.subplots(figsize=(11, 6))
-
-    # Mainline as LineCollections per lane count (single legend entry each).
-    by_lanes: dict[int, list[list[tuple[float, float]]]] = {}
-    for seg in corridor.mainline_segments:
-        by_lanes.setdefault(seg.lanes, []).append(list(seg.geometry.coords))
-    for lanes, lines in sorted(by_lanes.items()):
-        lc = LineCollection(
-            lines, colors=_lane_color(lanes), linewidths=2.2,
-            label=f"mainline · {lanes} lanes",
-        )
-        ax.add_collection(lc)
-
-    # Ramp gores -- one marker style per kind.
-    on_xy = np.array(
-        [(r.geometry.x, r.geometry.y) for r in corridor.ramp_junctions if r.kind == "on"]
-    )
-    off_xy = np.array(
-        [(r.geometry.x, r.geometry.y) for r in corridor.ramp_junctions if r.kind == "off"]
-    )
-    if on_xy.size:
-        ax.scatter(on_xy[:, 0], on_xy[:, 1], marker="^", s=60,
-                   edgecolor="black", facecolor="#2ca02c", linewidths=0.6,
-                   label=f"on-ramp ({len(on_xy)})", zorder=5)
-    if off_xy.size:
-        ax.scatter(off_xy[:, 0], off_xy[:, 1], marker="v", s=60,
-                   edgecolor="black", facecolor="#d62728", linewidths=0.6,
-                   label=f"off-ramp ({len(off_xy)})", zorder=5)
-
-    # Corridor endpoints.
-    up = graph.nodes[corridor.mainline_segments[0].u]
-    dn = graph.nodes[corridor.mainline_segments[-1].v]
-    ax.scatter([up["x"]], [up["y"]], marker="o", s=110, color="white",
-               edgecolor="black", linewidths=1.5, label="upstream end", zorder=6)
-    ax.scatter([dn["x"]], [dn["y"]], marker="s", s=110, color="black",
-               edgecolor="black", linewidths=1.5, label="downstream end", zorder=6)
-
-    ax.set_xlabel("longitude")
-    ax.set_ylabel("latitude")
-    ax.set_title(
-        f"{corridor.ref} {corridor.direction}  ·  "
-        f"{corridor.n_mainline} mainline segments, "
-        f"{len(corridor.on_ramp_postmiles)} on / "
-        f"{len(corridor.off_ramp_postmiles)} off ramps  ·  "
-        f"{corridor.total_length:.2f} mi"
-    )
-    ax.set_aspect("equal", adjustable="datalim")
-    ax.grid(alpha=0.3)
-    ax.legend(loc="best", fontsize=8, framealpha=0.9)
-    ax.autoscale_view()
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=120)
-    plt.close(fig)
-
-
-def plot_cell_layout(corridor: Corridor, cells_df, out_path: Path) -> None:
-    """Strip plot: cells along postmile, colored by lane count, ramps on top."""
-    fig, ax = plt.subplots(figsize=(13, 3))
-
-    cells = list(cells_df.itertuples(index=False))
-    for cell in cells:
-        ax.barh(
-            0, width=cell.length, left=cell.pm_start,
-            color=_lane_color(cell.lanes), edgecolor="white",
-            height=0.5, linewidth=0.4,
-        )
-    # On-ramps: triangle above the strip at pm_start of cells with on_ramp=True.
-    on_pms = cells_df.loc[cells_df["on_ramp"], "pm_start"].to_list()
-    off_pms = cells_df.loc[cells_df["off_ramp"], "pm_end"].to_list()
-    if on_pms:
-        ax.scatter(on_pms, [0.4] * len(on_pms), marker="v", color="#2ca02c",
-                   edgecolor="black", linewidths=0.5, s=55, zorder=4,
-                   label=f"on-ramps ({len(on_pms)})")
-    if off_pms:
-        ax.scatter(off_pms, [-0.4] * len(off_pms), marker="^", color="#d62728",
-                   edgecolor="black", linewidths=0.5, s=55, zorder=4,
-                   label=f"off-ramps ({len(off_pms)})")
-
-    # Lane-count legend.
-    lane_handles = []
-    for lanes in sorted(cells_df["lanes"].unique()):
-        lane_handles.append(
-            plt.Rectangle((0, 0), 1, 1, color=_lane_color(int(lanes)),
-                          label=f"{lanes} lanes")
-        )
-    ax.legend(
-        handles=lane_handles
-        + [h for h in ax.get_legend_handles_labels()[0]
-           if not isinstance(h, plt.Rectangle)],
-        loc="upper center", bbox_to_anchor=(0.5, -0.25),
-        ncol=min(8, len(lane_handles) + 2), fontsize=8, frameon=False,
-    )
-
-    ax.set_xlim(corridor.pm_start - 0.1, corridor.pm_end + 0.1)
-    ax.set_ylim(-0.9, 0.9)
-    ax.set_xlabel("postmile from corridor upstream end [mi]")
-    ax.set_yticks([])
-    ax.set_title(
-        f"{corridor.ref} {corridor.direction}  ·  {len(cells_df)} cells  ·  "
-        f"upstream → downstream"
-    )
-    ax.grid(axis="x", alpha=0.3)
-
-    # Secondary x-axis showing Caltrans postmiles when available. They run in
-    # the route's own direction, so for a westbound corridor they decrease
-    # along travel -- which is exactly what we want to communicate.
-    if "caltrans_pm_start" in cells_df.columns:
-        pm_start_local = corridor.pm_start
-        pm_end_local = corridor.pm_end
-        cal_start = cells_df["caltrans_pm_start"].iloc[0]
-        cal_end = cells_df["caltrans_pm_end"].iloc[-1]
-        slope = (cal_end - cal_start) / (pm_end_local - pm_start_local)
-
-        def local_to_cal(x):
-            return cal_start + (x - pm_start_local) * slope
-
-        def cal_to_local(c):
-            return pm_start_local + (c - cal_start) / slope
-
-        secax = ax.secondary_xaxis("top", functions=(local_to_cal, cal_to_local))
-        secax.set_xlabel("Caltrans postmile [mi]")
-
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=120)
-    plt.close(fig)
 
 
 # ---- Console summary ------------------------------------------------------
@@ -504,18 +372,25 @@ def main() -> None:
     # of a basemap for visual validation against satellite imagery.
     cells_gdf = cells_to_geodataframe(cells_df, corridor)
     cells_gdf.to_file(out_dir / "cells.geojson", driver="GeoJSON")
-    ramps_gdf = ramp_junctions_to_geodataframe(corridor)
-    if not ramps_gdf.empty:
-        ramps_gdf.to_file(out_dir / "ramps.geojson", driver="GeoJSON")
+    # Round-trip sidecars (mainline.geojson + ramps.geojson + corridor.json)
+    # so `scripts/regenerate_cell_artifacts.py` can rebuild the cell layout
+    # and the PNGs after a user hand-edits cells.csv, without needing the
+    # original osmnx graph.
+    corridor_to_artifacts(corridor, out_dir)
 
-    plot_corridor_map(graph, corridor, out_dir / "corridor_map.png")
+    plot_corridor_map(corridor, out_dir / "corridor_map.png")
     plot_cell_layout(corridor, cells_df, out_dir / "cell_layout.png")
 
     print_summary(corridor, cells_df)
     print()
     print(f"Wrote {out_dir}/")
-    for name in ("cells.csv", "corridor_map.png", "cell_layout.png"):
-        print(f"  {name}")
+    for name in (
+        "cells.csv", "cells.geojson",
+        "mainline.geojson", "ramps.geojson", "corridor.json",
+        "corridor_map.png", "cell_layout.png",
+    ):
+        if (out_dir / name).exists():
+            print(f"  {name}")
 
 
 if __name__ == "__main__":
