@@ -81,6 +81,28 @@ the ramp names if present, and — when Caltrans PMs were attached in stage 2 �
 `caltrans_pm_start`/`caltrans_pm_end`. The resulting DataFrame slots directly
 into `freeway_from_dataframe` once Step 4 supplies the FD parameters.
 
+**Cell-length sanity check.** `flag_cell_length_warnings(cells_df, *,
+min_length=0.2, max_length=1.0)` annotates the cells DataFrame with a
+`length_warning` column flagging cells outside `[min_length, max_length]`
+miles. Two regimes get flagged:
+
+* `"too_short"` (length < 0.2 mi): forces the CFL-bounded sampling period
+  to be uncomfortably small. The CTM update requires
+  $v_{f,i}\,\Delta T \le l_i$ (Kurzhanskiy 2007 eq. 4.1), so at $v_f$ =
+  65 mph a 0.2-mi cell already caps $\Delta T$ near 11 s — anything
+  shorter pushes the engine toward sub-10-s timesteps.
+* `"too_long"` (length > 1.0 mi): the cell averages over too much
+  spatial heterogeneity (multiple lane-add/-drop sections or more than
+  one bottleneck) for the CTM dynamics to stay realistic.
+
+`scripts/build_ctm_from_osm.py` runs this automatically and prints a
+one-line summary (`length warnings : too_short=N, too_long=M`). The
+column survives into both `cells.csv` and `cells.geojson` so a quick
+QGIS filter (`length_warning != 'ok'`) lights up the at-risk cells.
+Step 5 (cell-length tuning) addresses the long-cell case by splitting;
+the short-cell case typically calls for merging upstream-or-downstream
+with a neighbor or accepting the tighter $\Delta T$.
+
 The CTMSIM/dissertation convention that "on-ramps live at the *start* of a
 cell, off-ramps at the *end*" is encoded exactly here: a cell's `on_ramp`
 flag is True iff its `pm_start` sits on an on-ramp gore, and `off_ramp` iff
@@ -382,7 +404,19 @@ DataFrame is empty; the plotter emits a non-empty PNG). The integration
 tests use ~4 weeks of synthetic 5-minute CSVs under `tmp_path` so the
 suite stays light without hitting real PeMS data.
 
-## Step 5: Cell Length Tuning
+## Step 5: Manual Validation of Cell Mappings & Cell Length Tuning
+
+### Phase 1: Manual Validation
+The automatic mappings in Steps 1 and 2 get you 90% of the way there, however 
+some manual inspection of the result is necessary. For this purpose, .geojson 
+files are generated in `build_ctm_from_osm.py`, which makes it easy to overlay
+the cell mapping results onto a Google Earth or OpenStreetMap basemap in a GIS
+software like QGIS.
+
+Specific validation steps include:
+* Inspect lane counts 
+
+### Phase 2: Cell Length Tuning
 Not currently implemented.
 A requirement of the CTM is that each cell length is at least as large as the distance covered by vehicles moving at free-flow speed through that cell, i.e., $v_{f,i} ΔT ≤ l_i$. 
 

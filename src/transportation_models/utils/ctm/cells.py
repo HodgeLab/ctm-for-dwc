@@ -25,6 +25,7 @@ from __future__ import annotations
 from typing import Iterable, Optional
 
 import geopandas as gpd
+import numpy as np
 import pandas as pd
 from shapely.geometry import LineString, Point
 from shapely.ops import linemerge, substring
@@ -130,6 +131,77 @@ def cells_from_corridor(
     if has_caltrans:
         columns += ["caltrans_pm_start", "caltrans_pm_end"]
     return pd.DataFrame(rows, columns=columns)
+
+
+# ---- Cell-length sanity check --------------------------------------------
+
+
+# Default cell-length bounds for CTM dynamics, in miles.
+#
+# * The lower bound keeps the CFL-bounded sampling period from getting
+#   uncomfortably small. CTMSIM / Kurzhanskiy 2007 eq. 4.1 requires
+#   :math:`v_{f,i} \\Delta T \\le l_i`, so a 0.2-mi cell at v_f = 65 mph caps
+#   :math:`\\Delta T` at about 11 s -- already a fairly aggressive
+#   sampling rate for batch FD calibration.
+# * The upper bound guards against cells that average over too much
+#   spatial heterogeneity (multiple lane-add/-drop sections, more than one
+#   bottleneck) and so produce unrealistic CTM dynamics.
+DEFAULT_MIN_CELL_LENGTH_MI = 0.2
+DEFAULT_MAX_CELL_LENGTH_MI = 1.0
+
+
+def flag_cell_length_warnings(
+    cells_df: pd.DataFrame,
+    *,
+    min_length: float = DEFAULT_MIN_CELL_LENGTH_MI,
+    max_length: float = DEFAULT_MAX_CELL_LENGTH_MI,
+) -> pd.DataFrame:
+    """Annotate ``cells_df`` with a ``length_warning`` column.
+
+    Adds (or overwrites) a single string column flagging cells whose length
+    sits outside ``[min_length, max_length]`` miles:
+
+    ================  ============================================================
+    value             meaning
+    ================  ============================================================
+    ``"ok"``          ``min_length <= length <= max_length``
+    ``"too_short"``   ``length < min_length`` -- forces ``Δt`` below the CFL
+                      bound to be uncomfortably small (Kurzhanskiy 2007
+                      eq. 4.1: :math:`v_{f,i} \\Delta T \\le l_i`).
+    ``"too_long"``    ``length > max_length`` -- the cell averages over too
+                      much spatial heterogeneity for the CTM dynamics to stay
+                      realistic.
+    ================  ============================================================
+
+    Parameters
+    ----------
+    cells_df : pandas.DataFrame
+        Output of :func:`cells_from_corridor` (must have a ``length`` column).
+    min_length, max_length : float
+        Inclusive bounds in miles. Defaults to 0.2 / 1.0 -- see module-level
+        constants for the rationale.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Copy of ``cells_df`` with the new ``length_warning`` column appended.
+        Row count and existing columns are unchanged.
+    """
+    if min_length > max_length:
+        raise ValueError(
+            f"min_length ({min_length}) must be <= max_length ({max_length})"
+        )
+    if "length" not in cells_df.columns:
+        raise ValueError("cells_df must have a 'length' column")
+    out = cells_df.copy()
+    lengths = out["length"].to_numpy()
+    flags = np.where(
+        lengths < min_length,
+        "too_short",
+        np.where(lengths > max_length, "too_long", "ok"),
+    )
+    out["length_warning"] = flags
+    return out
 
 
 # ---- GIS output -----------------------------------------------------------

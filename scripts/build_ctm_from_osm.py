@@ -75,6 +75,7 @@ from transportation_models.utils.ctm.caltrans import (
 from transportation_models.utils.ctm.cells import (
     cells_from_corridor,
     cells_to_geodataframe,
+    flag_cell_length_warnings,
     ramp_junctions_to_geodataframe,
 )
 from transportation_models.utils.ctm.osm import Corridor, corridor_from_graph
@@ -335,6 +336,12 @@ def print_summary(corridor: Corridor, cells_df) -> None:
     print(f"  lanes histogram   : "
           + ", ".join(f"{int(n)} lanes -> {c}"
                        for n, c in cells_df.lanes.value_counts().sort_index().items()))
+    if "length_warning" in cells_df.columns:
+        too_short = int((cells_df["length_warning"] == "too_short").sum())
+        too_long = int((cells_df["length_warning"] == "too_long").sum())
+        if too_short or too_long:
+            print(f"  length warnings   : too_short={too_short} (< 0.2 mi), "
+                  f"too_long={too_long} (> 1.0 mi)")
     if "caltrans_pm_start" in cells_df.columns:
         cal_start = cells_df["caltrans_pm_start"].iloc[0]
         cal_end = cells_df["caltrans_pm_end"].iloc[-1]
@@ -460,6 +467,10 @@ def main() -> None:
         postmiles=postmiles_arg,
     )
     cells_df = cells_from_corridor(corridor)
+    # Annotate with `length_warning` so downstream consumers can flag cells
+    # that may strain the CTM dynamics (too short -> Δt floored by CFL,
+    # too long -> averages over too much heterogeneity).
+    cells_df = flag_cell_length_warnings(cells_df)
 
     # Step 2 (optional): load PeMS station metadata, project VDSs onto the
     # corridor, and assign them to cells with the Dervisoglu et al. 2014

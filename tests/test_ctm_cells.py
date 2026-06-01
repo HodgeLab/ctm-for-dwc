@@ -14,6 +14,7 @@ from shapely.geometry import LineString, Point
 from transportation_models.utils.ctm.cells import (
     cells_from_corridor,
     cells_to_geodataframe,
+    flag_cell_length_warnings,
     ramp_junctions_to_geodataframe,
 )
 from transportation_models.utils.ctm.osm import (
@@ -343,3 +344,91 @@ def test_ramp_junctions_to_geodataframe_empty_when_no_ramps():
     )
     gdf = ramp_junctions_to_geodataframe(corridor)
     assert gdf.empty
+
+
+# ---- flag_cell_length_warnings -------------------------------------------
+
+
+def _cells_with_lengths(lengths: list[float]) -> pd.DataFrame:
+    """Minimal cells DataFrame keyed only by ``length``."""
+    return pd.DataFrame({
+        "pm_start": [0.0] * len(lengths),
+        "pm_end": lengths,
+        "length": lengths,
+        "lanes": [4] * len(lengths),
+    })
+
+
+def test_flag_cell_length_warnings_assigns_three_levels():
+    """Cells get tagged "ok", "too_short", or "too_long" per default bounds."""
+    df = _cells_with_lengths([0.05, 0.2, 0.55, 1.0, 1.5])
+    out = flag_cell_length_warnings(df)
+    assert list(out["length_warning"]) == [
+        "too_short",  # 0.05 < 0.2
+        "ok",         # 0.2 boundary -> inclusive
+        "ok",
+        "ok",         # 1.0 boundary -> inclusive
+        "too_long",   # 1.5 > 1.0
+    ]
+
+
+def test_flag_cell_length_warnings_preserves_input_columns_and_rows():
+    """The helper must not drop rows or mutate existing columns."""
+    df = _cells_with_lengths([0.1, 0.5, 1.2])
+    df["lanes"] = [3, 4, 5]
+    df["foo"] = ["a", "b", "c"]
+    out = flag_cell_length_warnings(df)
+    assert len(out) == len(df)
+    for col in df.columns:
+        assert col in out.columns
+        if col != "length_warning":
+            assert (out[col].to_numpy() == df[col].to_numpy()).all()
+    # Original DataFrame is not mutated.
+    assert "length_warning" not in df.columns
+
+
+def test_flag_cell_length_warnings_custom_bounds():
+    """``min_length`` / ``max_length`` are user-tunable."""
+    df = _cells_with_lengths([0.15, 0.4, 0.8])
+    out = flag_cell_length_warnings(df, min_length=0.3, max_length=0.5)
+    assert list(out["length_warning"]) == ["too_short", "ok", "too_long"]
+
+
+def test_flag_cell_length_warnings_invalid_bounds_raises():
+    df = _cells_with_lengths([0.5])
+    with pytest.raises(ValueError, match="min_length"):
+        flag_cell_length_warnings(df, min_length=1.0, max_length=0.5)
+
+
+def test_flag_cell_length_warnings_missing_length_column_raises():
+    df = pd.DataFrame({"pm_start": [0.0], "pm_end": [1.0], "lanes": [4]})
+    with pytest.raises(ValueError, match="'length' column"):
+        flag_cell_length_warnings(df)
+
+
+def test_flag_cell_length_warnings_overwrites_existing_column():
+    """Re-running the flagger replaces the column rather than failing."""
+    df = _cells_with_lengths([0.1, 0.5, 1.5])
+    first = flag_cell_length_warnings(df)
+    # Simulate a stale annotation: corrupt the column and re-flag.
+    first["length_warning"] = "stale"
+    second = flag_cell_length_warnings(first)
+    assert list(second["length_warning"]) == ["too_short", "ok", "too_long"]
+
+
+def test_flag_cell_length_warnings_works_on_real_cells_from_corridor_output():
+    """End-to-end: pipe a real cells_from_corridor frame through the flagger.
+
+    cells_from_corridor only splits at ramps + lane changes + endpoints,
+    so we stage a 3-cell corridor by varying lane counts across the three
+    underlying mainline segments.
+    """
+    corridor = _corridor([
+        _geo_seg(0.0, 0.1, 3, [(-118.400, 34.05), (-118.401, 34.05)]),
+        _geo_seg(0.1, 0.7, 4, [(-118.401, 34.05), (-118.410, 34.05)]),
+        _geo_seg(0.7, 2.0, 5, [(-118.410, 34.05), (-118.430, 34.05)]),
+    ])
+    cells = cells_from_corridor(corridor)
+    flagged = flag_cell_length_warnings(cells)
+    assert len(flagged) == 3
+    assert list(flagged["length_warning"]) == ["too_short", "ok", "too_long"]
