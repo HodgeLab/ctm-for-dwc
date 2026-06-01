@@ -76,6 +76,22 @@ def main() -> None:
               "timeseries directory"),
     )
     parser.add_argument(
+        "--ramp-detectors", default=None,
+        help=("comma-separated ramp VDS station ids to estimate capacity "
+              "for. Ramp detectors only report total flow (no speed), so "
+              "we can't fit a triangular FD; instead we take a high "
+              "quantile of the cleaned 5-minute flow as the ramp's "
+              "capacity. The output goes to a separate "
+              "ramp_metadata_calibrated.csv alongside the mainline "
+              "calibration CSV. Omit to skip the ramp pass."),
+    )
+    parser.add_argument(
+        "--ramp-capacity-quantile", type=float, default=0.99,
+        help=("quantile of cleaned 5-minute flow to report as ramp "
+              "capacity (default 0.99 -- robust to a single noisy spike "
+              "while preserving the genuine observed peak)"),
+    )
+    parser.add_argument(
         "--imputation-threshold", type=float, default=100.0,
         help=("minimum pct_observed to keep a row during calibration "
               "(default 100.0 -- drops any row with any missing lane data)"),
@@ -141,6 +157,18 @@ def main() -> None:
           file=sys.stderr)
     if plots_dir is not None:
         print(f"                FD plots -> {plots_dir}", file=sys.stderr)
+
+    ramp_detectors = _parse_detectors(args.ramp_detectors)
+    if ramp_detectors:
+        print(f"ramp calibration: {len(ramp_detectors)} VDSs", file=sys.stderr)
+        proc.calibrate_ramp_capacities(
+            detectors=ramp_detectors,
+            quantile=args.ramp_capacity_quantile,
+            save_params=True,
+        )
+        ramp_csv = out_dir / "ramp_metadata_calibrated.csv"
+        print(f"ramp calibration: done. ramp metadata -> {ramp_csv}",
+              file=sys.stderr)
 
 
 if __name__ == "__main__":

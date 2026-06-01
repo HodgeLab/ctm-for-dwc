@@ -1404,6 +1404,187 @@ class PeMSDataProcessor:
                 col for col in self.calibration_params if col in self.metadata_df.columns
             ]
 
+    def calibrate_ramp_capacities(
+        self,
+        detectors: list[str],
+        *,
+        quantile: float = 0.99,
+        iqr_multiplier: float = 1.5,
+        save_params: bool = False,
+        output_path: typing.Optional[str] = None,
+    ) -> pd.DataFrame:
+        """Estimate per-VDS ramp capacity from cleaned 5-minute total-flow data.
+
+        Ramp detectors report total flow [veh/5-min] but not speed, so we
+        can't fit a triangular FD for them. Instead we take a high quantile
+        of the cleaned, total-flow timeseries as the ramp's capacity in
+        veh/hr -- this is the value that slots into a Cell's
+        ``on_ramp_capacity`` (R_i) or ``off_ramp_capacity`` (S_i) at
+        assembly time (Step 6).
+
+        Per-VDS pipeline:
+          1. Load the 5-minute timeseries via :meth:`load_data_by_id`.
+          2. Drop rows below ``self.imputation_threshold`` on
+             ``pct_observed``.
+          3. Convert ``total_flow_[veh/5-min] -> flow_[veh/hr]`` (× 12).
+             We use total flow (not per-lane) because R_i / S_i are the
+             ramp's total inflow / outflow capacity in the CTM.
+          4. Whiten ``flow_[veh/hr]`` against its per-(weekday, 5-min-block)
+             mean and stddev.
+          5. Drop |whitened_flow| outliers via an IQR fence
+             (``iqr_multiplier`` * IQR, default 1.5).
+          6. Return ``quantile`` of the cleaned ``flow_[veh/hr]``
+             (default 99th percentile -- robust to a single noisy spike
+             while preserving the genuine observed peak).
+
+        Parameters
+        ----------
+        detectors : list[str]
+            Explicit list of ramp VDS Station IDs. The caller picks the
+            list (typically the union of ``on_ramp_vds_id`` and
+            ``off_ramp_vds_id`` from a Step-1 ``cells.csv``) rather than
+            relying on a metadata ``Type`` filter, so the method is
+            agnostic to the metadata schema's ramp-type spelling.
+        quantile : float, default 0.99
+            Quantile of cleaned ``flow_[veh/hr]`` to report as capacity.
+        iqr_multiplier : float, default 1.5
+            IQR-fence width on ``whitened_flow`` for the outlier filter.
+        save_params : bool, default False
+            If True, write a ``ramp_metadata_calibrated.csv`` to
+            ``output_path`` (or, when omitted, alongside the
+            ``station_metadata_calibrated.csv``).
+        output_path : str, optional
+            Explicit destination for the CSV. Defaults to
+            ``ramp_metadata_calibrated.csv`` inside the resolved save
+            directory (mirroring :meth:`calibrate_fundamental_diagrams`).
+
+        Returns
+        -------
+        pd.DataFrame
+            One row per detector with columns:
+
+            ============================ ============================================
+            column                       meaning
+            ============================ ============================================
+            ``Station ID``               VDS id (int)
+            ``ramp_capacity_[veh/hr]``   capacity estimate, in veh/hr; NaN if no
+                                         timeseries was available or the cleaned
+                                         set was empty (assembly will treat NaN
+                                         as :math:`R_i = \\infty` via the CTM
+                                         :class:`Cell` defaults).
+            ``n_observations``           count of 5-min samples used for the
+                                         quantile (after imputation + outlier
+                                         filtering)
+            ============================ ============================================
+        """
+        rows: list[dict] = []
+        for idx, detector in enumerate(detectors):
+            logger.info(
+                f"Calibrating ramp capacity {idx + 1}/{len(detectors)}: VDS {detector}"
+            )
+            try:
+                df = self.load_data_by_id(detector)
+            except FileNotFoundError:
+                logger.warning(
+                    f"No timeseries file for ramp VDS {detector}; "
+                    f"emitting NaN capacity (CTM will default to infinity)."
+                )
+                rows.append({
+                    "Station ID": int(detector),
+                    "ramp_capacity_[veh/hr]": np.nan,
+                    "n_observations": 0,
+                })
+                continue
+
+            df = df.loc[df["pct_observed"] >= self.imputation_threshold, :].reset_index(
+                drop=True
+            )
+            if df.empty:
+                logger.warning(
+                    f"Ramp VDS {detector}: no rows survived pct_observed >= "
+                    f"{self.imputation_threshold}; emitting NaN capacity."
+                )
+                rows.append({
+                    "Station ID": int(detector),
+                    "ramp_capacity_[veh/hr]": np.nan,
+                    "n_observations": 0,
+                })
+                continue
+
+            # Total flow per hour (not per-lane). Ramp capacity in the CTM is
+            # the ramp's total inflow capacity in veh/h.
+            df["flow_[veh/hr]"] = df["total_flow_[veh/5-min]"] * 12.0
+            df_whitened = self._whiten_flow_column(df, "flow_[veh/hr]")
+            df_clean = self.filter_flow_outliers(
+                df_whitened, flow_col="whitened_flow", iqr_multiplier=iqr_multiplier,
+            )
+            if df_clean.empty:
+                logger.warning(
+                    f"Ramp VDS {detector}: outlier filter dropped all rows; "
+                    f"emitting NaN capacity."
+                )
+                rows.append({
+                    "Station ID": int(detector),
+                    "ramp_capacity_[veh/hr]": np.nan,
+                    "n_observations": 0,
+                })
+                continue
+
+            capacity = float(df_clean["flow_[veh/hr]"].quantile(quantile))
+            rows.append({
+                "Station ID": int(detector),
+                "ramp_capacity_[veh/hr]": capacity,
+                "n_observations": int(len(df_clean)),
+            })
+
+        ramp_df = pd.DataFrame(rows, columns=[
+            "Station ID", "ramp_capacity_[veh/hr]", "n_observations",
+        ])
+
+        if save_params:
+            _default_dir = (
+                self._save_dir
+                if self._save_dir is not None
+                else self.processed_data_directory
+            )
+            out_path = output_path or os.path.join(
+                _default_dir, "ramp_metadata_calibrated.csv",
+            )
+            ramp_df.to_csv(out_path, index=False)
+            logger.info(f"Ramp capacity calibration saved to: {out_path}")
+
+        return ramp_df
+
+    def _whiten_flow_column(
+        self, df: pd.DataFrame, flow_col: str,
+    ) -> pd.DataFrame:
+        """Add a ``whitened_flow`` column for an arbitrary single-flow timeseries.
+
+        Lighter sibling of :meth:`whiten_timeseries`, used for ramp data
+        which has flow but not density (so the heavier two-column pipeline
+        doesn't apply). Whitens ``flow_col`` against its per-(weekday,
+        5-min-block) mean and stddev.
+        """
+        out = df.copy()
+        out["weekday"] = out["timestamp"].dt.weekday
+        out["5min_block"] = (
+            (out["timestamp"].dt.minute / 60) + out["timestamp"].dt.hour
+        )
+        mean_df = self.get_daily_aggregation(
+            out, colname=flow_col, aggregation_type="mean",
+        )
+        std_df = self.get_daily_aggregation(
+            out, colname=flow_col, aggregation_type="std_dev",
+        )
+        out["mean_flow"] = out.apply(
+            lambda row: self.get_agg_value(row, agg_df=mean_df), axis=1,
+        )
+        out["stddev_flow"] = out.apply(
+            lambda row: self.get_agg_value(row, agg_df=std_df), axis=1,
+        )
+        out["whitened_flow"] = (out[flow_col] - out["mean_flow"]) / out["stddev_flow"]
+        return out
+
     def preprocess_data(
         self,
         detectors: typing.Optional[list[str]] = None,

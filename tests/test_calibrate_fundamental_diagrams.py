@@ -203,6 +203,135 @@ def test_batch_calibration_skips_detectors_with_too_few_observed_rows(tmp_path):
     assert pd.isna(row_1.get("free_flow_speed"))
 
 
+# ---- calibrate_ramp_capacities ------------------------------------------
+
+
+def _write_ramp_timeseries(
+    root: Path,
+    *,
+    station_id: int,
+    capacity_veh_hr: float,
+    n_rows: int = N_ROWS,
+    seed: int = 0,
+    spike: bool = False,
+) -> None:
+    """Write a single ramp-VDS timeseries CSV.
+
+    Models a ramp whose 5-min flow is uniformly distributed in
+    ``[0, capacity_veh_hr]``; the 99th percentile of the raw flow is
+    therefore ~``0.99 * capacity_veh_hr``. When ``spike=True``, a few
+    rows are inflated well above ``capacity_veh_hr`` to verify the
+    outlier filter rejects them.
+    """
+    ts_dir = root / "timeseries_data"
+    ts_dir.mkdir(parents=True, exist_ok=True)
+    timestamps = pd.date_range(
+        start="2022-01-01", periods=n_rows, freq="5min",
+    )
+    rng = np.random.default_rng(seed)
+    flow_veh_hr = rng.uniform(0.0, capacity_veh_hr, size=n_rows)
+    if spike:
+        # 10 unrealistic spikes 3x the capacity -- whitening + IQR filter
+        # should drop them before the 99th-percentile takes effect.
+        flow_veh_hr[:10] = capacity_veh_hr * 3.0
+    total_flow_5min = flow_veh_hr / 12.0
+    rows = pd.DataFrame({
+        "timestamp": timestamps,
+        "station": station_id,
+        "pct_observed": 100.0,
+        "total_flow_[veh/5-min]": total_flow_5min,
+        # avg_speed_[mph]: ramps don't report speed but the test fixture
+        # carries the column so load_data_by_id's metadata merge stays
+        # consistent with the mainline path.
+        "avg_speed_[mph]": np.nan,
+    })
+    rows.to_csv(ts_dir / f"{station_id}.csv", index=False)
+
+
+def _write_metadata_with_ramp(root: Path, ramp_station_ids: list[int]) -> Path:
+    """Minimal metadata file that registers ramp VDSs with Type='On Ramp'."""
+    metadata_dir = root / "metadata"
+    metadata_dir.mkdir(parents=True, exist_ok=True)
+    metadata = pd.DataFrame({
+        "Station ID": ramp_station_ids,
+        "Lanes": [1] * len(ramp_station_ids),
+        "Type": ["On Ramp"] * len(ramp_station_ids),
+        "Abs PM": [float(i) for i in range(len(ramp_station_ids))],
+        "Length": [0.1] * len(ramp_station_ids),
+    })
+    metadata_path = metadata_dir / "station_metadata.csv"
+    metadata.to_csv(metadata_path, index=False)
+    return metadata_path
+
+
+def test_calibrate_ramp_capacities_recovers_99th_percentile(tmp_path):
+    """A synthetic ramp with uniform[0, C] flow has ~0.99*C as its 99th pctl."""
+    capacity = 1200.0
+    metadata_path = _write_metadata_with_ramp(tmp_path, [100])
+    _write_ramp_timeseries(tmp_path, station_id=100, capacity_veh_hr=capacity)
+    proc = _make_processor(tmp_path, metadata_path)
+    ramp_df = proc.calibrate_ramp_capacities(
+        detectors=["100"], save_params=True,
+    )
+    # In-memory result has the expected schema and one row.
+    assert list(ramp_df.columns) == [
+        "Station ID", "ramp_capacity_[veh/hr]", "n_observations",
+    ]
+    assert len(ramp_df) == 1
+    assert ramp_df.iloc[0]["ramp_capacity_[veh/hr]"] == pytest.approx(
+        0.99 * capacity, rel=5e-2,
+    )
+    # CSV got written to the default save directory.
+    out_csv = tmp_path / "processed" / "ramp_metadata_calibrated.csv"
+    assert out_csv.exists()
+    on_disk = pd.read_csv(out_csv)
+    assert on_disk.iloc[0]["ramp_capacity_[veh/hr]"] == pytest.approx(
+        ramp_df.iloc[0]["ramp_capacity_[veh/hr]"]
+    )
+
+
+def test_calibrate_ramp_capacities_outlier_spikes_get_filtered(tmp_path):
+    """A handful of 3x-capacity spikes shouldn't drag the 99th percentile up.
+
+    The whiten + IQR filter should remove the bad rows before the
+    quantile is taken, so the returned capacity stays near the genuine
+    distribution's 99th percentile (~0.99 * capacity).
+    """
+    capacity = 1200.0
+    metadata_path = _write_metadata_with_ramp(tmp_path, [100])
+    _write_ramp_timeseries(
+        tmp_path, station_id=100, capacity_veh_hr=capacity, spike=True,
+    )
+    proc = _make_processor(tmp_path, metadata_path)
+    ramp_df = proc.calibrate_ramp_capacities(detectors=["100"])
+    assert ramp_df.iloc[0]["ramp_capacity_[veh/hr]"] == pytest.approx(
+        0.99 * capacity, rel=5e-2,
+    )
+
+
+def test_calibrate_ramp_capacities_emits_nan_for_missing_timeseries(tmp_path):
+    """A detector with no timeseries file should record NaN, not crash."""
+    metadata_path = _write_metadata_with_ramp(tmp_path, [100])
+    # Don't write the timeseries CSV -- load_data_by_id will FileNotFoundError.
+    proc = _make_processor(tmp_path, metadata_path)
+    ramp_df = proc.calibrate_ramp_capacities(detectors=["100"])
+    assert len(ramp_df) == 1
+    assert pd.isna(ramp_df.iloc[0]["ramp_capacity_[veh/hr]"])
+    assert ramp_df.iloc[0]["n_observations"] == 0
+
+
+def test_calibrate_ramp_capacities_quantile_arg_is_honored(tmp_path):
+    """Asking for the median (q=0.5) should return ~capacity/2, not ~0.99*capacity."""
+    capacity = 1200.0
+    metadata_path = _write_metadata_with_ramp(tmp_path, [100])
+    _write_ramp_timeseries(tmp_path, station_id=100, capacity_veh_hr=capacity)
+    proc = _make_processor(tmp_path, metadata_path)
+    median = proc.calibrate_ramp_capacities(
+        detectors=["100"], quantile=0.5,
+    ).iloc[0]["ramp_capacity_[veh/hr]"]
+    assert median == pytest.approx(0.5 * capacity, rel=5e-2)
+
+
 # ---- plot_fundamental_diagram (smoke test) ------------------------------
 
 

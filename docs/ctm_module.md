@@ -414,6 +414,46 @@ DataFrame is empty; the plotter emits a non-empty PNG). The integration
 tests use ~4 weeks of synthetic 5-minute CSVs under `tmp_path` so the
 suite stays light without hitting real PeMS data.
 
+**Ramp capacities.** Ramp VDSs (PeMS `Type ∈ {OR, FR}`) report total
+5-minute flow but not speed, so a full FD calibration isn't possible.
+`PeMSDataProcessor.calibrate_ramp_capacities(detectors, *, quantile=0.99)`
+runs a lighter pipeline on each ramp VDS:
+
+1. Load the 5-min timeseries and drop rows below the imputation threshold
+   on `pct_observed`.
+2. Convert `total_flow_[veh/5-min]` to `flow_[veh/hr]` by × 12. Total
+   flow (not per-lane) is the right thing here because the CTM's
+   $R_i$ / $S_i$ are the ramp's total in/out capacity.
+3. Whiten `flow_[veh/hr]` against its per-(weekday, 5-min-block) mean
+   and stddev, then drop outliers via an IQR fence on `whitened_flow`.
+4. Take the `quantile` of the cleaned raw flow as the ramp's capacity
+   in veh/hr. The default 0.99 is robust to a single spike while
+   preserving the genuine observed peak.
+
+The output `ramp_metadata_calibrated.csv` is keyed on `Station ID` with
+columns `ramp_capacity_[veh/hr]` and `n_observations`. Ramps with no
+timeseries on disk (Step 3 wasn't run for that detector, or PeMS
+returned no data) get `ramp_capacity_[veh/hr]=NaN`, which Step 6's
+assembly translates into $R_i = \infty$ — the right "no measurement →
+no constraint" fall-back; the CTM cell defaults already allow
+infinite ramp capacity (`utils.ctm.io` schema: `on_ramp_capacity`
+defaults to `inf` when missing/NaN).
+
+The Step-4 CLI gets a `--ramp-detectors <comma,list>` flag that runs
+this pass alongside the mainline FD calibration:
+
+```
+python scripts/calibrate_fundamental_diagrams.py \
+    --root-directory data/pems \
+    --detectors 400839,400840 \
+    --ramp-detectors 717123,717150
+```
+
+Pick the ramp VDS list from the `on_ramp_vds_id` and `off_ramp_vds_id`
+columns in your Step-1 `cells.csv` (Step 2's `assign_ramp_vds_to_cells`
+fills those in). Step 3's downloader is unchanged — pass the same ramp
+VDS list as `--detectors` to fetch their `.gz` timeseries first.
+
 ## Step 5: Manual Validation of Cell Mappings
 
 The automatic mappings in Steps 1 and 2 get you 90% of the way there, however 
@@ -444,10 +484,92 @@ re-runs `flag_cell_length_warnings` on the edited table so the
 `length_warning` column stays consistent with the new lengths.
 
 ## Step 6: CTM Freeway Assembly
-In this step, we use the outputs from Steps 2 and 5 to assemble a CTM-compatible freeway representation
+Implemented in `transportation_models.utils.ctm.assembly`. End-to-end
+demo: `scripts/assemble_ctm_freeway.py`.
 
-### Stage 3: $\Delta_t$ choice
-A requirement of the CTM is that each cell length is at least as large as the distance covered by vehicles moving at free-flow speed through that cell, i.e., $v_{f,i} ΔT ≤ l_i$. 
+This step joins three independent artifacts into a single per-cell freeway
+table that slots directly into `utils.ctm.io.freeway_from_dataframe`:
+
+| input                                  | source                          | role                                                |
+|----------------------------------------|---------------------------------|-----------------------------------------------------|
+| `cells.csv`                            | Step 1+2 (+ Step-5 user edits)  | cell geometry, lane count, mainline + ramp VDS ids  |
+| `station_metadata_calibrated.csv`      | Step 4 (mainline)               | per-VDS triangular FD parameters, **per-lane units**|
+| `ramp_metadata_calibrated.csv`         | Step 4 (ramps; optional)        | per-VDS ramp capacity, **total flow [veh/hr]**      |
+
+### Stage 1: Mainline join + per-lane → per-cell scaling
+
+For each cell, `assemble_freeway_table` joins on `vds_id` to pull the
+calibrated FD parameters, then **scales per-lane FD quantities by the
+cell's lane count** to land in the per-cell units the CTM engine
+expects:
+
+| FD parameter     | calibrated units        | per-cell scaling           |
+|------------------|-------------------------|----------------------------|
+| `q_max`          | veh/hr-lane             | × `lanes` → veh/hr         |
+| `rho_jam`        | veh/mi-lane             | × `lanes` → veh/mi         |
+| `rho_crit`       | veh/mi-lane             | × `lanes` → veh/mi         |
+| `v_f`            | mi/hr (intensive)       | unchanged                  |
+| `w`              | mi/hr (intensive)       | unchanged                  |
+
+Cells whose `vds_id` is NaN (Step 2's `vds_source='missing'`) raise a
+`ValueError` -- they need a calibrated FD before assembly proceeds, so
+the caller has to run Step 2's Dervisoglu upstream-inherit fallback or
+edit the cells table to point at a sensible VDS first.
+
+### Stage 2: Ramp capacity lookup
+
+If a `ramp_calibrated_df` is supplied, cells with `on_ramp=True` have
+their $R_i$ looked up by `on_ramp_vds_id`; similarly `off_ramp=True`
+cells get $S_i$ from `off_ramp_vds_id`. Cells whose ramp VDS is missing
+from the calibration table -- because Step 3 didn't download that ramp's
+timeseries, or because no PeMS ramp detector was close enough at
+assignment time -- get `NaN`. `freeway_from_dataframe` reads NaN as the
+"no constraint" sentinel and instantiates the cell with
+$R_i = \infty$ / $S_i = \infty$, which the CTM engine handles natively
+(the `min{...}` in the on-ramp / mainline update equations simply drops
+the ramp-capacity term).
+
+### Stage 3: $\Delta T$ advisory
+
+The CFL condition $v_{f,i}\,\Delta T \le l_i$ (Kurzhanskiy 2007 eq. 4.1)
+caps the stable sim timestep at
+$\Delta T_{\max} = \min_i l_i / v_{f,i}$. `compute_cfl_advisory` returns
+the per-cell bounds, the binding cell, and a suggested round
+$\Delta T$ -- the largest 5-second multiple strictly below the bound
+(or the bound itself if it sits below 5 seconds). The assembly script
+prints this advisory verbatim:
+
+```
+=== CFL (Δt) advisory ===
+  binding cell idx : 23
+  binding cell     : length 0.215 mi @ v_f 65.4 mi/h
+  max allowable Δt : 0.00329 h (11.8 s)
+  per-cell Δt range: 11.8-58.3 s (mean 27.4 s, n=45)
+  suggested Δt     : 10.0 s (largest 5-s multiple strictly below max)
+```
+
+**The assembly script stops short of building a `Freeway`.** The user
+picks `dt` from the advisory and passes the freeway CSV to
+`freeway_from_dataframe(df, dt=...)` themselves at simulation time --
+keeping the freeway-construction (and its validation) at the moment
+where `dt` is known is what `utils.ctm.io.freeway_from_dataframe` is
+designed for, and decouples assembly from simulation pacing.
+
+### CLI
+
+```
+python scripts/assemble_ctm_freeway.py \
+    --cells scripts/output/ctm_corridor/I_210_W/cells.csv \
+    --calibrated data/pems/calibrated/station_metadata_calibrated.csv \
+    --ramp-calibrated data/pems/calibrated/ramp_metadata_calibrated.csv \
+    --out scripts/output/ctm_corridor/I_210_W/freeway.csv
+```
+
+The output `freeway.csv` carries `length`, `q_max`, `v_f`, `w`,
+`rho_jam`, `rho_crit`, `on_ramp`, `off_ramp`, `on_ramp_capacity`,
+`off_ramp_capacity`, and `lanes` (kept for traceability). It's the same
+schema as `freeway_to_dataframe`'s output minus the `gamma` / `xi`
+columns (which fall back to the cell defaults).
 
 ## Step 7: Ramp Flow Estimation
 Not currently implemented.

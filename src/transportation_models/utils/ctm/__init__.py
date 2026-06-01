@@ -24,6 +24,13 @@ from .caltrans import (
     extract_route_number,
     load_postmiles,
 )
+from .assembly import (
+    CFLAdvisory,
+    FREEWAY_COLUMNS,
+    assemble_freeway_table,
+    compute_cfl_advisory,
+    format_cfl_advisory,
+)
 from .cells import (
     cells_from_corridor,
     cells_to_geodataframe,
@@ -83,6 +90,11 @@ __all__ = [
     "flag_cell_length_warnings",
     "mainline_segments_to_geodataframe",
     "ramp_junctions_to_geodataframe",
+    "FREEWAY_COLUMNS",
+    "assemble_freeway_table",
+    "CFLAdvisory",
+    "compute_cfl_advisory",
+    "format_cfl_advisory",
     "summarize_refs",
     "extract_route_number",
     "load_postmiles",
