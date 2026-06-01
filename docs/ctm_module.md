@@ -299,19 +299,88 @@ indirectly by the `@pytest.mark.network` round-trip in
 `PeMSDownloader.__init__`).
 
 ## Step 4: Fundamental Diagram Calibration
-`transportation_models.utils.data_processing` includes a class,
-`PeMSDataProcessor` with methods for calibrating fundamental diagram
-parameters from the per-VDS timeseries downloaded in Step 3.
-Key parameters are:
-1) Capacity $q_{max,i}$
-2) Free-flow speed $v_{f,i}$
-3) Congestion-wave speed $w_i$
-4) Jam density $\rho_{jam,i}$
-5) Critical density $\rho_{crit,i}$
+Implemented by `PeMSDataProcessor` in
+`transportation_models.utils.data_processing`. End-to-end demo:
+`scripts/calibrate_fundamental_diagrams.py`.
 
-The output of this step is joined back onto the `cells.csv` table on
-`vds_id`, completing the freeway schema required by
-`utils.ctm.io.freeway_from_dataframe`.
+For each VDS produced by Step 3, this step fits the five-parameter
+triangular FD ($q_{max,i}$, $v_{f,i}$, $w_i$, $\rho_{jam,i}$,
+$\rho_{crit,i}$) from the (density, flow) cloud observed by that
+detector. Keyed on `Station ID`, the calibrated parameters slot into
+`cells.csv` via the `vds_id` column attached in Step 2, completing the
+freeway schema required by `utils.ctm.io.freeway_from_dataframe`.
+
+**Per-detector pipeline.** For each detector,
+`calibrate_fundamental_diagrams`:
+
+1. `load_data_by_id` reindexes the per-VDS CSV from Step 3 to a complete
+   5-minute grid (gaps become NaN rows).
+2. `standardize_timeseries` converts the PeMS-native
+   `total_flow_[veh/5-min]` + `avg_speed_[mph]` into per-lane flow
+   `flow_[veh/hr-lane]` and per-lane density `density_[veh/mi-lane]`.
+3. Rows with `pct_observed < imputation_threshold` (default 100) are
+   dropped.
+4. `whiten_timeseries` z-scores flow and density against their per-
+   (weekday, 5-min-block) statistics so the outlier rejector below
+   doesn't get fooled by morning-peak vs midnight-shoulder differences.
+5. `filter_flow_outliers` drops rows outside an IQR fence on
+   `whitened_flow` (default `iqr_multiplier=1.0`).
+6. `extract_fundamental_diagram_params_from_timeseries` fits the FD:
+
+   * **Free-flow regime**: seed the critical-density estimate from the
+     row with the highest observed flow, then fit
+     $\text{flow} = v_{f,i}\,\rho$ (no intercept) over the points with
+     $\rho \le$ the seed. The fitted slope is $v_{f,i}$.
+   * **Congestion regime**: sort the points with $\rho >$ the seed by
+     density, bin them in non-overlapping blocks (default 10 points per
+     bin), drop in-bin whitened-flow outliers above
+     $Q_3 + k\cdot\mathrm{IQR}$, and pair each bin's mean density with
+     its max flow. Fit a straight line through those (density, max-flow)
+     points; the slope is $-w_i$ and the x-intercept is $\rho_{jam,i}$.
+   * **Peak**: intersect the two fitted lines analytically. The
+     intersection's $x$ is $\rho_{crit,i}$ and $y$ is $q_{max,i}$.
+
+7. If `make_plots=True`, render the raw scatter + fitted lines + binned
+   congestion points + capacity/critical/jam reference lines into a
+   per-detector PNG via `plot_fundamental_diagram`.
+
+**Batch writeback.** With `save_params=True`, the loop assigns the five
+calibrated columns onto each row of `metadata_df` and writes
+`station_metadata_calibrated.csv` (under `save_directory`, or to the
+path the caller passes via `output_metadata_path`). Subsequent runs of
+Step 1 can read this CSV directly as a drop-in replacement for the raw
+PeMS metadata.
+
+**CLI demo.** `scripts/calibrate_fundamental_diagrams.py` wires the
+whole pipeline together:
+
+```
+python scripts/calibrate_fundamental_diagrams.py \
+    --root-directory data/pems --detectors 400839,400840 --make-plots
+```
+
+Flags: `--root-directory` (defaults to `<repo>/data/pems`),
+`--metadata` (explicit path; defaults to
+`<root>/metadata/station_metadata.csv`), `--detectors` (default = all
+mainline), `--imputation-threshold`, `--iqr-multiplier`,
+`--make-plots`, and `--out-dir` (default
+`<repo>/data/pems/calibrated/`, gitignored). The calibrated metadata is
+written to `<out-dir>/station_metadata_calibrated.csv`; PNGs land under
+`<out-dir>/plots/` when requested.
+
+**Test surface.** 14 unit + integration tests across
+`tests/test_fundamental_diagram.py` and
+`tests/test_calibrate_fundamental_diagrams.py` cover the primitives
+(`estimate_free_flow_speed` recovers the line slope; the cutoff drops
+congestion points; `estimate_congestion_wave_speed` recovers the wave
+speed and jam density; `find_fundamental_diagram_peak` intersects two
+fitted lines correctly), the per-detector wrapper (synthetic triangular
+FD → recovered parameters within 1.5%), and the batch driver
+(`calibrate_fundamental_diagrams` writes the right CSV; honors an
+explicit output path; gracefully skips detectors whose post-filter
+DataFrame is empty; the plotter emits a non-empty PNG). The integration
+tests use ~4 weeks of synthetic 5-minute CSVs under `tmp_path` so the
+suite stays light without hitting real PeMS data.
 
 ## Step 5: Cell Length Tuning
 Not currently implemented.
