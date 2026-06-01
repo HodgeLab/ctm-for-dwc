@@ -214,29 +214,89 @@ with median lateral distance to the centerline under 3 m and Caltrans-PM
 projection within 0.5 mi of PeMS's reported `Abs_PM` for most stations.
 
 ## Step 3: VDS Timeseries Download
-`transportation_models.utils.data_downloading` includes two classes,
-`PeMSDownloader` and `PeMSExtractor` for interfacing with the PeMS database
-and downloading per-VDS 5-minute timeseries data (mainline flow / speed /
-occupancy `.gz` files from the clearinghouse). The downloader queries the
-clearinghouse for `station_5min` files matching a district / year / month
-filter; the extractor walks the resulting `.gz` files file-by-file (so
-memory stays bounded), splits by VDS, and writes per-detector CSVs that
-later runs append to deterministically.
+Implemented by two classes in `transportation_models.utils.data_downloading`:
+`PeMSDownloader` (clearinghouse query + batch download) and `PeMSExtractor`
+(per-detector parsing of the downloaded `.gz` files). End-to-end demo:
+`scripts/download_pems_timeseries.py`.
 
-`scripts/download_pems_timeseries.py` is the demo CLI: it accepts
-`--district`, `--year` (or `--year-start`/`--year-end`), `--month`,
-`--detectors`, optional `--start-date`/`--end-date` clipping, and
-`--out-dir` (default: `<repo>/data/pems/timeseries/`, gitignored). Step 2
-has already pinned a specific `vds_id` to every cell, so this step only
-needs to fetch — the union of cells' `vds_id`s is the exact list to pass
-as `--detectors`. Credentials come from `PEMS_USERNAME` / `PEMS_PASSWORD`
-(auto-loaded from `.env`); pass `--extract-only` to re-run the extractor
-over `.gz` files already on disk (useful when the file was downloaded
-manually from `https://pems.dot.ca.gov/?dnode=Clearinghouse&type=station_5min`).
+Step 2 has already pinned a specific `vds_id` to every cell, so this step
+only needs to fetch the time series for those particular detectors. The
+union of `cells.csv`'s `vds_id` column is the exact list to pass as
+`--detectors`; Step 4 picks the resulting per-cell CSVs up by joining on
+the same column.
 
 (Station metadata downloads — the *spatial* side of "VDS identification" —
 live in Step 2 as `download_pems_station_metadata`; this step is
 specifically the *timeseries* download that Step 4 calibrates against.)
+
+**Stage 1: clearinghouse query + download.** `PeMSDownloader` authenticates
+to `pems.dot.ca.gov` with the user's PeMS credentials (browser-driven via
+`mechanize`) and parses the embedded form metadata so callers can query
+without knowing the clearinghouse's parameter names:
+
+* `get_file_types()` / `get_districts(file_type)` enumerate what the
+  account can see.
+* `get_files(start_year, end_year, districts, file_types, months)` returns
+  a list of file-metadata dicts (`file_name`, `file_id`, `megabites`,
+  `download_url`, …) matching the filter. Useful for previewing the size
+  of a download.
+* `download_files(...)` iterates the same list, downloads each new file
+  to `save_path`, and appends to a `saved_files.csv` lookup so reruns
+  skip files already on disk (the dedupe key is the full row, not just
+  the filename).
+
+The downloader uses `mechanize.Browser.retrieve` to stream files to disk,
+so even a multi-GB month's worth of `station_5min` data flows through a
+single chunk-sized buffer.
+
+**Stage 2: per-detector extraction.** `PeMSExtractor` walks a directory of
+`.gz` dumps and emits one CSV per VDS under `<save_path>/csv_files/`.
+The PeMS 5-minute format is a headerless CSV with 12 station-level
+columns followed by 5 columns per lane; the extractor infers the lane
+count from each file's column count and renames the columns on the way
+in. Memory is bounded by `process_gz_files`'s per-file streaming: it
+loads one `.gz` at a time, slices by `station` ID into per-detector
+DataFrames, writes/appends to the corresponding `.csv`, and discards the
+file before moving on. The downloader-level "skip already-fetched files"
+lookup combined with the extractor-level "append + dedupe" on each
+output CSV makes the whole pipeline incremental — re-running with a
+wider time window only fetches the new files and grows each per-detector
+CSV with the new rows.
+
+Optional time-window clipping: `PeMSExtractor(..., start_date=...,
+end_date=..., start_time=..., end_time=...)` drops rows outside that
+window at file-load time, so very long histories can be trimmed down to
+a calibration-relevant span without ever materializing the full corpus.
+
+**Demo CLI.** `scripts/download_pems_timeseries.py` wires the two classes
+into one invocation:
+
+```
+python scripts/download_pems_timeseries.py \
+    --district 4 --year 2022 --month January \
+    --detectors 400839,400840
+```
+
+Flags: `--district`, `--year` (or `--year-start` / `--year-end`),
+`--month`, `--detectors`, optional `--start-date` / `--end-date`
+clipping, and `--out-dir` (default: `<repo>/data/pems/timeseries/`, in
+the gitignored `data/` tree). Credentials come from
+`PEMS_USERNAME` / `PEMS_PASSWORD` (auto-loaded from `.env`); pass
+`--extract-only` to skip the download and just re-extract whatever
+`.gz` files are already on disk (the path for users who'd rather grab
+files by hand from the clearinghouse web UI at
+`https://pems.dot.ca.gov/?dnode=Clearinghouse&type=station_5min`).
+
+**Test surface.** 38 unit tests in `tests/test_pems_downloader.py` and
+`tests/test_pems_extractor.py` cover the parsing, URL construction,
+dedupe, and lane-count inference paths. The extractor tests use ≈ 10-row
+synthetic `.gz` files written to `tmp_path` so the suite stays under
+the file-size budget; the downloader tests stub the two network seams
+(`_open_url` and `_download_file`) via `monkeypatch` rather than hitting
+the live clearinghouse. The live login path itself is exercised
+indirectly by the `@pytest.mark.network` round-trip in
+`test_ctm_caltrans.py` (which goes through the same
+`PeMSDownloader.__init__`).
 
 ## Step 4: Fundamental Diagram Calibration
 `transportation_models.utils.data_processing` includes a class,
