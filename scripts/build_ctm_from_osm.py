@@ -37,9 +37,10 @@ Run from the repo root::
         --ref "I 210" --direction W \\
         --postmiles data/caltrans/shn_postmiles_tenth.geojson
 
-    # Fresh osmnx download (network required):
+    # Fresh osmnx download (network required).
+    # Note the `=`: a leading `-` in the value confuses argparse, so bind with `=`.
     python scripts/build_ctm_from_osm.py \\
-        --bbox -118.155,34.13,-117.85,34.16 \\
+        --bbox=-118.155,34.13,-117.85,34.16 \\
         --ref "I 210" --direction W
 
     # Or pass an osmnx-recognizable place string:

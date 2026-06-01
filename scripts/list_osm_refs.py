@@ -6,8 +6,9 @@ Run from the repo root::
     # From a cached graphml:
     python scripts/list_osm_refs.py --graphml tests/fixtures/osm/i210_bbox.graphml
 
-    # From a fresh bbox download (Oakland, looking for I-880 etc.):
-    python scripts/list_osm_refs.py --bbox -122.35,37.70,-122.20,37.84
+    # From a fresh bbox download (Oakland, looking for I-880 etc.).
+    # Note the `=`: a leading `-` in the value confuses argparse, so bind with `=`.
+    python scripts/list_osm_refs.py --bbox=-122.35,37.70,-122.20,37.84
 
     # From a place string:
     python scripts/list_osm_refs.py --place "Oakland, California, USA"
