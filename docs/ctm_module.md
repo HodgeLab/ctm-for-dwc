@@ -615,12 +615,18 @@ return values directly as the `demand=` and `beta=` arguments to
 `scenario_from_dataframes`; nothing else changes.
 
 ## Step 8: Running a CTM Simulation
+End-to-end demo: `scripts/simulate_ctm_corridor.py`.
 
 With Steps 1-6 done you have a corridor-shaped, FD-calibrated freeway;
-this step wires it through the engine. The pieces already exist as
-typed Python entry points -- no new module is needed -- but the
-**input data shaping** for a real-data scenario is currently manual
-(see "Unfinished work" below).
+this step wires it through the engine. The Python entry points
+(`freeway_from_dataframe`, `scenario_from_dataframes`, `simulate`,
+`compute_metrics`) and the PeMS adapters
+(`inflow_from_vds`, `initial_state_from_vds`) are all in place. A
+ramp-bearing corridor still needs Step 7's `demand` / `beta`
+adapters before its full input is calibrated; until then the demo
+script defaults both to zero -- on-ramps see no inflow and off-ramps
+pass all traffic through, which is fine for a smoke run but
+under-models the real corridor.
 
 ### Inputs
 
@@ -713,6 +719,39 @@ column appears in the formula — they're read only for the precondition.
 
 The freeway and scenario are revalidated again inside `simulate`, so
 any cell/step shape mismatch surfaces before the loop runs.
+
+### One-shot CLI
+
+`scripts/simulate_ctm_corridor.py` bundles the three stages above:
+
+```
+python scripts/simulate_ctm_corridor.py \
+    --freeway scripts/output/ctm_corridor/I_210_W/freeway.csv \
+    --cells   scripts/output/ctm_corridor/I_210_W/cells.csv \
+    --timeseries-dir data/pems/csv_files \
+    --dt-seconds 10 \
+    --start "2022-04-12 06:00" \
+    --end   "2022-04-12 09:00"
+```
+
+It builds the `Freeway`, extracts inflow + initial state from PeMS,
+runs `simulate`, computes metrics, and writes one CSV per output
+quantity (the dict from `SimulationResult.to_dataframes`) plus a
+`summary.txt` with horizon totals (VHT, VMT, delay, productivity
+loss) and corridor travel-time stats into `--out-dir` (default:
+`<freeway parent>/sim/`).
+
+`--demand` and `--beta` are optional wide CSVs; both default to **zero
+for every cell** when omitted. A ramp-bearing corridor will still
+simulate under that default -- on-ramps simply see no inflow and
+off-ramps pass all traffic through. Once Step 7 lands, both will be
+generated from PeMS automatically (likely via the same one-shot
+script).
+
+The corridor's upstream-most mainline VDS (i.e. the source of
+$f_0(k)$) is taken from `cells.csv`'s first row by default;
+`--upstream-vds` overrides it if a different detector is closer to
+the true boundary.
 
 ### Stage 3: Run the simulation and inspect
 
