@@ -219,25 +219,38 @@ def per_period_totals(
 def plot_flow_density_contour(
     arr_KN: np.ndarray, *,
     title: str, cbar_label: str, cmap: str,
-    horizon_h: float, y_label: str = "time [h]",
+    horizon_h: float, pm_edges: np.ndarray,
+    x_label: str = "distance from upstream end [mi]",
+    y_label: str = "time [h]",
     out_path: Path,
 ) -> None:
     """Render a ``(K, N)`` space-time array as a heatmap.
 
-    Time runs up the y-axis from 0 to ``horizon_h``; cell index runs
-    along the x-axis. The ``y_label`` is overridable so callers can
-    distinguish "time of day" from "time from sim start".
+    Time runs up the y-axis from 0 to ``horizon_h``. ``pm_edges`` is
+    distance along the corridor at each cell boundary, length
+    ``n_cells + 1`` (e.g. ``[pm_start_0, pm_end_0, pm_end_1, ...,
+    pm_end_{N-1}]``), so cells with non-uniform length render at their
+    actual widths rather than being normalized to a uniform grid. The
+    x_label / y_label defaults work for distance from the corridor
+    upstream end and arbitrary time origins; pass overrides for e.g.
+    absolute Caltrans postmile or "time of day".
     """
+    pm_edges = np.asarray(pm_edges, dtype=float)
+    n_samples, n_cells = arr_KN.shape
+    if pm_edges.shape != (n_cells + 1,):
+        raise ValueError(
+            f"pm_edges must have shape ({n_cells + 1},) (= n_cells + 1); "
+            f"got {pm_edges.shape}."
+        )
     fig, ax = plt.subplots(figsize=(10, 4.5))
-    n_cells = arr_KN.shape[1]
-    im = ax.imshow(
-        arr_KN, aspect="auto", origin="lower", cmap=cmap,
-        extent=[-0.5, n_cells - 0.5, 0.0, horizon_h],
+    y_edges = np.linspace(0.0, horizon_h, n_samples + 1)
+    mesh = ax.pcolormesh(
+        pm_edges, y_edges, arr_KN, cmap=cmap, shading="flat",
     )
-    ax.set_xlabel("cell index (upstream -> downstream)")
+    ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
     ax.set_title(title)
-    fig.colorbar(im, ax=ax, label=cbar_label)
+    fig.colorbar(mesh, ax=ax, label=cbar_label)
     fig.tight_layout()
     fig.savefig(out_path, dpi=120)
     plt.close(fig)

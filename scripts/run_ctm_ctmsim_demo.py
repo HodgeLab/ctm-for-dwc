@@ -167,17 +167,24 @@ def main() -> None:
     density_KN = downsample_to_plot_period(
         res.density, state=True, **_kw(),
     )[:, 1:].T   # drop initial col
+    # Distance from the corridor's upstream end at each cell boundary.
+    # `freeway_from_ctmsim_mat` drops the .mat's absolute PMstart/PMend, so
+    # cumsum-of-lengths is the natural anchor here.
+    lengths = np.array([c.length for c in fwy.cells])
+    pm_edges = np.concatenate([[0.0], np.cumsum(lengths)])
 
     plot_flow_density_contour(
         flow_KN, title=f"Mainline flow — I-210W {args.day}",
         cbar_label="flow [veh/h]", cmap="viridis",
-        horizon_h=24.0, y_label="time of day [h]",
+        horizon_h=24.0, pm_edges=pm_edges,
+        y_label="time of day [h]",
         out_path=out_dir / "flow_contour.png",
     )
     plot_flow_density_contour(
         density_KN, title=f"Density — I-210W {args.day}",
         cbar_label="density [veh/mi]", cmap="magma",
-        horizon_h=24.0, y_label="time of day [h]",
+        horizon_h=24.0, pm_edges=pm_edges,
+        y_label="time of day [h]",
         out_path=out_dir / "density_contour.png",
     )
 

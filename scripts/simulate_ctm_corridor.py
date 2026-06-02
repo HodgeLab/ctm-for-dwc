@@ -257,17 +257,26 @@ def main() -> None:
         density_KN = downsample_to_plot_period(
             result.density, state=True, **kw,
         )[:, 1:].T
+        # Per-cell postmile boundaries from cells.csv preserve absolute
+        # postmiles for pm-cropped corridors (cumsum-of-lengths from the
+        # freeway.csv alone would start at 0 and lose that anchor).
+        pm_edges = np.concatenate([
+            cells["pm_start"].to_numpy(dtype=float),
+            [float(cells["pm_end"].iloc[-1])],
+        ])
 
         plot_flow_density_contour(
             flow_KN, title=f"Mainline flow ({args.start} -> {args.end})",
             cbar_label="flow [veh/h]", cmap="viridis",
-            horizon_h=horizon_h, y_label="time from sim start [h]",
+            horizon_h=horizon_h, pm_edges=pm_edges,
+            y_label="time from sim start [h]",
             out_path=out_dir / "flow_contour.png",
         )
         plot_flow_density_contour(
             density_KN, title=f"Density ({args.start} -> {args.end})",
             cbar_label="density [veh/mi]", cmap="magma",
-            horizon_h=horizon_h, y_label="time from sim start [h]",
+            horizon_h=horizon_h, pm_edges=pm_edges,
+            y_label="time from sim start [h]",
             out_path=out_dir / "density_contour.png",
         )
 
