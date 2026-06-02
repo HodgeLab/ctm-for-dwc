@@ -18,6 +18,33 @@ per-cell VDS timeseries (Step 3) and the fundamental-diagram calibration
 (Step 4) follow; cell-length tuning (Step 5) and ramp-flow estimation (Step 6)
 complete the per-cell model.
 
+## Table of Contents
+
+- [Step 1: Roadway --> Cell Mapping](#step-1-roadway----cell-mapping)
+- [Step 2: VDS --> Cell Mapping](#step-2-vds----cell-mapping)
+- [Step 3: VDS Timeseries Download](#step-3-vds-timeseries-download)
+- [Step 4: Fundamental Diagram Calibration](#step-4-fundamental-diagram-calibration)
+- [Step 5: Manual Validation of Cell Mappings](#step-5-manual-validation-of-cell-mappings)
+- [Step 6: CTM Freeway Assembly](#step-6-ctm-freeway-assembly)
+  - [Stage 1: Mainline join + per-lane → per-cell scaling](#stage-1-mainline-join--per-lane--per-cell-scaling)
+  - [Stage 2: Ramp capacity lookup](#stage-2-ramp-capacity-lookup)
+  - [Stage 3: $\Delta T$ advisory](#stage-3-delta-t-advisory)
+  - [CLI](#cli)
+- [Step 7: Ramp Flow Estimation](#step-7-ramp-flow-estimation)
+- [Step 8: Running a CTM Simulation](#step-8-running-a-ctm-simulation)
+  - [Inputs](#inputs)
+  - [Stage 1: Build the `Freeway`](#stage-1-build-the-freeway)
+  - [Stage 2: Build the `Scenario`](#stage-2-build-the-scenario)
+  - [One-shot CLI](#one-shot-cli)
+  - [Stage 3: Run the simulation and inspect](#stage-3-run-the-simulation-and-inspect)
+  - [Round-trip against CTMSIM (already wired)](#round-trip-against-ctmsim-already-wired)
+  - [Unfinished work](#unfinished-work)
+- [CTM State Update Equations](#ctm-state-update-equations)
+  - [Notation (units per Kurzhanskiy Table 4.1)](#notation-units-per-kurzhanskiy-table-41)
+  - [CTMSIM update (canonical)](#ctmsim-update-canonical)
+  - [Equivalent four-mode form (Muralidharan & Horowitz)](#equivalent-four-mode-form-muralidharan--horowitz)
+  - [Cell-length rule (Step 5)](#cell-length-rule-step-5)
+
 ## Step 1: Roadway --> Cell Mapping
 Implemented in `transportation_models.utils.ctm.osm` (corridor extraction),
 `transportation_models.utils.ctm.cells` (cell layout), and
