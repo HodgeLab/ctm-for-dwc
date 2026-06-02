@@ -8,15 +8,21 @@ Application of the CTM to a given freeway corridor involves the following steps:
 2) Mapping of VDSs to CTM cells
 3) Identification of vehicle detector stations (VDSs) associated with the corridor and collection of timeseries data from each VDS
 4) Calibration of fundamental diagram parameters for each available VDS
-5) Tuning of CTM cell lengths
-6) Ramp flow estimation
+5) Manual validation of cell mappings
+6) CTM freeway assembly
+7) Ramp flow estimation
+8) Running a CTM simulation
 
-The numbering reflects the actual data-pipeline order: the cell layout (Step 1)
-comes first because everything downstream is keyed by cell; VDS-to-cell mapping
-(Step 2) defines which detector each cell will be calibrated against; the
-per-cell VDS timeseries (Step 3) and the fundamental-diagram calibration
-(Step 4) follow; cell-length tuning (Step 5) and ramp-flow estimation (Step 6)
-complete the per-cell model.
+The numbering reflects the actual data-pipeline order: cell layout
+(Step 1) comes first because everything downstream is keyed by cell;
+VDS-to-cell mapping (Step 2) pins a detector to each cell; per-cell
+timeseries (Step 3) feed the fundamental-diagram calibration (Step 4);
+manual validation (Step 5) is the user's chance to fix any Step 1/2
+mistakes before downstream consumption; freeway assembly (Step 6)
+joins all of the above into a per-cell table ready for the engine;
+ramp-flow estimation (Step 7, not yet implemented) supplies the
+time-varying on-ramp demand and off-ramp split-ratio inputs the
+scenario needs; and Step 8 runs the simulation end-to-end.
 
 ## Table of Contents
 
