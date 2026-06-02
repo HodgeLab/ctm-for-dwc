@@ -45,7 +45,6 @@ import argparse
 import sys
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
@@ -56,6 +55,13 @@ from transportation_models.utils.ctm import (
     initial_state_from_vds,
     scenario_from_dataframes,
     simulate,
+)
+from transportation_models.utils.ctm.plots import (
+    downsample_to_plot_period,
+    per_period_totals,
+    plot_aggregate_metrics,
+    plot_flow_density_contour,
+    plot_per_cell_metrics,
 )
 
 
@@ -74,9 +80,6 @@ def _load_wide(
     return df
 
 
-# ---- Plotting helpers (mirrors run_ctm_ctmsim_demo.py) -------------------
-
-
 def _plot_period_steps(dt_s: float, plot_period_s: float) -> int:
     """Sim steps per plotting period; must divide evenly."""
     if plot_period_s < dt_s:
@@ -91,103 +94,6 @@ def _plot_period_steps(dt_s: float, plot_period_s: float) -> int:
             f"multiple of --dt-seconds ({dt_s})."
         )
     return int(round(ratio))
-
-
-def _downsample(arr: np.ndarray, *, state: bool, steps_per_period: int,
-                n_samples: int) -> np.ndarray:
-    """Pick per-plotting-period columns from a (N, T+1) state or (N, T) flow array.
-
-    For state arrays we sample at step boundaries
-    ``0, P, 2P, ..., n_samples*P``; for flow arrays we sample at the
-    start of each plotting period, ``0, P, ..., (n_samples-1)*P``.
-    """
-    if state:
-        cols = np.arange(n_samples + 1) * steps_per_period
-    else:
-        cols = np.arange(n_samples) * steps_per_period
-    return arr[:, cols]
-
-
-def _per_period_totals(per_step: np.ndarray, *, steps_per_period: int,
-                       n_samples: int) -> np.ndarray:
-    """Sum a (T,) per-sim-step series into per-plotting-period totals (n_samples,)."""
-    return per_step[: n_samples * steps_per_period].reshape(
-        n_samples, steps_per_period,
-    ).sum(axis=1)
-
-
-def _plot_contour(arr_KN: np.ndarray, *, title: str, cbar_label: str,
-                  cmap: str, horizon_h: float, out_path: Path) -> None:
-    """Render a (K, N) space-time array as a heatmap, save to ``out_path``."""
-    fig, ax = plt.subplots(figsize=(10, 4.5))
-    n_cells = arr_KN.shape[1]
-    im = ax.imshow(
-        arr_KN, aspect="auto", origin="lower", cmap=cmap,
-        extent=[-0.5, n_cells - 0.5, 0.0, horizon_h],
-    )
-    ax.set_xlabel("cell index (upstream -> downstream)")
-    ax.set_ylabel("time from sim start [h]")
-    ax.set_title(title)
-    fig.colorbar(im, ax=ax, label=cbar_label)
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=120)
-    plt.close(fig)
-
-
-def _plot_aggregate_metrics(time_h: np.ndarray, vht: np.ndarray,
-                            vmt: np.ndarray, delay: np.ndarray,
-                            ploss: np.ndarray, *, plot_period_s: float,
-                            out_path: Path) -> None:
-    """Stack VHT/VMT/delay/ploss per plotting period in a 2x2 grid."""
-    fig, axes = plt.subplots(2, 2, figsize=(11, 6), sharex=True)
-    series = [
-        (vht,   "VHT [veh*h]",                "tab:blue"),
-        (vmt,   "VMT [veh*mi]",               "tab:green"),
-        (delay, "delay [veh*h]",              "tab:red"),
-        (ploss, "productivity loss [mi*h]",   "tab:purple"),
-    ]
-    for ax, (y, label, color) in zip(axes.flat, series):
-        ax.plot(time_h, y, color=color, lw=1.4)
-        ax.set_ylabel(label)
-        ax.grid(alpha=0.3)
-    for ax in axes[-1, :]:
-        ax.set_xlabel("time from sim start [h]")
-    period_label = (
-        f"{plot_period_s:.0f} s" if plot_period_s < 60
-        else f"{plot_period_s / 60:g} min"
-    )
-    fig.suptitle(f"Aggregate performance metrics per {period_label} period")
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=120)
-    plt.close(fig)
-
-
-def _plot_per_cell_metrics(metrics, *, horizon_h: float,
-                           out_path: Path) -> None:
-    """Horizon-total VHT/VMT/delay/ploss broken down by cell."""
-    vht = metrics.vht_per_cell.sum(axis=1)
-    vmt = metrics.vmt_per_cell.sum(axis=1)
-    delay = metrics.delay_per_cell.sum(axis=1)
-    ploss = metrics.productivity_loss_per_cell.sum(axis=1)
-    cells = np.arange(vht.size)
-
-    fig, axes = plt.subplots(2, 2, figsize=(11, 6), sharex=True)
-    series = [
-        (vht,   "VHT [veh*h]",                "tab:blue"),
-        (vmt,   "VMT [veh*mi]",               "tab:green"),
-        (delay, "delay [veh*h]",              "tab:red"),
-        (ploss, "productivity loss [mi*h]",   "tab:purple"),
-    ]
-    for ax, (y, label, color) in zip(axes.flat, series):
-        ax.bar(cells, y, color=color)
-        ax.set_ylabel(label)
-        ax.grid(alpha=0.3, axis="y")
-    for ax in axes[-1, :]:
-        ax.set_xlabel("cell index")
-    fig.suptitle(f"{horizon_h:.2f}-hour totals per cell")
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=120)
-    plt.close(fig)
 
 
 def main() -> None:
@@ -341,46 +247,46 @@ def main() -> None:
                 f"got remainder {n_steps - n_samples * steps_per_period} step(s)."
             )
 
+        kw = dict(steps_per_period=steps_per_period, n_samples=n_samples)
         # Contours are (K, N): time runs down rows, cells across columns.
-        flow_KN = _downsample(
-            result.mainline_flow, state=False,
-            steps_per_period=steps_per_period, n_samples=n_samples,
+        flow_KN = downsample_to_plot_period(
+            result.mainline_flow, state=False, **kw,
         ).T
         # Drop the initial-state column so the time axis aligns with flow's
         # period-start sampling.
-        density_KN = _downsample(
-            result.density, state=True,
-            steps_per_period=steps_per_period, n_samples=n_samples,
+        density_KN = downsample_to_plot_period(
+            result.density, state=True, **kw,
         )[:, 1:].T
 
-        _plot_contour(
+        plot_flow_density_contour(
             flow_KN, title=f"Mainline flow ({args.start} -> {args.end})",
             cbar_label="flow [veh/h]", cmap="viridis",
-            horizon_h=horizon_h, out_path=out_dir / "flow_contour.png",
+            horizon_h=horizon_h, y_label="time from sim start [h]",
+            out_path=out_dir / "flow_contour.png",
         )
-        _plot_contour(
+        plot_flow_density_contour(
             density_KN, title=f"Density ({args.start} -> {args.end})",
             cbar_label="density [veh/mi]", cmap="magma",
-            horizon_h=horizon_h, out_path=out_dir / "density_contour.png",
+            horizon_h=horizon_h, y_label="time from sim start [h]",
+            out_path=out_dir / "density_contour.png",
         )
 
         time_h = np.arange(n_samples) * steps_per_period * dt_h
-        _plot_aggregate_metrics(
+        period_s = args.plot_period_seconds
+        period_label = (
+            f"{period_s:.0f} s" if period_s < 60 else f"{period_s / 60:g} min"
+        )
+        plot_aggregate_metrics(
             time_h,
-            _per_period_totals(metrics.vht, steps_per_period=steps_per_period,
-                               n_samples=n_samples),
-            _per_period_totals(metrics.vmt, steps_per_period=steps_per_period,
-                               n_samples=n_samples),
-            _per_period_totals(metrics.delay, steps_per_period=steps_per_period,
-                               n_samples=n_samples),
-            _per_period_totals(metrics.productivity_loss,
-                               steps_per_period=steps_per_period,
-                               n_samples=n_samples),
-            plot_period_s=args.plot_period_seconds,
+            per_period_totals(metrics.vht, **kw),
+            per_period_totals(metrics.vmt, **kw),
+            per_period_totals(metrics.delay, **kw),
+            per_period_totals(metrics.productivity_loss, **kw),
+            period_label=period_label, x_label="time from sim start [h]",
             out_path=out_dir / "aggregate_metrics.png",
         )
-        _plot_per_cell_metrics(
-            metrics, horizon_h=horizon_h,
+        plot_per_cell_metrics(
+            metrics, title=f"{horizon_h:.2f}-hour totals per cell",
             out_path=out_dir / "per_cell_metrics.png",
         )
     summary_lines = [

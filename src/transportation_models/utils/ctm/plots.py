@@ -1,8 +1,9 @@
-"""Matplotlib renderers for a CTM :class:`Corridor` and its cell layout.
+"""Matplotlib renderers for CTM corridors and simulation results.
 
-Two PNGs we use across the Step-1 build script
-(:mod:`scripts.build_ctm_from_osm`) and the cell-artifact regenerator
-(:mod:`scripts.regenerate_cell_artifacts`):
+Two groups of plotters live here:
+
+**Corridor / cell layout** (used by :mod:`scripts.build_ctm_from_osm`
+and :mod:`scripts.regenerate_cell_artifacts`):
 
 * :func:`plot_corridor_map`  -- lat/lon overlay of the mainline + ramps.
 * :func:`plot_cell_layout`   -- strip plot of cells along postmile, with
@@ -15,6 +16,18 @@ its upstream/downstream end-marker coordinates from
 reconstructed :class:`Corridor` (from cached GeoJSON via
 ``cells.corridor_from_artifacts``) plots identically to the freshly
 extracted one.
+
+**Simulation result** (used by :mod:`scripts.run_ctm_ctmsim_demo` and
+:mod:`scripts.simulate_ctm_corridor`):
+
+* :func:`downsample_to_plot_period` / :func:`per_period_totals`
+  reduce sim-step arrays to a coarser plotting cadence.
+* :func:`plot_flow_density_contour`  -- space-time heatmap of a
+  per-cell quantity (flow, density, ...).
+* :func:`plot_aggregate_metrics`     -- 2x2 grid of VHT/VMT/delay/ploss
+  per plotting period.
+* :func:`plot_per_cell_metrics`      -- 2x2 bar chart of the same four
+  metrics summed over the horizon, per cell.
 """
 
 from __future__ import annotations
@@ -170,6 +183,113 @@ def plot_cell_layout(
         secax = ax.secondary_xaxis("top", functions=(local_to_cal, cal_to_local))
         secax.set_xlabel("Caltrans postmile [mi]")
 
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=120)
+    plt.close(fig)
+
+
+# ---- Simulation-result helpers --------------------------------------------
+
+
+def downsample_to_plot_period(
+    arr: np.ndarray, *, state: bool, steps_per_period: int, n_samples: int,
+) -> np.ndarray:
+    """Pick per-plotting-period columns of a ``(N, T+1)`` state or ``(N, T)`` flow array.
+
+    State arrays sample at step boundaries ``0, P, 2P, ..., n_samples*P``
+    (length ``n_samples + 1``); flow arrays sample at the start of each
+    plotting period (length ``n_samples``).
+    """
+    if state:
+        cols = np.arange(n_samples + 1) * steps_per_period
+    else:
+        cols = np.arange(n_samples) * steps_per_period
+    return arr[:, cols]
+
+
+def per_period_totals(
+    per_step: np.ndarray, *, steps_per_period: int, n_samples: int,
+) -> np.ndarray:
+    """Sum a ``(T,)`` per-sim-step series into per-plotting-period totals ``(n_samples,)``."""
+    return per_step[: n_samples * steps_per_period].reshape(
+        n_samples, steps_per_period,
+    ).sum(axis=1)
+
+
+def plot_flow_density_contour(
+    arr_KN: np.ndarray, *,
+    title: str, cbar_label: str, cmap: str,
+    horizon_h: float, y_label: str = "time [h]",
+    out_path: Path,
+) -> None:
+    """Render a ``(K, N)`` space-time array as a heatmap.
+
+    Time runs up the y-axis from 0 to ``horizon_h``; cell index runs
+    along the x-axis. The ``y_label`` is overridable so callers can
+    distinguish "time of day" from "time from sim start".
+    """
+    fig, ax = plt.subplots(figsize=(10, 4.5))
+    n_cells = arr_KN.shape[1]
+    im = ax.imshow(
+        arr_KN, aspect="auto", origin="lower", cmap=cmap,
+        extent=[-0.5, n_cells - 0.5, 0.0, horizon_h],
+    )
+    ax.set_xlabel("cell index (upstream -> downstream)")
+    ax.set_ylabel(y_label)
+    ax.set_title(title)
+    fig.colorbar(im, ax=ax, label=cbar_label)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=120)
+    plt.close(fig)
+
+
+_METRIC_SERIES = [
+    ("VHT [veh*h]",              "tab:blue"),
+    ("VMT [veh*mi]",             "tab:green"),
+    ("delay [veh*h]",            "tab:red"),
+    ("productivity loss [mi*h]", "tab:purple"),
+]
+
+
+def plot_aggregate_metrics(
+    time_h: np.ndarray,
+    vht: np.ndarray, vmt: np.ndarray, delay: np.ndarray, ploss: np.ndarray,
+    *,
+    period_label: str, x_label: str = "time [h]",
+    out_path: Path,
+) -> None:
+    """Stack VHT/VMT/delay/ploss per plotting period in a 2x2 grid."""
+    fig, axes = plt.subplots(2, 2, figsize=(11, 6), sharex=True)
+    series = list(zip((vht, vmt, delay, ploss), _METRIC_SERIES))
+    for ax, (y, (label, color)) in zip(axes.flat, series):
+        ax.plot(time_h, y, color=color, lw=1.4)
+        ax.set_ylabel(label)
+        ax.grid(alpha=0.3)
+    for ax in axes[-1, :]:
+        ax.set_xlabel(x_label)
+    fig.suptitle(f"Aggregate performance metrics per {period_label} period")
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=120)
+    plt.close(fig)
+
+
+def plot_per_cell_metrics(metrics, *, title: str, out_path: Path) -> None:
+    """Horizon-total VHT/VMT/delay/ploss broken down by cell."""
+    vht = metrics.vht_per_cell.sum(axis=1)
+    vmt = metrics.vmt_per_cell.sum(axis=1)
+    delay = metrics.delay_per_cell.sum(axis=1)
+    ploss = metrics.productivity_loss_per_cell.sum(axis=1)
+    cells = np.arange(vht.size)
+
+    fig, axes = plt.subplots(2, 2, figsize=(11, 6), sharex=True)
+    series = list(zip((vht, vmt, delay, ploss), _METRIC_SERIES))
+    for ax, (y, (label, color)) in zip(axes.flat, series):
+        ax.bar(cells, y, color=color)
+        ax.set_ylabel(label)
+        ax.grid(alpha=0.3, axis="y")
+    for ax in axes[-1, :]:
+        ax.set_xlabel("cell index")
+    fig.suptitle(title)
     fig.tight_layout()
     fig.savefig(out_path, dpi=120)
     plt.close(fig)

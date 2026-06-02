@@ -22,7 +22,6 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import numpy as np
 import scipy.io as sio
 
@@ -33,6 +32,13 @@ from transportation_models.utils.ctm import (
     ctmsim_initial_densities,
     freeway_from_ctmsim_mat,
     simulate,
+)
+from transportation_models.utils.ctm.plots import (
+    downsample_to_plot_period,
+    per_period_totals,
+    plot_aggregate_metrics,
+    plot_flow_density_contour,
+    plot_per_cell_metrics,
 )
 
 REPO = Path(__file__).resolve().parents[1]
@@ -83,41 +89,30 @@ def build_scenario(mat_path: Path):
     return fwy, scn.validate(fwy)
 
 
-def downsample(arr: np.ndarray, *, state: bool) -> np.ndarray:
-    """Pick the per-plotting-period columns of a (N, T+1) or (N, T) array.
-
-    For state arrays (``T + 1`` columns) we sample at step boundaries
-    ``0, 30, ..., T``; for flow/speed arrays (``T`` columns) we sample at the
-    start of each plotting period, ``0, 30, ..., T - 30``.
-    """
-    if state:
-        cols = np.arange(PLOT_SAMPLES + 1) * PLOT_PERIOD_STEPS
-    else:
-        cols = np.arange(PLOT_SAMPLES) * PLOT_PERIOD_STEPS
-    return arr[:, cols]
-
-
-def per_period_totals(per_step: np.ndarray) -> np.ndarray:
-    """Sum a (T,) per-sim-step series into per-plotting-period totals (K,)."""
-    return per_step.reshape(PLOT_SAMPLES, PLOT_PERIOD_STEPS).sum(axis=1)
-
-
 def per_period_per_cell(per_step: np.ndarray) -> np.ndarray:
-    """Sum a (N, T) per-cell series into per-cell, per-period totals (N, K)."""
+    """Sum a (N, T) per-cell series into per-cell, per-period totals (N, K).
+
+    NOTE: pre-existing dead code -- defined but never called within this
+    script. Left in place pending an explicit cleanup pass.
+    """
     n = per_step.shape[0]
     return per_step.reshape(n, PLOT_SAMPLES, PLOT_PERIOD_STEPS).sum(axis=2)
+
+
+def _kw():
+    return dict(steps_per_period=PLOT_PERIOD_STEPS, n_samples=PLOT_SAMPLES)
 
 
 def print_summary(fwy, res, metrics, day: str) -> None:
     """Print a per-3-hour snapshot of average density/flow and aggregate metrics."""
     n_steps = res.n_steps
     snap_periods = [0, 36, 72, 108, 144, 180, 216, 252, PLOT_SAMPLES - 1]
-    rho_plot = downsample(res.density, state=True)
-    flow_plot = downsample(res.mainline_flow, state=False)
-    vht = per_period_totals(metrics.vht)
-    vmt = per_period_totals(metrics.vmt)
-    delay = per_period_totals(metrics.delay)
-    ploss = per_period_totals(metrics.productivity_loss)
+    rho_plot = downsample_to_plot_period(res.density, state=True, **_kw())
+    flow_plot = downsample_to_plot_period(res.mainline_flow, state=False, **_kw())
+    vht = per_period_totals(metrics.vht, **_kw())
+    vmt = per_period_totals(metrics.vmt, **_kw())
+    delay = per_period_totals(metrics.delay, **_kw())
+    ploss = per_period_totals(metrics.productivity_loss, **_kw())
 
     print(f"\n=== CTMSIM {day} on I-210 West ===")
     print(f"  cells: {fwy.n_cells}  dt: {fwy.dt * 3600:.1f}s  "
@@ -138,72 +133,6 @@ def print_summary(fwy, res, metrics, day: str) -> None:
     print()
     print(f"  24-hour totals:  VHT={vht.sum():.1f}  VMT={vmt.sum():.1f}  "
           f"delay={delay.sum():.1f}  ploss={ploss.sum():.3f}")
-
-
-def plot_contour(arr_KN: np.ndarray, *, title: str, cbar_label: str,
-                 cmap: str, out_path: Path) -> None:
-    """Render a (K, N) space-time array as a heatmap, save to ``out_path``."""
-    fig, ax = plt.subplots(figsize=(10, 4.5))
-    n_cells = arr_KN.shape[1]
-    im = ax.imshow(
-        arr_KN, aspect="auto", origin="lower", cmap=cmap,
-        extent=[-0.5, n_cells - 0.5, 0.0, 24.0],
-    )
-    ax.set_xlabel("cell index (upstream -> downstream)")
-    ax.set_ylabel("time of day [h]")
-    ax.set_title(title)
-    fig.colorbar(im, ax=ax, label=cbar_label)
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=120)
-    plt.close(fig)
-
-
-def plot_aggregate_metrics(time_h, vht, vmt, delay, ploss, out_path: Path) -> None:
-    """Stack the four aggregate metrics in a 2x2 grid."""
-    fig, axes = plt.subplots(2, 2, figsize=(11, 6), sharex=True)
-    series = [
-        (vht,   "VHT [veh*h]",                "tab:blue"),
-        (vmt,   "VMT [veh*mi]",               "tab:green"),
-        (delay, "delay [veh*h]",              "tab:red"),
-        (ploss, "productivity loss [mi*h]",   "tab:purple"),
-    ]
-    for ax, (y, label, color) in zip(axes.flat, series):
-        ax.plot(time_h, y, color=color, lw=1.4)
-        ax.set_ylabel(label)
-        ax.grid(alpha=0.3)
-    for ax in axes[-1, :]:
-        ax.set_xlabel("time of day [h]")
-    fig.suptitle("Aggregate performance metrics per 5-min period")
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=120)
-    plt.close(fig)
-
-
-def plot_per_cell_metrics(metrics, out_path: Path) -> None:
-    """Day-total VHT/VMT/delay/ploss broken down by cell."""
-    vht = metrics.vht_per_cell.sum(axis=1)
-    vmt = metrics.vmt_per_cell.sum(axis=1)
-    delay = metrics.delay_per_cell.sum(axis=1)
-    ploss = metrics.productivity_loss_per_cell.sum(axis=1)
-    cells = np.arange(vht.size)
-
-    fig, axes = plt.subplots(2, 2, figsize=(11, 6), sharex=True)
-    series = [
-        (vht,   "VHT [veh*h]",                "tab:blue"),
-        (vmt,   "VMT [veh*mi]",               "tab:green"),
-        (delay, "delay [veh*h]",              "tab:red"),
-        (ploss, "productivity loss [mi*h]",   "tab:purple"),
-    ]
-    for ax, (y, label, color) in zip(axes.flat, series):
-        ax.bar(cells, y, color=color)
-        ax.set_ylabel(label)
-        ax.grid(alpha=0.3, axis="y")
-    for ax in axes[-1, :]:
-        ax.set_xlabel("cell index")
-    fig.suptitle("24-hour totals per cell")
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=120)
-    plt.close(fig)
 
 
 def main() -> None:
@@ -232,30 +161,40 @@ def main() -> None:
     print_summary(fwy, res, metrics, args.day)
 
     # Contours are (K, N): time runs down rows, cells across columns.
-    flow_KN = downsample(res.mainline_flow, state=False).T
-    density_KN = downsample(res.density, state=True)[:, 1:].T   # drop initial col
+    flow_KN = downsample_to_plot_period(
+        res.mainline_flow, state=False, **_kw(),
+    ).T
+    density_KN = downsample_to_plot_period(
+        res.density, state=True, **_kw(),
+    )[:, 1:].T   # drop initial col
 
-    plot_contour(
+    plot_flow_density_contour(
         flow_KN, title=f"Mainline flow — I-210W {args.day}",
         cbar_label="flow [veh/h]", cmap="viridis",
+        horizon_h=24.0, y_label="time of day [h]",
         out_path=out_dir / "flow_contour.png",
     )
-    plot_contour(
+    plot_flow_density_contour(
         density_KN, title=f"Density — I-210W {args.day}",
         cbar_label="density [veh/mi]", cmap="magma",
+        horizon_h=24.0, y_label="time of day [h]",
         out_path=out_dir / "density_contour.png",
     )
 
     time_h = np.arange(PLOT_SAMPLES) * PLOT_PERIOD_STEPS * fwy.dt
     plot_aggregate_metrics(
         time_h,
-        per_period_totals(metrics.vht),
-        per_period_totals(metrics.vmt),
-        per_period_totals(metrics.delay),
-        per_period_totals(metrics.productivity_loss),
+        per_period_totals(metrics.vht, **_kw()),
+        per_period_totals(metrics.vmt, **_kw()),
+        per_period_totals(metrics.delay, **_kw()),
+        per_period_totals(metrics.productivity_loss, **_kw()),
+        period_label="5-min", x_label="time of day [h]",
         out_path=out_dir / "aggregate_metrics.png",
     )
-    plot_per_cell_metrics(metrics, out_path=out_dir / "per_cell_metrics.png")
+    plot_per_cell_metrics(
+        metrics, title="24-hour totals per cell",
+        out_path=out_dir / "per_cell_metrics.png",
+    )
 
     print(f"\nFigures written to {out_dir}/")
     for name in ("flow_contour.png", "density_contour.png",
