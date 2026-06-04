@@ -361,6 +361,77 @@ def test_ramp_capacity_partial_coverage_warns_and_sums_present():
     assert out.iloc[0]["on_ramp_capacity"] == pytest.approx(1100.0)
 
 
+# ---- fd_vds_id (Step-5 FD-override column) -------------------------------
+
+
+def _two_cal_rows() -> pd.DataFrame:
+    """Two stations with deliberately different FD parameters so a redirect
+    is observable in the assembled table."""
+    return _calibrated_df([
+        dict(**{"Station ID": 100, "capacity": 1800.0,
+                "free_flow_speed": 60.0, "congestion_wave_speed": 15.0,
+                "jam_density": 150.0, "critical_density": 30.0}),
+        dict(**{"Station ID": 200, "capacity": 2200.0,
+                "free_flow_speed": 65.0, "congestion_wave_speed": 16.0,
+                "jam_density": 170.0, "critical_density": 32.0}),
+    ])
+
+
+def test_fd_vds_id_redirects_fd_lookup_to_override():
+    """When fd_vds_id is set, the row pulls FD params from the override."""
+    cells = _cells_df([
+        dict(length=0.5, lanes=3, vds_id=100, fd_vds_id=200),
+    ])
+    out = assemble_freeway_table(cells, _two_cal_rows())
+    # Override -> station 200's FD, scaled by lanes=3.
+    assert out.iloc[0]["q_max"] == pytest.approx(2200.0 * 3)
+    assert out.iloc[0]["v_f"] == pytest.approx(65.0)
+    assert out.iloc[0]["rho_jam"] == pytest.approx(170.0 * 3)
+
+
+def test_fd_vds_id_nan_falls_back_to_vds_id():
+    """Rows where fd_vds_id is NaN keep using vds_id (per-row fallback)."""
+    cells = _cells_df([
+        dict(length=0.5, lanes=3, vds_id=100, fd_vds_id=pd.NA),
+        dict(length=0.5, lanes=3, vds_id=100, fd_vds_id=200),
+    ])
+    out = assemble_freeway_table(cells, _two_cal_rows())
+    # Row 0: fd_vds_id NaN -> falls back to vds_id=100 (capacity 1800).
+    assert out.iloc[0]["q_max"] == pytest.approx(1800.0 * 3)
+    # Row 1: fd_vds_id=200 -> override (capacity 2200).
+    assert out.iloc[1]["q_max"] == pytest.approx(2200.0 * 3)
+
+
+def test_no_fd_vds_id_column_keeps_existing_behavior():
+    """A cells_df without the override column behaves exactly as before."""
+    cells = _cells_df([dict(length=0.5, lanes=3, vds_id=100)])
+    assert "fd_vds_id" not in cells.columns
+    out = assemble_freeway_table(cells, _two_cal_rows())
+    assert out.iloc[0]["q_max"] == pytest.approx(1800.0 * 3)
+
+
+def test_fd_vds_id_set_when_vds_id_is_nan_resolves_for_fd_lookup():
+    """If vds_id is NaN but fd_vds_id is set, assembly succeeds (the FD
+    lookup has a target). Downstream consumers that need vds_id directly
+    will still raise their own errors when they hit that cell."""
+    cells = _cells_df([
+        dict(length=0.5, lanes=3, vds_id=pd.NA, fd_vds_id=200),
+    ])
+    out = assemble_freeway_table(cells, _two_cal_rows())
+    assert out.iloc[0]["q_max"] == pytest.approx(2200.0 * 3)
+
+
+def test_both_vds_id_and_fd_vds_id_nan_raises():
+    """If neither column has a value for a row, the error message
+    mentions both columns so the user knows the override is an option."""
+    cells = _cells_df([
+        dict(length=0.5, lanes=3, vds_id=100),
+        dict(length=0.5, lanes=3, vds_id=pd.NA, fd_vds_id=pd.NA),
+    ])
+    with pytest.raises(ValueError, match=r"fd_vds_id"):
+        assemble_freeway_table(cells, _two_cal_rows())
+
+
 def test_ramp_capacity_all_missing_in_list_falls_back_to_nan():
     """If every id in the list is missing from the calibration table, the
     cell's capacity stays NaN -> freeway_from_dataframe defaults to ∞."""

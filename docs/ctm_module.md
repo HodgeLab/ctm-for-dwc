@@ -502,7 +502,20 @@ software like QGIS.
 Specific aspects to consider:
 * Lane discrepancies between OSM, PeMS, and satellite images
 * Cell merging for length
-* VDS assignment overrides
+* VDS assignment overrides. The mainline `vds_id` Step 2 attaches to
+  each cell is the *physically closest* detector, which isn't always
+  the best FD source -- a detector with a poorly-calibrated
+  fundamental diagram can leave a cell with bad parameters even
+  though the detector itself is correctly assigned. To redirect the
+  FD lookup without losing the audit trail, add an optional
+  `fd_vds_id` column to `cells.csv` and set it to the *override*
+  VDS id only for the cells that need it (leave it NaN otherwise).
+  `assemble_freeway_table` then uses `fd_vds_id` for the FD lookup
+  (falling back to `vds_id` per row when `fd_vds_id` is NaN), while
+  the rest of the pipeline (initial-state extraction, off-ramp
+  split-ratio computation) continues to use `vds_id` so the cell's
+  observed traffic data still comes from the physically nearest
+  detector.
 * Ramp VDS assignments. A single cell can carry **multiple** ramp VDS
   ids if more than one physical ramp falls inside it (e.g. when two
   short on-ramps were merged into one cell). Put the ids in the
@@ -543,10 +556,11 @@ table that slots directly into `utils.ctm.io.freeway_from_dataframe`:
 
 ### Stage 1: Mainline join + per-lane → per-cell scaling
 
-For each cell, `assemble_freeway_table` joins on `vds_id` to pull the
-calibrated FD parameters, then **scales per-lane FD quantities by the
-cell's lane count** to land in the per-cell units the CTM engine
-expects:
+For each cell, `assemble_freeway_table` joins on `vds_id` (or
+`fd_vds_id` when present and non-NaN -- see the Step-5 manual-edit
+section above) to pull the calibrated FD parameters, then **scales
+per-lane FD quantities by the cell's lane count** to land in the
+per-cell units the CTM engine expects:
 
 | FD parameter     | calibrated units        | per-cell scaling           |
 |------------------|-------------------------|----------------------------|
@@ -556,10 +570,16 @@ expects:
 | `v_f`            | mi/hr (intensive)       | unchanged                  |
 | `w`              | mi/hr (intensive)       | unchanged                  |
 
-Cells whose `vds_id` is NaN (Step 2's `vds_source='missing'`) raise a
-`ValueError` -- they need a calibrated FD before assembly proceeds, so
-the caller has to run Step 2's Dervisoglu upstream-inherit fallback or
-edit the cells table to point at a sensible VDS first.
+The `fd_vds_id` override is **opt-in and per-row**: leave the column
+out entirely (or NaN) and the FD lookup uses `vds_id` for every cell
+just as before. Set it to the FD-source VDS only for the cells where
+the user wants to redirect the FD parameters.
+
+Cells whose effective FD-lookup id is NaN (both `vds_id` and
+`fd_vds_id` missing) raise a `ValueError` -- they need a calibrated
+FD before assembly proceeds, so the caller has to run Step 2's
+Dervisoglu upstream-inherit fallback or edit the cells table to
+point at a sensible VDS first.
 
 ### Stage 2: Ramp capacity lookup
 

@@ -117,6 +117,16 @@ def assemble_freeway_table(
         ``length``, ``lanes``, ``on_ramp``, ``off_ramp``, and a ``vds_id``
         column. ``on_ramp_vds_id`` / ``off_ramp_vds_id`` are required only
         when a corresponding ramp flag is True for at least one row.
+
+        **Optional FD override column.** If ``cells_df`` carries an
+        ``fd_vds_id`` column, each non-NaN entry replaces the ``vds_id``
+        of that row **only for FD parameter lookup** in the calibrated
+        metadata. ``vds_id`` itself is left alone so the rest of the
+        pipeline (initial-state extraction, off-ramp split-ratio
+        computation) continues to use the Step-2-assigned, physically
+        nearest detector. This lets the Step-5 reviewer redirect a cell
+        with a poorly-calibrated detector to a neighbor's FD without
+        losing the "what's actually here" audit trail.
     calibrated_df : pandas.DataFrame
         Mainline FD calibration (``station_metadata_calibrated.csv``).
         Keyed on ``Station ID`` with columns ``capacity``,
@@ -144,9 +154,10 @@ def assemble_freeway_table(
     KeyError
         If ``cells_df`` is missing a required column.
     ValueError
-        If any cell has no ``vds_id`` (``vds_source='missing'`` or NaN)
-        -- those cells need a calibrated FD before assembly can proceed
-        (see Step 2/4 docs for the upstream-inherit fallback options).
+        If any cell has neither a ``vds_id`` nor an ``fd_vds_id``
+        (``vds_source='missing'`` or NaN) -- those cells need a
+        calibrated FD before assembly can proceed (see Step 2/4 docs
+        for the upstream-inherit fallback options).
     """
     _required_cells = {"length", "lanes", "on_ramp", "off_ramp", "vds_id"}
     missing = _required_cells - set(cells_df.columns)
@@ -154,19 +165,36 @@ def assemble_freeway_table(
         raise KeyError(
             f"cells_df is missing required column(s): {sorted(missing)}"
         )
-    if cells_df["vds_id"].isna().any():
-        unresolved = cells_df.index[cells_df["vds_id"].isna()].to_list()
+
+    # Resolve the effective FD-lookup id per cell: fd_vds_id when present
+    # and non-NaN, else vds_id. This is the only place fd_vds_id is read;
+    # downstream consumers (initial state, β) keep using vds_id directly.
+    # `pd.to_numeric` normalizes both columns to float64 with NaN for
+    # missing, so the fillna doesn't trip pandas' object-dtype downcast
+    # warnings when one column is mixed-type.
+    vds_base = pd.to_numeric(cells_df["vds_id"], errors="coerce")
+    if "fd_vds_id" in cells_df.columns:
+        fd_override = pd.to_numeric(cells_df["fd_vds_id"], errors="coerce")
+        fd_ids_raw = fd_override.fillna(vds_base)
+    else:
+        fd_ids_raw = vds_base
+    if fd_ids_raw.isna().any():
+        unresolved = cells_df.index[fd_ids_raw.isna()].to_list()
+        col_hint = (
+            "vds_id (or fd_vds_id, if you intended to override)"
+            if "fd_vds_id" in cells_df.columns else "vds_id"
+        )
         raise ValueError(
-            f"Cell(s) at row(s) {unresolved} have no vds_id and therefore "
-            "no calibrated FD. Run Step 2's `assign_vds_to_cells` with the "
-            "Dervisoglu upstream-inherit fallback (or pick a different "
-            "VDS) before assembly."
+            f"Cell(s) at row(s) {unresolved} have no {col_hint} and "
+            "therefore no calibrated FD. Run Step 2's "
+            "`assign_vds_to_cells` with the Dervisoglu upstream-inherit "
+            "fallback (or pick a different VDS) before assembly."
         )
 
     fd_lookup = calibrated_df.set_index("Station ID")
-    # Pull per-lane FD params for each cell's mainline VDS.
-    vds_ids = cells_df["vds_id"].astype(int)
-    fd_for_cell = fd_lookup.reindex(vds_ids)
+    # Pull per-lane FD params for each cell's effective FD VDS.
+    fd_ids = fd_ids_raw.astype(int)
+    fd_for_cell = fd_lookup.reindex(fd_ids)
 
     lanes = cells_df["lanes"].to_numpy(dtype=float)
     out = pd.DataFrame(index=cells_df.index)
