@@ -18,11 +18,14 @@ adapters are intentionally deferred to Step 7 ("Ramp Flow Estimation"); see
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
-from typing import Union
+from typing import Callable, Optional, Union
 
 import numpy as np
 import pandas as pd
+
+FillStrategy = Callable[[pd.DataFrame], pd.DataFrame]
 
 _FIVE_MIN_H = 5.0 / 60.0   # 5 minutes in hours
 _ONE_HOUR_H = 1.0
@@ -32,6 +35,95 @@ _GRID_TOL = 1e-9           # float tolerance for "evenly divides" checks
 
 
 # ---- Upstream boundary inflow --------------------------------------------
+
+
+def _validate_window(
+    dt: float, start: pd.Timestamp, end: pd.Timestamp,
+) -> tuple[pd.Timestamp, pd.Timestamp]:
+    """Coerce + validate the (dt, start, end) triple shared by every adapter."""
+    start = pd.Timestamp(start)
+    end = pd.Timestamp(end)
+    if end <= start:
+        raise ValueError(f"end ({end}) must be strictly after start ({start})")
+    if dt <= 0 or dt > _ONE_HOUR_H + _GRID_TOL:
+        raise ValueError(
+            f"dt must be in (0, 1 hour]; got {dt} h ({dt * 3600.0:.3f} s)."
+        )
+    return start, end
+
+
+def _sim_step_count(
+    dt: float, start: pd.Timestamp, end: pd.Timestamp,
+) -> int:
+    """Number of sim steps in the half-open window ``[start, end)``."""
+    return int(round((end - start).total_seconds() / (dt * 3600.0)))
+
+
+def _resample_5min_to_sim_cadence(
+    df: pd.DataFrame, *,
+    dt: float,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+    flow_col: str = "total_flow_[veh/5-min]",
+) -> np.ndarray:
+    """Slice a 5-min DataFrame to ``[start, end)`` and resample to sim dt.
+
+    The shared core of :func:`inflow_from_vds`,
+    :func:`demand_from_ramp_vds`, and :func:`beta_from_off_ramp_vds`.
+    Inputs may have been gap-filled by a
+    :mod:`utils.ctm.ramp_flow` strategy before being passed in; the
+    resampler doesn't care where the values came from, only that the
+    window contains no NaN.
+
+    Resampling rule (no intermediate ``× 12`` round-trip):
+
+    * **``dt`` ≤ 5 min**: constant-hold each 5-min sample across the
+      ``300 / dt_s`` sim steps it covers; one ``× 12 -> veh/h`` happens
+      at output time.
+    * **``dt`` > 5 min**: sum 5-min counts within each hour (= veh/h
+      directly), then constant-hold from hourly to sim cadence.
+    """
+    mask = (df["timestamp"] >= start) & (df["timestamp"] < end)
+    df_window = (
+        df.loc[mask].sort_values("timestamp").reset_index(drop=True)
+    )
+    window_s = (end - start).total_seconds()
+
+    if dt <= _FIVE_MIN_H + _GRID_TOL:
+        _require_grid_alignment(start, end, _FIVE_MIN_S, label="5-minute")
+        steps_per_sample = _exact_divisor(
+            _FIVE_MIN_H, dt, label="dt", grid_label="5 min",
+        )
+        expected_n = int(round(window_s / _FIVE_MIN_S))
+        if len(df_window) != expected_n:
+            raise ValueError(
+                f"VDS timeseries has {len(df_window)} 5-min sample(s) in "
+                f"window [{start}, {end}); expected {expected_n} on a "
+                "contiguous 5-min grid. CSV likely doesn't cover the "
+                "requested window."
+            )
+        counts = df_window[flow_col].to_numpy(dtype=float)
+        _require_no_nan(counts, label=flow_col)
+        flow_veh_h = counts * 12.0
+        return np.repeat(flow_veh_h, steps_per_sample)
+
+    _require_grid_alignment(start, end, _ONE_HOUR_S, label="1-hour")
+    steps_per_hour = _exact_divisor(
+        _ONE_HOUR_H, dt, label="dt > 5 min", grid_label="1 hour",
+    )
+    expected_n_5min = int(round(window_s / _FIVE_MIN_S))
+    if len(df_window) != expected_n_5min:
+        raise ValueError(
+            f"VDS timeseries has {len(df_window)} 5-min sample(s) in "
+            f"window [{start}, {end}); expected {expected_n_5min} on a "
+            "contiguous 5-min grid. CSV likely doesn't cover the "
+            "requested window."
+        )
+    counts = df_window[flow_col].to_numpy(dtype=float)
+    _require_no_nan(counts, label=flow_col)
+    n_hours = int(round(window_s / _ONE_HOUR_S))
+    hourly_veh_h = counts.reshape(n_hours, 12).sum(axis=1)
+    return np.repeat(hourly_veh_h, steps_per_hour)
 
 
 def inflow_from_vds(
@@ -46,22 +138,9 @@ def inflow_from_vds(
     Reads the 5-minute timeseries written by ``PeMSExtractor`` for a single
     VDS (typically the corridor's upstream-most mainline detector), slices
     to the half-open window ``[start, end)``, and resamples to sim
-    cadence. The output is in veh/h and is ready to pass as ``inflow`` to
+    cadence via :func:`_resample_5min_to_sim_cadence`. Output is in
+    veh/h and ready to pass as ``inflow`` to
     :func:`utils.ctm.io.scenario_from_dataframes`.
-
-    Resampling strategy (no intermediate ``× 12`` round-trip)
-    ---------------------------------------------------------
-    The PeMS native sampling cadence is 5 minutes; the column
-    ``total_flow_[veh/5-min]`` carries the count over each 5-minute
-    interval. We resample to sim cadence directly:
-
-    * **``dt`` ≤ 5 min** (the common case): constant-hold each 5-minute
-      sample across the ``300 / dt_s`` sim steps it covers. The single
-      unit change ``× 12 -> veh/h`` happens once at output time.
-    * **``dt`` > 5 min**: aggregate 5-minute counts to **hourly** by
-      summing the 12 samples in each hour. The hourly sum is *already*
-      veh/h (counts per hour), so no further factor is applied -- we
-      then constant-hold from hourly to sim cadence.
 
     Parameters
     ----------
@@ -72,13 +151,10 @@ def inflow_from_vds(
     dt : float
         Sim time step in hours. Pick this from Step 6's CFL advisory.
         Must evenly divide 5 minutes when ``dt <= 5 min``, or 1 hour
-        when ``dt > 5 min``; otherwise the resampling has no integer
-        constant-hold length.
+        when ``dt > 5 min``.
     start, end : pandas.Timestamp
-        Calibration window. ``start`` is inclusive, ``end`` is exclusive.
-        Both must align to the relevant resampling grid (5 minutes when
-        ``dt <= 5 min``, 1 hour when ``dt > 5 min``) so a whole number
-        of sim steps fits the window.
+        Calibration window. ``start`` inclusive, ``end`` exclusive.
+        Both must align to the relevant resampling grid.
 
     Returns
     -------
@@ -88,66 +164,251 @@ def inflow_from_vds(
     Raises
     ------
     ValueError
-        * ``dt`` is non-positive, exceeds 1 hour, or doesn't evenly
-          divide the resampling grid.
-        * ``start`` / ``end`` are misaligned to the resampling grid.
-        * The window's row count doesn't match its duration (the CSV is
-          short or non-contiguous in the window).
-        * Any ``total_flow_[veh/5-min]`` sample in the window is NaN.
+        See :func:`_resample_5min_to_sim_cadence`. Notable cases:
+        misaligned bounds, short / non-contiguous CSV, any NaN sample
+        in the window.
     """
-    start = pd.Timestamp(start)
-    end = pd.Timestamp(end)
-    if end <= start:
-        raise ValueError(f"end ({end}) must be strictly after start ({start})")
-    if dt <= 0 or dt > _ONE_HOUR_H + _GRID_TOL:
-        raise ValueError(
-            f"dt must be in (0, 1 hour]; got {dt} h "
-            f"({dt * 3600.0:.3f} s)."
-        )
-
+    start, end = _validate_window(dt, start, end)
     df = pd.read_csv(vds_csv_path, parse_dates=["timestamp"])
-    mask = (df["timestamp"] >= start) & (df["timestamp"] < end)
-    df_window = (
-        df.loc[mask].sort_values("timestamp").reset_index(drop=True)
+    return _resample_5min_to_sim_cadence(
+        df, dt=dt, start=start, end=end,
     )
 
-    window_s = (end - start).total_seconds()
-    if dt <= _FIVE_MIN_H + _GRID_TOL:
-        # Sub-5-min branch: constant-hold from 5-min samples to sim dt.
-        _require_grid_alignment(start, end, _FIVE_MIN_S, label="5-minute")
-        steps_per_sample = _exact_divisor(_FIVE_MIN_H, dt, label="dt", grid_label="5 min")
-        expected_n = int(round(window_s / _FIVE_MIN_S))
-        if len(df_window) != expected_n:
-            raise ValueError(
-                f"VDS timeseries has {len(df_window)} 5-min sample(s) in "
-                f"window [{start}, {end}); expected {expected_n} on a "
-                "contiguous 5-min grid. CSV likely doesn't cover the "
-                "requested window."
-            )
-        counts = df_window["total_flow_[veh/5-min]"].to_numpy(dtype=float)
-        _require_no_nan(counts, label="total_flow_[veh/5-min]")
-        flow_veh_h = counts * 12.0
-        return np.repeat(flow_veh_h, steps_per_sample)
 
-    # Super-5-min branch: aggregate to hourly veh/h, then constant-hold.
-    _require_grid_alignment(start, end, _ONE_HOUR_S, label="1-hour")
-    steps_per_hour = _exact_divisor(
-        _ONE_HOUR_H, dt, label="dt > 5 min", grid_label="1 hour",
+# ---- On-ramp demand and off-ramp split ratio (Step 7) --------------------
+
+
+def _load_ramp_vds(
+    vds_id: int,
+    timeseries_dir: Path,
+    fill_strategy: Optional[FillStrategy],
+) -> pd.DataFrame:
+    """Load a per-VDS CSV and optionally apply ``fill_strategy`` to the full file.
+
+    The filler sees every sample in the CSV (not the sim window) so the
+    historical-average versions can use the widest possible history.
+    """
+    df = pd.read_csv(
+        timeseries_dir / f"{vds_id}.csv", parse_dates=["timestamp"],
     )
-    expected_n_5min = int(round(window_s / _FIVE_MIN_S))
-    if len(df_window) != expected_n_5min:
-        raise ValueError(
-            f"VDS timeseries has {len(df_window)} 5-min sample(s) in "
-            f"window [{start}, {end}); expected {expected_n_5min} on a "
-            "contiguous 5-min grid. CSV likely doesn't cover the "
-            "requested window."
+    if fill_strategy is not None:
+        df = fill_strategy(df)
+    return df
+
+
+def demand_from_ramp_vds(
+    cells_df: pd.DataFrame,
+    timeseries_dir: Union[Path, str],
+    dt: float,
+    *,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+    fill_strategy: Optional[FillStrategy] = None,
+) -> pd.DataFrame:
+    """Wide on-ramp demand ``d_i(k)`` [veh/h] for the scenario's ``demand`` arg.
+
+    For each row of ``cells_df`` with ``on_ramp=True`` *and* a non-NaN
+    ``on_ramp_vds_id``, load the ramp VDS's 5-min timeseries, apply
+    ``fill_strategy`` if supplied, slice to ``[start, end)``, and
+    resample to sim cadence via :func:`_resample_5min_to_sim_cadence`.
+    The result is keyed by the cell's integer row index, which is
+    what :func:`utils.ctm.io.scenario_from_dataframes` expects.
+
+    Cells without an on-ramp, **or** with ``on_ramp=True`` but no matched
+    ramp VDS (``on_ramp_vds_id`` is NaN), produce no column. The
+    scenario validator treats absent columns as zero, which is the
+    intended fallback when no ramp detector data is available.
+
+    Parameters
+    ----------
+    cells_df : pandas.DataFrame
+        Step 1+2 ``cells.csv`` (must carry ``on_ramp`` and
+        ``on_ramp_vds_id``). Row order defines cell index.
+    timeseries_dir : Path or str
+        Directory of per-VDS CSVs (Step 3 output, one ``<vds_id>.csv``
+        per detector).
+    dt : float
+        Sim time step in hours. Same constraints as in
+        :func:`inflow_from_vds`.
+    start, end : pandas.Timestamp
+        Sim window; ``end`` exclusive. Same alignment rules as
+        :func:`inflow_from_vds`.
+    fill_strategy : callable, optional
+        Gap-filler applied to each ramp VDS's full timeseries before
+        windowing. See :mod:`utils.ctm.ramp_flow` for ready-made
+        Level 1 / 2 / 2b strategies. With ``None`` (the default), any
+        NaN sample in the sim window raises -- matching
+        :func:`inflow_from_vds`'s strict default.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Wide ``T x N`` (``T = (end - start) / dt``, ``N`` = number of
+        on-ramp cells with a matched VDS); columns are integer cell
+        indices.
+    """
+    start, end = _validate_window(dt, start, end)
+    timeseries_dir = Path(timeseries_dir)
+
+    columns: dict[int, np.ndarray] = {}
+    for cell_idx, row in enumerate(cells_df.itertuples(index=False)):
+        if not bool(row.on_ramp):
+            continue
+        vds_id_raw = getattr(row, "on_ramp_vds_id", None)
+        if vds_id_raw is None or pd.isna(vds_id_raw):
+            continue
+        df = _load_ramp_vds(int(vds_id_raw), timeseries_dir, fill_strategy)
+        columns[cell_idx] = _resample_5min_to_sim_cadence(
+            df, dt=dt, start=start, end=end,
         )
-    counts = df_window["total_flow_[veh/5-min]"].to_numpy(dtype=float)
-    _require_no_nan(counts, label="total_flow_[veh/5-min]")
-    # Sum 5-min counts within each hour. 12 contiguous samples per hour.
-    n_hours = int(round(window_s / _ONE_HOUR_S))
-    hourly_veh_h = counts.reshape(n_hours, 12).sum(axis=1)
-    return np.repeat(hourly_veh_h, steps_per_hour)
+
+    if not columns:
+        return pd.DataFrame(index=range(_sim_step_count(dt, start, end)))
+    return pd.DataFrame(columns)
+
+
+def beta_from_off_ramp_vds(
+    cells_df: pd.DataFrame,
+    timeseries_dir: Union[Path, str],
+    dt: float,
+    *,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+    fill_strategy: Optional[FillStrategy] = None,
+) -> pd.DataFrame:
+    """Wide off-ramp split ratio ``beta_i(k)`` [unitless] for ``Scenario.beta``.
+
+    For each row with ``off_ramp=True`` and a non-NaN ``off_ramp_vds_id``,
+    compute :math:`\\beta_i(k) = s_i(k) / (f_i(k) + s_i(k))` where:
+
+    * :math:`s_i(k)` is the off-ramp VDS's flow (from
+      ``off_ramp_vds_id``).
+    * :math:`f_i(k)` is the *downstream* mainline VDS's flow -- the
+      ``vds_id`` of cell ``i+1``.
+
+    Both flows are gap-filled (via ``fill_strategy`` applied to the
+    whole CSV), then sliced + resampled by
+    :func:`_resample_5min_to_sim_cadence`.
+
+    Special cases
+    -------------
+    * **Tail off-ramp.** A cell with ``off_ramp=True`` at the corridor's
+      downstream end has no ``i+1`` to provide :math:`f_i`. We set
+      ``beta = 0`` for that cell and emit a ``UserWarning`` so the user
+      knows the off-ramp is being modeled as no-op.
+    * **Clipping to [0, 1).** Numerical noise (or a mis-matched
+      mainline / off-ramp VDS pair) can produce raw ratios outside
+      ``[0, 1)``. We clip and emit aggregate stats (count of clipped
+      samples, mean pre-clip value on each side) via a
+      ``UserWarning`` so the user can spot pathological VDS pairings.
+
+    Parameters
+    ----------
+    cells_df, timeseries_dir, dt, start, end, fill_strategy
+        Same conventions as :func:`demand_from_ramp_vds`. ``cells_df``
+        must carry ``off_ramp``, ``off_ramp_vds_id``, and ``vds_id``.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Wide ``T x N`` with integer cell-index columns.
+    """
+    start, end = _validate_window(dt, start, end)
+    timeseries_dir = Path(timeseries_dir)
+    last_cell_idx = len(cells_df) - 1
+
+    raw_columns: dict[int, np.ndarray] = {}
+    for cell_idx, row in enumerate(cells_df.itertuples(index=False)):
+        if not bool(row.off_ramp):
+            continue
+        off_vds = getattr(row, "off_ramp_vds_id", None)
+        if off_vds is None or pd.isna(off_vds):
+            continue
+
+        if cell_idx == last_cell_idx:
+            warnings.warn(
+                f"Cell {cell_idx} is the corridor's last cell with "
+                "off_ramp=True; no downstream mainline VDS available "
+                "to compute beta = s/(f+s). Setting beta = 0 (off-ramp "
+                "modeled as no-op).",
+                UserWarning, stacklevel=2,
+            )
+            raw_columns[cell_idx] = np.zeros(_sim_step_count(dt, start, end))
+            continue
+
+        downstream_vds_raw = cells_df.iloc[cell_idx + 1]["vds_id"]
+        if pd.isna(downstream_vds_raw):
+            warnings.warn(
+                f"Cell {cell_idx + 1} (the downstream neighbor of "
+                f"off-ramp cell {cell_idx}) has no vds_id; setting "
+                f"beta = 0 for cell {cell_idx}.",
+                UserWarning, stacklevel=2,
+            )
+            raw_columns[cell_idx] = np.zeros(_sim_step_count(dt, start, end))
+            continue
+
+        s_i = _resample_5min_to_sim_cadence(
+            _load_ramp_vds(int(off_vds), timeseries_dir, fill_strategy),
+            dt=dt, start=start, end=end,
+        )
+        f_i = _resample_5min_to_sim_cadence(
+            _load_ramp_vds(int(downstream_vds_raw), timeseries_dir, fill_strategy),
+            dt=dt, start=start, end=end,
+        )
+        denom = f_i + s_i
+        with np.errstate(divide="ignore", invalid="ignore"):
+            raw_columns[cell_idx] = np.where(denom > 0, s_i / denom, 0.0)
+
+    if not raw_columns:
+        return pd.DataFrame(index=range(_sim_step_count(dt, start, end)))
+
+    # Clip to [0, 1) and report aggregate clipping stats.
+    _report_beta_clipping(raw_columns)
+    clipped = {
+        idx: np.clip(arr, 0.0, np.nextafter(1.0, 0.0))
+        for idx, arr in raw_columns.items()
+    }
+    return pd.DataFrame(clipped)
+
+
+def _report_beta_clipping(columns: dict[int, np.ndarray]) -> None:
+    """Warn with aggregate stats when any column needs clipping to ``[0, 1)``."""
+    n_below = 0
+    n_above = 0
+    below_diffs = []
+    above_diffs = []
+    upper = np.nextafter(1.0, 0.0)
+    for arr in columns.values():
+        below = arr < 0.0
+        above = arr >= 1.0
+        n_below += int(below.sum())
+        n_above += int(above.sum())
+        below_diffs.extend((0.0 - arr[below]).tolist())
+        above_diffs.extend((arr[above] - upper).tolist())
+    if n_below == 0 and n_above == 0:
+        return
+    total = sum(arr.size for arr in columns.values())
+    msg_parts = [
+        f"{n_below + n_above} of {total} off-ramp split-ratio samples "
+        f"needed clipping to [0, 1):",
+    ]
+    if n_below > 0:
+        mean_below = float(np.mean(below_diffs))
+        msg_parts.append(
+            f"  - {n_below} value(s) < 0 (mean magnitude {mean_below:.4f}, "
+            "clipped to 0)"
+        )
+    if n_above > 0:
+        mean_above = float(np.mean(above_diffs))
+        msg_parts.append(
+            f"  - {n_above} value(s) >= 1 (mean magnitude {mean_above:.4f} "
+            "above 1, clipped just below 1)"
+        )
+    msg_parts.append(
+        "Consider double-checking the off-ramp / downstream-mainline VDS "
+        "pairings in cells.csv (off_ramp_vds_id vs the next cell's vds_id)."
+    )
+    warnings.warn("\n".join(msg_parts), UserWarning, stacklevel=3)
 
 
 # ---- Initial state -------------------------------------------------------

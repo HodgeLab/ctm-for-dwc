@@ -50,7 +50,18 @@ from .osm import (
     summarize_refs,
 )
 from .results import SimulationResult
-from .scenario import inflow_from_vds, initial_state_from_vds
+from .ramp_flow import (
+    historical_average_fill,
+    persistence_fill,
+    stochastic_historical_fill,
+)
+from .scenario import (
+    FillStrategy,
+    beta_from_off_ramp_vds,
+    demand_from_ramp_vds,
+    inflow_from_vds,
+    initial_state_from_vds,
+)
 from .vds import (
     DEFAULT_PEMS_DIR,
     assign_ramp_vds_to_cells,
@@ -98,6 +109,12 @@ __all__ = [
     "format_cfl_advisory",
     "inflow_from_vds",
     "initial_state_from_vds",
+    "FillStrategy",
+    "demand_from_ramp_vds",
+    "beta_from_off_ramp_vds",
+    "persistence_fill",
+    "historical_average_fill",
+    "stochastic_historical_fill",
     "summarize_refs",
     "extract_route_number",
     "load_postmiles",

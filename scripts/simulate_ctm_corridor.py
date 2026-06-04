@@ -49,12 +49,17 @@ import numpy as np
 import pandas as pd
 
 from transportation_models.utils.ctm import (
+    beta_from_off_ramp_vds,
     compute_metrics,
+    demand_from_ramp_vds,
     freeway_from_dataframe,
+    historical_average_fill,
     inflow_from_vds,
     initial_state_from_vds,
+    persistence_fill,
     scenario_from_dataframes,
     simulate,
+    stochastic_historical_fill,
 )
 from transportation_models.utils.ctm.plots import (
     downsample_to_plot_period,
@@ -78,6 +83,25 @@ def _load_wide(
         )
     df.columns = [int(c) for c in df.columns]
     return df
+
+
+_FILL_STRATEGIES = {
+    "none": None,
+    "persistence": lambda df: persistence_fill(
+        df, flow_col="total_flow_[veh/5-min]",
+    ),
+    "historical_average": lambda df: historical_average_fill(
+        df, flow_col="total_flow_[veh/5-min]",
+    ),
+    "stochastic_historical": lambda df: stochastic_historical_fill(
+        df, flow_col="total_flow_[veh/5-min]",
+    ),
+}
+
+
+def _resolve_fill_strategy(name: str):
+    """Map a --ramp-fill-strategy choice to the corresponding filler callable."""
+    return _FILL_STRATEGIES[name]
 
 
 def _plot_period_steps(dt_s: float, plot_period_s: float) -> int:
@@ -148,6 +172,18 @@ def main() -> None:
               "convention as --demand; Step 7 will produce this too."),
     )
     parser.add_argument(
+        "--ramp-fill-strategy",
+        choices=["none", "persistence", "historical_average",
+                 "stochastic_historical"],
+        default="none",
+        help=("Step-7 gap-filler for ramp VDS timeseries. When != 'none' "
+              "and --demand / --beta were not given, the script calls "
+              "demand_from_ramp_vds / beta_from_off_ramp_vds with the "
+              "chosen filler and uses the result. Explicit --demand / "
+              "--beta CSVs still take precedence. See ctm_module.md "
+              "Step 7 for the level definitions."),
+    )
+    parser.add_argument(
         "--out-dir", type=Path, default=None,
         help=("Destination for the per-quantity output CSVs + summary.txt. "
               "Defaults to <freeway parent>/sim/."),
@@ -202,14 +238,37 @@ def main() -> None:
     # 4. Optional demand / beta. None -> zero for every cell.
     demand_df = _load_wide(args.demand, n_steps=n_steps, label="--demand")
     beta_df = _load_wide(args.beta, n_steps=n_steps, label="--beta")
+
+    fill_strategy = _resolve_fill_strategy(args.ramp_fill_strategy)
+    fill_label = (
+        "<zero>" if fill_strategy is None else args.ramp_fill_strategy
+    )
     if demand_df is None and any(c.on_ramp for c in freeway.cells):
-        n_on = sum(1 for c in freeway.cells if c.on_ramp)
-        print(f"  demand       : <zero> (no --demand; {n_on} on-ramp cell(s) "
-              "will see no inflow)", file=sys.stderr)
+        if fill_strategy is None:
+            n_on = sum(1 for c in freeway.cells if c.on_ramp)
+            print(f"  demand       : <zero> (no --demand; {n_on} on-ramp "
+                  "cell(s) will see no inflow)", file=sys.stderr)
+        else:
+            print(f"  demand       : derived from ramp VDSs "
+                  f"(fill={fill_label})", file=sys.stderr)
+            demand_df = demand_from_ramp_vds(
+                cells, args.timeseries_dir, dt=dt_h,
+                start=args.start, end=args.end,
+                fill_strategy=fill_strategy,
+            )
     if beta_df is None and any(c.off_ramp for c in freeway.cells):
-        n_off = sum(1 for c in freeway.cells if c.off_ramp)
-        print(f"  beta         : <zero> (no --beta; {n_off} off-ramp cell(s) "
-              "will pass all traffic through)", file=sys.stderr)
+        if fill_strategy is None:
+            n_off = sum(1 for c in freeway.cells if c.off_ramp)
+            print(f"  beta         : <zero> (no --beta; {n_off} off-ramp "
+                  "cell(s) will pass all traffic through)", file=sys.stderr)
+        else:
+            print(f"  beta         : derived from ramp VDSs "
+                  f"(fill={fill_label})", file=sys.stderr)
+            beta_df = beta_from_off_ramp_vds(
+                cells, args.timeseries_dir, dt=dt_h,
+                start=args.start, end=args.end,
+                fill_strategy=fill_strategy,
+            )
 
     # 5. Scenario (revalidated inside simulate).
     scenario = scenario_from_dataframes(
@@ -306,8 +365,8 @@ def main() -> None:
         f"  dt           : {args.dt_seconds:.3f} s",
         f"  steps        : {n_steps}",
         f"  upstream VDS : {upstream_vds}",
-        f"  demand       : {'<zero>' if demand_df is None else args.demand}",
-        f"  beta         : {'<zero>' if beta_df is None else args.beta}",
+        f"  demand       : {'<zero>' if demand_df is None else (args.demand or f'ramp VDS (fill={fill_label})')}",
+        f"  beta         : {'<zero>' if beta_df is None else (args.beta or f'ramp VDS (fill={fill_label})')}",
         "",
         f"  horizon totals (eqs. 4.10/4.12/4.14/4.16):",
         f"    VHT                = {metrics.vht.sum():12.3f}  veh*h",

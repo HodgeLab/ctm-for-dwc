@@ -609,43 +609,122 @@ schema as `freeway_to_dataframe`'s output minus the `gamma` / `xi`
 columns (which fall back to the cell defaults).
 
 ## Step 7: Ramp Flow Estimation
-**Not currently implemented.** Step 4 calibrates the ramp *capacities*
-$R_i$ / $S_i$ (see "Ramp capacities" sub-section there), and Step 8
-extracts the boundary inflow $f_0(k)$ and the initial state
-$\rho_i(0)$. What's still missing are the two **time-varying** ramp
-inputs that the scenario validator expects whenever the freeway has
-ramp cells: the on-ramp demand $d_i(k)$ and the off-ramp split ratio
-$\beta_i(k)$.
+Implemented in `utils/ctm/ramp_flow.py` (gap fillers) and
+`utils/ctm/scenario.py` (`demand_from_ramp_vds` /
+`beta_from_off_ramp_vds`). End-to-end demo:
+`scripts/simulate_ctm_corridor.py --ramp-fill-strategy ...`.
 
-When this step lands, it should expose two adapters in
-`utils/ctm/scenario.py` (alongside the existing `inflow_from_vds` and
-`initial_state_from_vds`), mirroring the inflow extractor's
-window-aware, no-`× 12`-round-trip resampling. Target signatures:
+The fundamental issue with freeway ramps is that they typically
+suffer from a higher rate of VDS outages than mainline freeway
+segments do. As such, some method of estimating on-ramp demand and
+off-ramp split ratios from incomplete data is essential. Step 7
+implements this in two pieces: a **gap-filling layer** that takes a
+single ramp VDS's possibly-NaN 5-min timeseries and returns a fully
+populated one, and a **scenario-adapter layer** that calls the
+filler then wraps the result in the wide DataFrames
+`scenario_from_dataframes` expects.
 
-* **`demand_from_ramp_vds(cells_df, timeseries_dir, dt, *, start, end)
-  -> pandas.DataFrame`**
-  Wide `T × n_cells` on-ramp demand in veh/h. For each cell with
-  `on_ramp=True` and a non-NaN `on_ramp_vds_id`, read the ramp VDS's
-  5-min timeseries, slice to `[start, end)`, resample to sim dt with
+Implementing the fillers as separable, swappable strategies lets us
+compare CTM simulation results under different estimation methods
+and pick the simplest one that matches reality.
+
+### Gap fillers (`utils/ctm/ramp_flow.py`)
+
+All three fillers share the signature::
+
+    fill(df, *, flow_col, time_col="timestamp", ...) -> pd.DataFrame
+
+They consume the **full downloaded timeseries** (not just the sim
+window) so the historical-average versions see the widest possible
+history when estimating statistics.
+
+* **Level 1 — `persistence_fill`**
+  Forward-fill NaN samples with the most recent known value. Best
+  for short outages where the underlying rate hasn't changed much.
+  Optional `max_gap_minutes=` keeps runs longer than the threshold
+  unfilled (persistence drifts further the longer the gap).
+
+* **Level 2 — `historical_average_fill`**
+  For each `(weekday, time-of-day)` bin (7 × 288 = 2016 bins on a
+  5-min grid), compute the mean across all non-NaN samples in the
+  input. Fill NaN rows with the matching bin's mean. Bins with zero
+  non-NaN history leave the row NaN and emit a `RuntimeWarning`
+  listing the affected bins. Optional `history_df=` override lets a
+  caller supply a longer baseline than the input itself when needed.
+
+* **Level 2b — `stochastic_historical_fill`**
+  Same binning as Level 2 but draw each fill from
+  $\mathcal{N}(\mu, \sigma)$ of the bin, clip to $\ge 0$ (flow
+  can't be negative). Bins with fewer than 2 non-NaN samples have
+  no usable stddev and fall back to the deterministic mean. The
+  `seed=0` default makes runs reproducible; pass a different int for
+  a different reproducible sequence.
+
+**Deferred — outage-duration-aware composition.** Pick filler by
+outage length (e.g. Level 1 for outages < 30 min, Level 2 for
+longer). This is a higher-order strategy that wraps the existing
+three; it can land later without changing the fillers themselves.
+
+### Scenario adapters (`utils/ctm/scenario.py`)
+
+* **`demand_from_ramp_vds(cells_df, timeseries_dir, dt, *, start,
+  end, fill_strategy=None) -> pandas.DataFrame`**
+  Wide `T × N` on-ramp demand in veh/h. For each cell with
+  `on_ramp=True` *and* a non-NaN `on_ramp_vds_id`, load the ramp
+  VDS's 5-min timeseries, apply `fill_strategy` to the **whole CSV**
+  (before windowing — so historical-average stats see the widest
+  history), slice to `[start, end)`, and resample to sim cadence with
   the same constant-hold (≤ 5 min) / hourly-aggregate (> 5 min) rule
-  as `inflow_from_vds`, and emit a column keyed by the cell's integer
-  index. Cells without an on-ramp **must** be absent (or zero) so the
-  scenario validator accepts the frame.
+  as `inflow_from_vds`. Cells without an on-ramp, or with `on_ramp=True`
+  but no matched ramp VDS, produce no column — which
+  `scenario_from_dataframes` treats as zero demand.
 
 * **`beta_from_off_ramp_vds(cells_df, timeseries_dir, dt, *, start,
-  end) -> pandas.DataFrame`**
-  Wide `T × n_cells` off-ramp split ratio, unitless in $[0, 1)$. For
-  each cell with `off_ramp=True`, compute
+  end, fill_strategy=None) -> pandas.DataFrame`**
+  Wide `T × N` off-ramp split ratio, unitless in $[0, 1)$. For each
+  cell with `off_ramp=True`, compute
   $\beta_i(k) = s_i(k) / (f_i(k) + s_i(k))$
-  from the off-ramp VDS ($s_i$, taken straight from the
-  `off_ramp_vds_id` timeseries) and the cell's *downstream* mainline
-  flow $f_i$ (the VDS attached to the next cell, by the same
-  `vds_id` lookup). Same windowing + resampling rule. Clip to
-  $[0, 1)$ so the scenario validator accepts the frame.
+  from the off-ramp VDS ($s_i$, taken from `off_ramp_vds_id`) and
+  the cell's *downstream* mainline VDS ($f_i$, taken from the next
+  cell's `vds_id`). Same windowing + resampling rule.
 
-Once these two land, Step 8's Stage-2 code snippet drops in their
-return values directly as the `demand=` and `beta=` arguments to
-`scenario_from_dataframes`; nothing else changes.
+  **Special cases:**
+
+  * *Tail off-ramp.* A cell with `off_ramp=True` at the corridor's
+    downstream end has no `i+1` to provide $f_i$; β is set to 0
+    for that cell and a `UserWarning` flags it as a no-op off-ramp.
+  * *Clipping to $[0, 1)$.* Raw ratios outside the interval get
+    clipped (often a sign of a mis-matched off-ramp / mainline VDS
+    pair). A `UserWarning` reports aggregate clipping stats — count
+    of values clipped below 0 vs. above 1, and the mean magnitude
+    of each — so spurious VDS pairings surface immediately.
+
+**Strict-default NaN handling.** With `fill_strategy=None` (the
+default), any NaN sample in the sim window raises — matching
+`inflow_from_vds`'s strict default. The user opts in to filling by
+passing a strategy.
+
+### CLI
+
+`scripts/simulate_ctm_corridor.py` gains `--ramp-fill-strategy
+{none,persistence,historical_average,stochastic_historical}`
+(default `none`). Precedence:
+
+1. If `--demand` / `--beta` wide CSV is given, use that.
+2. Else if `--ramp-fill-strategy != none`, call
+   `demand_from_ramp_vds` / `beta_from_off_ramp_vds` with the
+   chosen filler.
+3. Else default to zero columns (existing behavior).
+
+```
+python scripts/simulate_ctm_corridor.py \
+    --freeway scripts/output/ctm_corridor/I_210_W/freeway.csv \
+    --cells   scripts/output/ctm_corridor/I_210_W/cells.csv \
+    --timeseries-dir data/pems/csv_files \
+    --dt-seconds 10 \
+    --start "2022-04-12 06:00" --end "2022-04-12 09:00" \
+    --ramp-fill-strategy historical_average
+```
 
 ## Step 8: Running a CTM Simulation
 End-to-end demo: `scripts/simulate_ctm_corridor.py`.
@@ -824,23 +903,24 @@ this path end-to-end against the dissertation's MATLAB output.
 
 ### Unfinished work
 
-Two of the four PeMS → scenario adapters are in place
-(`inflow_from_vds`, `initial_state_from_vds` in
-`utils/ctm/scenario.py`). The remaining two — on-ramp demand $d_i(k)$
-and off-ramp split ratio $\beta_i(k)$ — are deferred to **Step 7**;
-see that section above for the punch list and target signatures.
+All four PeMS → scenario adapters are now in place
+(`inflow_from_vds`, `initial_state_from_vds`, `demand_from_ramp_vds`,
+`beta_from_off_ramp_vds`), and `simulate_ctm_corridor.py`'s
+`--ramp-fill-strategy` exposes the three gap fillers end-to-end. The
+remaining follow-ups are:
 
-Until they land, a freeway with ramp cells will not pass
-`scenario_from_dataframes`'s validator unless the user hand-builds the
-`demand` and `beta` frames. A ramp-less corridor (or one where the
-user is willing to assume zero ramp activity) can already run
-end-to-end through `simulate` with just the two adapters in this step.
-
-A thin CLI demo (`scripts/build_ctm_scenario.py`) that bundles all
-four adapters against a `cells.csv` + the Step-3 timeseries directory,
-and writes `inflow.csv`, `demand.csv`, `beta.csv`, `rho0.csv` next to
-the Step-6 `freeway.csv`, is also still TODO. It can wait until Step 7
-unblocks the other two adapters.
+* **Outage-duration-aware filler.** Pick Level 1 / Level 2 per gap
+  based on how long the outage is (e.g. persistence for < 30 min,
+  historical average for longer). This wraps the existing fillers
+  rather than replacing them; see Step 7.
+* **Standalone scenario CSV builder.** A thin
+  `scripts/build_ctm_scenario.py` that bundles the four adapters
+  against a `cells.csv` + the Step-3 timeseries directory and writes
+  `inflow.csv`, `demand.csv`, `beta.csv`, `rho0.csv` next to the
+  Step-6 `freeway.csv`. The `simulate_ctm_corridor.py` flow already
+  composes them in-memory; the standalone CLI is useful when the
+  user wants to inspect / edit the wide frames between extraction
+  and simulation.
 
 
 ## CTM State Update Equations

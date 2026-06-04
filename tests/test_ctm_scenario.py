@@ -14,8 +14,11 @@ import pandas as pd
 import pytest
 
 from transportation_models.utils.ctm import (
+    beta_from_off_ramp_vds,
+    demand_from_ramp_vds,
     inflow_from_vds,
     initial_state_from_vds,
+    persistence_fill,
 )
 
 
@@ -373,3 +376,171 @@ def test_initial_state_caches_shared_vds(tmp_path, monkeypatch):
     assert n_calls["count"] == 1
     assert rho.shape == (2,)
     assert rho[0] == rho[1]
+
+
+# ---- demand_from_ramp_vds ------------------------------------------------
+
+
+def _ramp_cells(rows: list[dict]) -> pd.DataFrame:
+    """Defaults for the on/off ramp + vds columns the adapters need."""
+    defaults = dict(
+        on_ramp=False, off_ramp=False,
+        on_ramp_vds_id=pd.NA, off_ramp_vds_id=pd.NA,
+        vds_id=pd.NA,
+    )
+    return pd.DataFrame([{**defaults, **r} for r in rows])
+
+
+def test_demand_emits_columns_only_for_on_ramp_cells_with_a_vds(tmp_path):
+    """Cells without on_ramp=True, or with NaN on_ramp_vds_id, get no column."""
+    cells = _ramp_cells([
+        dict(on_ramp=False, vds_id=100),
+        dict(on_ramp=True, on_ramp_vds_id=900, vds_id=101),
+        dict(on_ramp=True, on_ramp_vds_id=pd.NA, vds_id=102),
+    ])
+    _write_vds_csv(
+        tmp_path / "900.csv", start=pd.Timestamp("2022-01-01 12:00"),
+        n_rows=2, flows_5min=np.array([10.0, 20.0]),
+    )
+    demand = demand_from_ramp_vds(
+        cells, tmp_path, dt=5.0 / 60.0,
+        start=pd.Timestamp("2022-01-01 12:00"),
+        end=pd.Timestamp("2022-01-01 12:10"),
+    )
+    # Only cell 1 has on_ramp=True + a matched VDS.
+    assert list(demand.columns) == [1]
+    # 10 * 12 = 120 veh/h; 20 * 12 = 240 veh/h.
+    np.testing.assert_allclose(demand[1].to_numpy(), [120.0, 240.0])
+
+
+def test_demand_strict_default_raises_on_nan_in_window(tmp_path):
+    """fill_strategy=None -> any NaN in the sim window raises."""
+    cells = _ramp_cells([
+        dict(on_ramp=True, on_ramp_vds_id=900, vds_id=100),
+    ])
+    _write_vds_csv(
+        tmp_path / "900.csv", start=pd.Timestamp("2022-01-01 12:00"),
+        n_rows=2, flows_5min=np.array([np.nan, 20.0]),
+    )
+    with pytest.raises(ValueError, match="NaN"):
+        demand_from_ramp_vds(
+            cells, tmp_path, dt=5.0 / 60.0,
+            start=pd.Timestamp("2022-01-01 12:00"),
+            end=pd.Timestamp("2022-01-01 12:10"),
+        )
+
+
+def test_demand_persistence_fill_recovers_a_gap(tmp_path):
+    """Applying persistence_fill before windowing fills the NaN sample."""
+    cells = _ramp_cells([
+        dict(on_ramp=True, on_ramp_vds_id=900, vds_id=100),
+    ])
+    _write_vds_csv(
+        tmp_path / "900.csv", start=pd.Timestamp("2022-01-01 12:00"),
+        n_rows=3, flows_5min=np.array([10.0, np.nan, 30.0]),
+    )
+    demand = demand_from_ramp_vds(
+        cells, tmp_path, dt=5.0 / 60.0,
+        start=pd.Timestamp("2022-01-01 12:00"),
+        end=pd.Timestamp("2022-01-01 12:15"),
+        fill_strategy=lambda df: persistence_fill(
+            df, flow_col="total_flow_[veh/5-min]",
+        ),
+    )
+    # NaN at index 1 forward-filled with 10.0; veh/h = [120, 120, 360].
+    np.testing.assert_allclose(demand[0].to_numpy(), [120.0, 120.0, 360.0])
+
+
+def test_demand_no_on_ramps_returns_empty_columns(tmp_path):
+    """A corridor with no on-ramps yields a column-less frame at sim
+    horizon. scenario_from_dataframes treats this as all-zero demand."""
+    cells = _ramp_cells([dict(on_ramp=False, vds_id=100)])
+    demand = demand_from_ramp_vds(
+        cells, tmp_path, dt=5.0 / 60.0,
+        start=pd.Timestamp("2022-01-01 12:00"),
+        end=pd.Timestamp("2022-01-01 12:10"),
+    )
+    assert demand.shape == (2, 0)
+
+
+# ---- beta_from_off_ramp_vds ----------------------------------------------
+
+
+def test_beta_computes_ratio_from_off_ramp_and_downstream_vds(tmp_path):
+    """beta_i = s_i / (f_i + s_i) using off_ramp_vds_id and the i+1 cell's
+    mainline vds_id."""
+    cells = _ramp_cells([
+        dict(off_ramp=True, off_ramp_vds_id=900, vds_id=100),
+        dict(vds_id=200),  # downstream mainline VDS
+    ])
+    # Off-ramp: 10 veh/5min; downstream mainline: 90 veh/5min.
+    # ratio = 10 / (90 + 10) = 0.1
+    _write_vds_csv(
+        tmp_path / "900.csv", start=pd.Timestamp("2022-01-01 12:00"),
+        n_rows=2, flows_5min=np.array([10.0, 10.0]),
+    )
+    _write_vds_csv(
+        tmp_path / "200.csv", start=pd.Timestamp("2022-01-01 12:00"),
+        n_rows=2, flows_5min=np.array([90.0, 90.0]),
+    )
+    beta = beta_from_off_ramp_vds(
+        cells, tmp_path, dt=5.0 / 60.0,
+        start=pd.Timestamp("2022-01-01 12:00"),
+        end=pd.Timestamp("2022-01-01 12:10"),
+    )
+    assert list(beta.columns) == [0]
+    np.testing.assert_allclose(beta[0].to_numpy(), [0.1, 0.1])
+
+
+def test_beta_tail_cell_emits_zero_with_warning(tmp_path):
+    """The last cell with off_ramp=True has no i+1 -> beta = 0 + warning."""
+    cells = _ramp_cells([
+        dict(off_ramp=True, off_ramp_vds_id=900, vds_id=100),
+    ])
+    _write_vds_csv(
+        tmp_path / "900.csv", start=pd.Timestamp("2022-01-01 12:00"),
+        n_rows=2, flows_5min=np.array([50.0, 50.0]),
+    )
+    with pytest.warns(UserWarning, match="last cell"):
+        beta = beta_from_off_ramp_vds(
+            cells, tmp_path, dt=5.0 / 60.0,
+            start=pd.Timestamp("2022-01-01 12:00"),
+            end=pd.Timestamp("2022-01-01 12:10"),
+        )
+    np.testing.assert_allclose(beta[0].to_numpy(), [0.0, 0.0])
+
+
+def test_beta_clips_to_unit_interval_with_warning(tmp_path):
+    """If off-ramp flow exceeds mainline+off-ramp (sensor mismatch), beta
+    gets clipped to just below 1 with an aggregate-stats warning."""
+    cells = _ramp_cells([
+        dict(off_ramp=True, off_ramp_vds_id=900, vds_id=100),
+        dict(vds_id=200),
+    ])
+    # f_i = 0 -> ratio = 1.0 exactly which must be clipped to < 1.
+    _write_vds_csv(
+        tmp_path / "900.csv", start=pd.Timestamp("2022-01-01 12:00"),
+        n_rows=2, flows_5min=np.array([50.0, 50.0]),
+    )
+    _write_vds_csv(
+        tmp_path / "200.csv", start=pd.Timestamp("2022-01-01 12:00"),
+        n_rows=2, flows_5min=np.array([0.0, 0.0]),
+    )
+    with pytest.warns(UserWarning, match="clipping"):
+        beta = beta_from_off_ramp_vds(
+            cells, tmp_path, dt=5.0 / 60.0,
+            start=pd.Timestamp("2022-01-01 12:00"),
+            end=pd.Timestamp("2022-01-01 12:10"),
+        )
+    assert (beta[0] < 1.0).all()
+    assert (beta[0] >= 0.999).all()  # very close to 1.0 but strictly below
+
+
+def test_beta_no_off_ramps_returns_empty_columns(tmp_path):
+    cells = _ramp_cells([dict(off_ramp=False, vds_id=100)])
+    beta = beta_from_off_ramp_vds(
+        cells, tmp_path, dt=5.0 / 60.0,
+        start=pd.Timestamp("2022-01-01 12:00"),
+        end=pd.Timestamp("2022-01-01 12:10"),
+    )
+    assert beta.shape == (2, 0)
