@@ -12,6 +12,7 @@ Application of the CTM to a given freeway corridor involves the following steps:
 6) CTM freeway assembly
 7) Ramp flow estimation
 8) Running a CTM simulation
+9) Validation against historical data
 
 The numbering reflects the actual data-pipeline order: cell layout
 (Step 1) comes first because everything downstream is keyed by cell;
@@ -20,9 +21,10 @@ timeseries (Step 3) feed the fundamental-diagram calibration (Step 4);
 manual validation (Step 5) is the user's chance to fix any Step 1/2
 mistakes before downstream consumption; freeway assembly (Step 6)
 joins all of the above into a per-cell table ready for the engine;
-ramp-flow estimation (Step 7, not yet implemented) supplies the
-time-varying on-ramp demand and off-ramp split-ratio inputs the
-scenario needs; and Step 8 runs the simulation end-to-end.
+ramp-flow estimation (Step 7) supplies the time-varying on-ramp
+demand and off-ramp split-ratio inputs the scenario needs; Step 8
+runs the simulation end-to-end; and Step 9 compares the result
+against historical PeMS observations to validate the fit.
 
 ## Table of Contents
 
@@ -45,6 +47,12 @@ scenario needs; and Step 8 runs the simulation end-to-end.
   - [Stage 3: Run the simulation and inspect](#stage-3-run-the-simulation-and-inspect)
   - [Round-trip against CTMSIM (already wired)](#round-trip-against-ctmsim-already-wired)
   - [Unfinished work](#unfinished-work)
+- [Step 9: Validation Against Historical Data](#step-9-validation-against-historical-data)
+  - [Time alignment](#time-alignment)
+  - [Lane-count contract](#lane-count-contract)
+  - [RMSE and MAPE](#rmse-and-mape)
+  - [Output](#output)
+  - [Roadmap](#roadmap)
 - [CTM State Update Equations](#ctm-state-update-equations)
   - [Notation (units per Kurzhanskiy Table 4.1)](#notation-units-per-kurzhanskiy-table-41)
   - [CTMSIM update (canonical)](#ctmsim-update-canonical)
@@ -956,6 +964,86 @@ remaining follow-ups are:
   composes them in-memory; the standalone CLI is useful when the
   user wants to inspect / edit the wide frames between extraction
   and simulation.
+
+## Step 9: Validation Against Historical Data
+Implemented in `utils/ctm/validation.py`. First step:
+`compare_against_historical(result, cells_df, timeseries_dir, *,
+start) -> pandas.DataFrame`.
+
+Once Step 8 has produced a `SimulationResult`, the next question is
+whether it actually reproduces what was observed. The validation
+module compares the sim's per-cell mainline flow and density to the
+historical 5-min PeMS samples at each cell's assigned mainline VDS
+(``vds_id`` -- *not* ``fd_vds_id``, since we want observed traffic,
+not the calibration source).
+
+### Time alignment
+
+Both quantities are evaluated at PeMS's native 5-min cadence:
+
+* Sim density is sampled at the start of each 5-min interval
+  (instantaneous state).
+* Sim mainline flow is **averaged** over each 5-min window (matching
+  PeMS's interval-rate semantics — `total_flow_[veh/5-min] * 12`
+  represents the mean rate over the interval).
+
+The sim `dt` must evenly divide 5 minutes and the horizon must be a
+whole multiple of 5 minutes. `start` is the wallclock time of the
+sim's step `k=0` and must align to the PeMS 5-min grid.
+
+### Lane-count contract
+
+The same precondition as `initial_state_from_vds`: every cell must
+have `lanes == vds_lanes`. Without it, an observed density derived
+from a VDS reporting N lanes can't be compared 1:1 to a per-cell
+density computed for a cell with a different lane count. The
+function raises with a Step-5 pointer when this fails.
+
+### RMSE and MAPE
+
+For each cell, the function returns RMSE and MAPE for both density
+[veh/mi] and flow [veh/h]:
+
+* **RMSE** is computed across every non-NaN observed sample.
+* **MAPE** additionally skips samples where the observed value is
+  zero (undefined ratio). Reported in %.
+
+Cells with no assigned VDS (`vds_id` is NaN) appear in the output
+with zero sample counts and NaN stats -- they're skipped rather than
+treated as an error, so a single missing assignment doesn't block
+the rest of the validation report.
+
+### Output
+
+One row per cell, in cell-index order:
+
+```
+cell  vds_id  n_density_samples  density_rmse  density_mape  \
+   0     100                 72         3.142          8.4
+   1     101                 72         4.275         12.1
+   ...
+
+   n_flow_samples  flow_rmse  flow_mape
+               72      121.0        9.8
+               72      154.3       12.6
+   ...
+```
+
+Users can sort by RMSE/MAPE to spot the worst-fitting cells, group
+by ramp presence to compare ramp vs no-ramp behavior, or pool across
+cells (`df.mean()`) to get corridor-wide aggregates.
+
+### Roadmap
+
+This is **step 1** of the validation pipeline. Future steps will
+likely cover:
+
+* Aligned residual frames (long format with `cell`, `timestamp`,
+  `sim`, `observed` columns) for plotting and inspection.
+* Per-cell time-of-day breakdowns to identify regimes where the
+  model under- or over-predicts.
+* Corridor-wide aggregates (pooled RMSE / MAPE, weighted by cell
+  length or VHT).
 
 
 ## CTM State Update Equations
