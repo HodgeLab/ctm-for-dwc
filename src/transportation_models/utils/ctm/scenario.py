@@ -25,6 +25,8 @@ from typing import Callable, Optional, Union
 import numpy as np
 import pandas as pd
 
+from .assembly import parse_ramp_vds_ids
+
 FillStrategy = Callable[[pd.DataFrame], pd.DataFrame]
 
 _FIVE_MIN_H = 5.0 / 60.0   # 5 minutes in hours
@@ -196,6 +198,32 @@ def _load_ramp_vds(
     return df
 
 
+def _sum_ramp_vds_flows(
+    vds_ids: list[int],
+    *,
+    timeseries_dir: Path,
+    fill_strategy: Optional[FillStrategy],
+    dt: float,
+    start: pd.Timestamp,
+    end: pd.Timestamp,
+) -> np.ndarray:
+    """Load + resample each VDS's flow, return the per-step sum.
+
+    A Step-5 manual edit can give a single cell more than one ramp VDS;
+    the cell's total ramp flow is the sum of the per-VDS flows (each
+    detector measures its own ramp; the CTM treats :math:`d_i` /
+    :math:`s_i` as the cell-wide total).
+    """
+    total = None
+    for vds_id in vds_ids:
+        flow = _resample_5min_to_sim_cadence(
+            _load_ramp_vds(vds_id, timeseries_dir, fill_strategy),
+            dt=dt, start=start, end=end,
+        )
+        total = flow if total is None else total + flow
+    return total
+
+
 def demand_from_ramp_vds(
     cells_df: pd.DataFrame,
     timeseries_dir: Union[Path, str],
@@ -218,6 +246,12 @@ def demand_from_ramp_vds(
     ramp VDS (``on_ramp_vds_id`` is NaN), produce no column. The
     scenario validator treats absent columns as zero, which is the
     intended fallback when no ramp detector data is available.
+
+    ``on_ramp_vds_id`` may be a single id, ``NaN``, or a list-valued
+    Step-5 manual edit (parsed via
+    :func:`utils.ctm.assembly.parse_ramp_vds_ids`). When the column
+    carries multiple ids for a cell, the per-VDS flows are loaded,
+    filled, resampled, and **summed** into one demand column.
 
     Parameters
     ----------
@@ -254,12 +288,14 @@ def demand_from_ramp_vds(
     for cell_idx, row in enumerate(cells_df.itertuples(index=False)):
         if not bool(row.on_ramp):
             continue
-        vds_id_raw = getattr(row, "on_ramp_vds_id", None)
-        if vds_id_raw is None or pd.isna(vds_id_raw):
+        ids = parse_ramp_vds_ids(getattr(row, "on_ramp_vds_id", None))
+        if not ids:
             continue
-        df = _load_ramp_vds(int(vds_id_raw), timeseries_dir, fill_strategy)
-        columns[cell_idx] = _resample_5min_to_sim_cadence(
-            df, dt=dt, start=start, end=end,
+        columns[cell_idx] = _sum_ramp_vds_flows(
+            ids,
+            timeseries_dir=timeseries_dir,
+            fill_strategy=fill_strategy,
+            dt=dt, start=start, end=end,
         )
 
     if not columns:
@@ -282,12 +318,14 @@ def beta_from_off_ramp_vds(
     compute :math:`\\beta_i(k) = s_i(k) / (f_i(k) + s_i(k))` where:
 
     * :math:`s_i(k)` is the off-ramp VDS's flow (from
-      ``off_ramp_vds_id``).
+      ``off_ramp_vds_id``). When the cell carries a list of off-ramp
+      VDS ids (Step-5 manual edit), the per-VDS flows are summed.
     * :math:`f_i(k)` is the *downstream* mainline VDS's flow -- the
-      ``vds_id`` of cell ``i+1``.
+      ``vds_id`` of cell ``i+1``. Mainline cells always have a single
+      VDS, so this stays scalar.
 
-    Both flows are gap-filled (via ``fill_strategy`` applied to the
-    whole CSV), then sliced + resampled by
+    Both flows are gap-filled (via ``fill_strategy`` applied to each
+    underlying CSV), then sliced + resampled by
     :func:`_resample_5min_to_sim_cadence`.
 
     Special cases
@@ -321,8 +359,8 @@ def beta_from_off_ramp_vds(
     for cell_idx, row in enumerate(cells_df.itertuples(index=False)):
         if not bool(row.off_ramp):
             continue
-        off_vds = getattr(row, "off_ramp_vds_id", None)
-        if off_vds is None or pd.isna(off_vds):
+        off_ids = parse_ramp_vds_ids(getattr(row, "off_ramp_vds_id", None))
+        if not off_ids:
             continue
 
         if cell_idx == last_cell_idx:
@@ -347,8 +385,10 @@ def beta_from_off_ramp_vds(
             raw_columns[cell_idx] = np.zeros(_sim_step_count(dt, start, end))
             continue
 
-        s_i = _resample_5min_to_sim_cadence(
-            _load_ramp_vds(int(off_vds), timeseries_dir, fill_strategy),
+        s_i = _sum_ramp_vds_flows(
+            off_ids,
+            timeseries_dir=timeseries_dir,
+            fill_strategy=fill_strategy,
             dt=dt, start=start, end=end,
         )
         f_i = _resample_5min_to_sim_cadence(

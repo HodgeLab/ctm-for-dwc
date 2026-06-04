@@ -503,7 +503,15 @@ Specific aspects to consider:
 * Lane discrepancies between OSM, PeMS, and satellite images
 * Cell merging for length
 * VDS assignment overrides
-* Ramp VDS assignments
+* Ramp VDS assignments. A single cell can carry **multiple** ramp VDS
+  ids if more than one physical ramp falls inside it (e.g. when two
+  short on-ramps were merged into one cell). Put the ids in the
+  `on_ramp_vds_id` / `off_ramp_vds_id` cell as a string separated by
+  `,`, `;`, or whitespace -- e.g. `"717123;717150"` or
+  `"717123, 717150"`. Step 6 (`assemble_freeway_table`) and Step 7
+  (`demand_from_ramp_vds` / `beta_from_off_ramp_vds`) both parse this
+  via `parse_ramp_vds_ids` and **sum** the per-ramp capacities and
+  flows into the cell's :math:`R_i`, :math:`d_i(k)`, or :math:`s_i(k)`.
 
 After making any manual adjustments, re-generate the derived artifacts
 (`cells.geojson`, `corridor_map.png`, `cell_layout.png`) from the
@@ -565,6 +573,13 @@ assignment time -- get `NaN`. `freeway_from_dataframe` reads NaN as the
 $R_i = \infty$ / $S_i = \infty$, which the CTM engine handles natively
 (the `min{...}` in the on-ramp / mainline update equations simply drops
 the ramp-capacity term).
+
+When a cell carries a **list** of ramp VDS ids (Step-5 manual edit, see
+above), the per-VDS capacities are **summed** into the cell's
+$R_i$ / $S_i$. Partial coverage -- some ids present in the
+calibration table, others absent -- emits a `UserWarning` and sums the
+present ones (treating missing ids as 0). If every id in the list is
+absent, the cell falls back to the NaN / ∞ default.
 
 ### Stage 3: $\Delta T$ advisory
 

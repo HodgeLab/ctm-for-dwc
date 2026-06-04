@@ -30,6 +30,7 @@ from .assembly import (
     assemble_freeway_table,
     compute_cfl_advisory,
     format_cfl_advisory,
+    parse_ramp_vds_ids,
 )
 from .cells import (
     cells_from_corridor,
@@ -107,6 +108,7 @@ __all__ = [
     "CFLAdvisory",
     "compute_cfl_advisory",
     "format_cfl_advisory",
+    "parse_ramp_vds_ids",
     "inflow_from_vds",
     "initial_state_from_vds",
     "FillStrategy",

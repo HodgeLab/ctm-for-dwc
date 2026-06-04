@@ -42,6 +42,8 @@ The assembly does three things:
 
 from __future__ import annotations
 
+import re
+import warnings
 from dataclasses import dataclass
 from typing import Optional
 
@@ -56,6 +58,48 @@ FREEWAY_COLUMNS: tuple[str, ...] = (
     "on_ramp_capacity", "off_ramp_capacity",
     "lanes",
 )
+
+_RAMP_LIST_SEP_RE = re.compile(r"[,;\s]+")
+
+
+def parse_ramp_vds_ids(value) -> list[int]:
+    """Parse a cells.csv ``*_ramp_vds_id`` cell value into a list of ints.
+
+    Step 1+2 emits ``on_ramp_vds_id`` / ``off_ramp_vds_id`` as scalar
+    Int64 (one VDS per cell), but a Step-5 manual edit can replace a
+    scalar with a list when multiple ramp detectors apply to the same
+    cell (e.g. two adjacent on-ramps the user merged into a single
+    cell). After such an edit the column's dtype falls back to object
+    and individual values can be:
+
+      * ``NaN`` / ``pd.NA`` / ``None`` -> ``[]`` (no ramp VDS).
+      * A scalar int / numpy integer -> ``[int(value)]``.
+      * A scalar float (e.g. ``900.0`` from a CSV) -> ``[int(value)]``.
+      * A string of one or more integer VDS ids separated by ``,``,
+        ``;``, or whitespace, optionally bracketed -- e.g.
+        ``"900;901"``, ``"900, 901"``, ``"[900, 901]"``.
+      * An already-iterable list / tuple / ``numpy.ndarray`` /
+        ``pandas.Series`` of integer-like values.
+
+    Returns ``[]`` when no ids are recoverable; callers treat that the
+    same as "no matched ramp VDS for this cell."
+    """
+    if value is None:
+        return []
+    if pd.api.types.is_scalar(value):
+        if pd.isna(value):
+            return []
+        if isinstance(value, str):
+            cleaned = value.strip().strip("[](){}").strip()
+            if not cleaned:
+                return []
+            return [int(p) for p in _RAMP_LIST_SEP_RE.split(cleaned) if p]
+        # Numeric scalar.
+        return [int(value)]
+    # Iterable (list / tuple / ndarray / Series).
+    return [int(x) for x in value if not (
+        pd.api.types.is_scalar(x) and pd.isna(x)
+    )]
 
 
 def assemble_freeway_table(
@@ -157,12 +201,23 @@ def _ramp_capacity_column(
 ) -> pd.Series:
     """Look up calibrated ramp capacities for cells flagged ``presence_col=True``.
 
+    For cells where ``vds_col`` carries a **list** of VDS ids (a valid
+    Step-5 manual edit when multiple ramps fall in one cell), the
+    per-cell capacity is the **sum** of the per-ramp capacities -- the
+    CTM models :math:`R_i` / :math:`S_i` as the total inflow / outflow
+    capacity of the cell's ramps. When some ids in a list are present
+    in the ramp calibration table and others aren't, the present ones
+    are summed and a :class:`UserWarning` flags the partial coverage so
+    the user knows the result is a lower bound.
+
     Returns a Series aligned to ``cells_df.index`` with capacities in
     veh/hr, or NaN where:
       * ``presence_col`` is False (no ramp on this cell -- must be NaN so
         :func:`freeway_from_dataframe` keeps :math:`R_i = \\infty`);
-      * ``vds_col`` is absent or NaN (no ramp VDS was matched to this gore);
-      * ``ramp_calibrated_df`` is omitted or doesn't contain the VDS;
+      * ``vds_col`` is absent, NaN, or an empty list (no ramp VDS was
+        matched to this cell);
+      * ``ramp_calibrated_df`` is omitted or doesn't contain any of the
+        VDSs in the list;
       * the calibrated capacity is NaN (no timeseries / empty after
         outlier filtering).
     """
@@ -176,14 +231,42 @@ def _ramp_capacity_column(
     presence = cells_df[presence_col].to_numpy(dtype=bool)
     vds_ids_raw = cells_df[vds_col]
     capacities = np.full(n, np.nan, dtype=float)
+    partial_misses: list[tuple[int, list[int]]] = []
     for i, (has_ramp, raw) in enumerate(zip(presence, vds_ids_raw)):
-        if not has_ramp or pd.isna(raw):
+        if not has_ramp:
             continue
-        try:
-            capacities[i] = float(ramp_lookup.loc[int(raw)])
-        except KeyError:
-            # VDS missing from the ramp calibration -- defer to inf default.
-            pass
+        ids = parse_ramp_vds_ids(raw)
+        if not ids:
+            continue
+        caps: list[float] = []
+        missing: list[int] = []
+        for vds_id in ids:
+            try:
+                cap = float(ramp_lookup.loc[vds_id])
+            except KeyError:
+                missing.append(vds_id)
+                continue
+            if np.isnan(cap):
+                missing.append(vds_id)
+                continue
+            caps.append(cap)
+        if not caps:
+            # Every VDS missing from the calibration -- leave NaN so
+            # freeway_from_dataframe defaults to infinite capacity.
+            continue
+        capacities[i] = float(sum(caps))
+        if missing:
+            partial_misses.append((i, missing))
+
+    if partial_misses:
+        warnings.warn(
+            f"{vds_col}: {len(partial_misses)} cell(s) had only partial "
+            "ramp-calibration coverage; the present capacities were "
+            "summed (treating missing ids as 0). Affected (cell_idx, "
+            f"missing_ids) pairs (first 5): {partial_misses[:5]}"
+            + (" ..." if len(partial_misses) > 5 else ""),
+            UserWarning, stacklevel=3,
+        )
     return pd.Series(capacities, index=cells_df.index, dtype=float)
 
 

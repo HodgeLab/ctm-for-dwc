@@ -17,6 +17,7 @@ from transportation_models.utils.ctm import (
     assemble_freeway_table,
     compute_cfl_advisory,
     format_cfl_advisory,
+    parse_ramp_vds_ids,
 )
 from transportation_models.utils.ctm.io import freeway_from_dataframe
 
@@ -288,3 +289,93 @@ def test_format_cfl_advisory_renders_all_key_fields():
     assert "binding cell idx : 1" in rendered
     assert "12.0 s" in rendered or "12.0" in rendered
     assert "suggested" in rendered.lower()
+
+
+# ---- parse_ramp_vds_ids --------------------------------------------------
+
+
+@pytest.mark.parametrize("value,expected", [
+    (None, []),
+    (np.nan, []),
+    (pd.NA, []),
+    (12345, [12345]),
+    (np.int64(12345), [12345]),
+    (12345.0, [12345]),
+    ("12345", [12345]),
+    ("12345;67890", [12345, 67890]),
+    ("12345,67890", [12345, 67890]),
+    ("12345, 67890", [12345, 67890]),
+    ("[12345, 67890]", [12345, 67890]),
+    ("12345 67890", [12345, 67890]),
+    ([12345, 67890], [12345, 67890]),
+    ((12345, 67890), [12345, 67890]),
+    (np.array([12345, 67890]), [12345, 67890]),
+    ("", []),
+    ("   ", []),
+])
+def test_parse_ramp_vds_ids_handles_every_input_shape(value, expected):
+    assert parse_ramp_vds_ids(value) == expected
+
+
+# ---- ramp-capacity assembly with list-valued cells -----------------------
+
+
+def test_ramp_capacity_sums_across_multiple_vdss_on_one_cell():
+    """A Step-5 manual edit can pile multiple on-ramp VDSs into one cell;
+    the cell's R_i = sum of per-VDS calibrated capacities."""
+    cells = _cells_df([
+        dict(length=0.5, lanes=3, vds_id=100,
+             on_ramp=True, on_ramp_vds_id="900;901"),
+    ])
+    cal = _calibrated_df([dict(**{
+        "Station ID": 100, "capacity": 1800.0, "free_flow_speed": 60.0,
+        "congestion_wave_speed": 15.0,
+        "jam_density": 150.0, "critical_density": 30.0,
+    })])
+    ramps = _ramp_calibrated_df([
+        dict(**{"Station ID": 900, "ramp_capacity_[veh/hr]": 1100.0}),
+        dict(**{"Station ID": 901, "ramp_capacity_[veh/hr]":  400.0}),
+    ])
+    out = assemble_freeway_table(cells, cal, ramp_calibrated_df=ramps)
+    assert out.iloc[0]["on_ramp_capacity"] == pytest.approx(1500.0)
+
+
+def test_ramp_capacity_partial_coverage_warns_and_sums_present():
+    """Some ids in the list are calibrated, others aren't; the present ones
+    are summed and a warning flags the partial coverage."""
+    cells = _cells_df([
+        dict(length=0.5, lanes=3, vds_id=100,
+             on_ramp=True, on_ramp_vds_id="900;902"),
+    ])
+    cal = _calibrated_df([dict(**{
+        "Station ID": 100, "capacity": 1800.0, "free_flow_speed": 60.0,
+        "congestion_wave_speed": 15.0,
+        "jam_density": 150.0, "critical_density": 30.0,
+    })])
+    ramps = _ramp_calibrated_df([
+        dict(**{"Station ID": 900, "ramp_capacity_[veh/hr]": 1100.0}),
+        # 902 deliberately absent.
+    ])
+    with pytest.warns(UserWarning, match="partial"):
+        out = assemble_freeway_table(cells, cal, ramp_calibrated_df=ramps)
+    assert out.iloc[0]["on_ramp_capacity"] == pytest.approx(1100.0)
+
+
+def test_ramp_capacity_all_missing_in_list_falls_back_to_nan():
+    """If every id in the list is missing from the calibration table, the
+    cell's capacity stays NaN -> freeway_from_dataframe defaults to ∞."""
+    cells = _cells_df([
+        dict(length=0.5, lanes=3, vds_id=100,
+             on_ramp=True, on_ramp_vds_id="900;901"),
+    ])
+    cal = _calibrated_df([dict(**{
+        "Station ID": 100, "capacity": 1800.0, "free_flow_speed": 60.0,
+        "congestion_wave_speed": 15.0,
+        "jam_density": 150.0, "critical_density": 30.0,
+    })])
+    ramps = _ramp_calibrated_df([
+        # No ids 900 or 901 present.
+        dict(**{"Station ID": 902, "ramp_capacity_[veh/hr]": 1100.0}),
+    ])
+    out = assemble_freeway_table(cells, cal, ramp_calibrated_df=ramps)
+    assert np.isnan(out.iloc[0]["on_ramp_capacity"])

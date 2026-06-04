@@ -544,3 +544,79 @@ def test_beta_no_off_ramps_returns_empty_columns(tmp_path):
         end=pd.Timestamp("2022-01-01 12:10"),
     )
     assert beta.shape == (2, 0)
+
+
+# ---- List-valued ramp VDS columns (Step-5 manual edits) ------------------
+
+
+def test_demand_sums_flows_when_cell_has_multiple_on_ramp_vdss(tmp_path):
+    """A Step-5 edit can put '900;901' into a single cell's on_ramp_vds_id;
+    the column's value is the sum of the two ramps' resampled flows."""
+    cells = _ramp_cells([
+        dict(on_ramp=True, on_ramp_vds_id="900;901", vds_id=100),
+    ])
+    _write_vds_csv(
+        tmp_path / "900.csv", start=pd.Timestamp("2022-01-01 12:00"),
+        n_rows=2, flows_5min=np.array([10.0, 10.0]),
+    )
+    _write_vds_csv(
+        tmp_path / "901.csv", start=pd.Timestamp("2022-01-01 12:00"),
+        n_rows=2, flows_5min=np.array([30.0, 30.0]),
+    )
+    demand = demand_from_ramp_vds(
+        cells, tmp_path, dt=5.0 / 60.0,
+        start=pd.Timestamp("2022-01-01 12:00"),
+        end=pd.Timestamp("2022-01-01 12:10"),
+    )
+    # (10 + 30) * 12 = 480 veh/h per step.
+    np.testing.assert_allclose(demand[0].to_numpy(), [480.0, 480.0])
+
+
+def test_demand_handles_list_object_in_on_ramp_vds_id(tmp_path):
+    """An in-memory cells_df can carry a Python list rather than a string."""
+    cells = _ramp_cells([
+        dict(on_ramp=True, on_ramp_vds_id=[900, 901], vds_id=100),
+    ])
+    _write_vds_csv(
+        tmp_path / "900.csv", start=pd.Timestamp("2022-01-01 12:00"),
+        n_rows=2, flows_5min=np.array([10.0, 10.0]),
+    )
+    _write_vds_csv(
+        tmp_path / "901.csv", start=pd.Timestamp("2022-01-01 12:00"),
+        n_rows=2, flows_5min=np.array([30.0, 30.0]),
+    )
+    demand = demand_from_ramp_vds(
+        cells, tmp_path, dt=5.0 / 60.0,
+        start=pd.Timestamp("2022-01-01 12:00"),
+        end=pd.Timestamp("2022-01-01 12:10"),
+    )
+    np.testing.assert_allclose(demand[0].to_numpy(), [480.0, 480.0])
+
+
+def test_beta_sums_off_ramp_flows_then_takes_ratio(tmp_path):
+    """When a cell has multiple off-ramp VDSs, s_i = sum of their flows;
+    beta = sum(s_i) / (f_i + sum(s_i))."""
+    cells = _ramp_cells([
+        dict(off_ramp=True, off_ramp_vds_id="900;901", vds_id=100),
+        dict(vds_id=200),  # downstream mainline
+    ])
+    _write_vds_csv(
+        tmp_path / "900.csv", start=pd.Timestamp("2022-01-01 12:00"),
+        n_rows=2, flows_5min=np.array([5.0, 5.0]),
+    )
+    _write_vds_csv(
+        tmp_path / "901.csv", start=pd.Timestamp("2022-01-01 12:00"),
+        n_rows=2, flows_5min=np.array([5.0, 5.0]),
+    )
+    _write_vds_csv(
+        tmp_path / "200.csv", start=pd.Timestamp("2022-01-01 12:00"),
+        n_rows=2, flows_5min=np.array([90.0, 90.0]),
+    )
+    beta = beta_from_off_ramp_vds(
+        cells, tmp_path, dt=5.0 / 60.0,
+        start=pd.Timestamp("2022-01-01 12:00"),
+        end=pd.Timestamp("2022-01-01 12:10"),
+    )
+    # s = 5 + 5 = 10 veh/5min => 120 veh/h; f = 90 veh/5min => 1080 veh/h.
+    # beta = 120 / (1080 + 120) = 0.1.
+    np.testing.assert_allclose(beta[0].to_numpy(), [0.1, 0.1])
