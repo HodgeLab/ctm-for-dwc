@@ -966,7 +966,8 @@ remaining follow-ups are:
   and simulation.
 
 ## Step 9: Validation Against Historical Data
-Implemented in `utils/ctm/validation.py`. First step:
+Implemented in `utils/ctm/validation.py`. End-to-end demo:
+`scripts/validate_ctm_corridor.py`. First step:
 `compare_against_historical(result, cells_df, timeseries_dir, *,
 start) -> pandas.DataFrame`.
 
@@ -1032,6 +1033,27 @@ cell  vds_id  n_density_samples  density_rmse  density_mape  \
 Users can sort by RMSE/MAPE to spot the worst-fitting cells, group
 by ramp presence to compare ramp vs no-ramp behavior, or pool across
 cells (`df.mean()`) to get corridor-wide aggregates.
+
+### CLI
+
+`scripts/validate_ctm_corridor.py` consumes the per-quantity output
+CSVs that `simulate_ctm_corridor.py` writes (`density.csv` +
+`mainline_flow.csv`), reconstructs the sim density and flow arrays,
+runs `compare_against_historical`, and writes `validation.csv`
+alongside the sim outputs:
+
+```
+python scripts/validate_ctm_corridor.py \
+    --sim-dir scripts/output/ctm_corridor/I_210_W/sim \
+    --cells   scripts/output/ctm_corridor/I_210_W/cells.csv \
+    --timeseries-dir data/pems/csv_files \
+    --start "2022-04-12 06:00"
+```
+
+The script also prints a stdout summary: window, cell counts (total
+vs assigned VDS), corridor aggregates (median / mean / max of RMSE
+and MAPE for both density and flow), and the top-K worst-fitting
+cells by density RMSE (`--top-k`, default 5).
 
 ### Roadmap
 
