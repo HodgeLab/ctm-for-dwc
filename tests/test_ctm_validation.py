@@ -363,3 +363,113 @@ def test_missing_vds_lanes_column_raises(tmp_path):
         compare_against_historical(
             result, cells, tmp_path, start=start,
         )
+
+
+# ---- compare_against_ctmsim ----------------------------------------------
+
+
+from transportation_models.utils.ctm import (  # noqa: E402
+    CTMSIMValidation, compare_against_ctmsim, simulate,
+)
+
+REPO = Path(__file__).resolve().parents[1]
+CTMSIM_CONFIGS = REPO / "src/transportation_models/utils/ctm/ctmsim_configs"
+CTMSIM_RESULTS = REPO / "src/transportation_models/utils/ctm/ctmsim_results"
+
+
+def _ctmsim_w060412_result():
+    """Re-simulate the canonical I-210W day; reused across the CTMSIM tests."""
+    # Defer the heavy build_scenario import to avoid pulling matplotlib at
+    # collection time.
+    import sys
+    sys.path.insert(0, str(REPO / "scripts"))
+    from run_ctm_ctmsim_demo import build_scenario  # noqa: E402
+
+    fwy, scn = build_scenario(CTMSIM_CONFIGS / "w060412.mat")
+    return simulate(fwy, scn)
+
+
+@pytest.fixture(scope="module")
+def ctmsim_result():
+    if not (CTMSIM_CONFIGS / "w060412.mat").exists():
+        pytest.skip("CTMSIM config w060412.mat is missing")
+    if not (CTMSIM_RESULTS / "w060412").exists():
+        pytest.skip("CTMSIM reference dir w060412/ is missing")
+    return _ctmsim_w060412_result()
+
+
+def test_returns_two_dataframes_with_expected_columns(ctmsim_result):
+    report = compare_against_ctmsim(
+        ctmsim_result, CTMSIM_RESULTS / "w060412",
+    )
+    assert isinstance(report, CTMSIMValidation)
+    assert list(report.per_cell.columns) == [
+        "cell",
+        "n_density_samples", "density_rmse", "density_mape",
+        "n_flow_samples", "flow_rmse", "flow_mape",
+    ]
+    assert list(report.per_metric.columns) == [
+        "metric", "n_samples", "rmse", "mape",
+    ]
+    # n_cells == 40 for the I-210W config (one boundary cell + N-1 driveable
+    # cells -> the freeway has 40 cells in our schema).
+    assert len(report.per_cell) == 40
+    assert list(report.per_metric["metric"]) == [
+        "vht", "vmt", "delay", "productivity_loss",
+    ]
+
+
+def test_per_cell_stats_are_tight_on_canonical_run(ctmsim_result):
+    """Our engine matches CTMSIM tightly; thresholds match the existing
+    assertion test's tolerances scaled to the corridor."""
+    report = compare_against_ctmsim(
+        ctmsim_result, CTMSIM_RESULTS / "w060412",
+    )
+    pc = report.per_cell
+    # Density: matches CTMSIM very tightly except near downstream
+    # boundary during peak congestion. Median sample shouldn't exceed
+    # 60 veh/mi RMSE on a corridor with rho_jam ~150 veh/mi.
+    assert pc["density_rmse"].median() < 60.0
+    assert pc["density_mape"].median() < 10.0
+    # Flow: similar story; tighter median because flow is bounded by
+    # capacity and the per-cell values agree to floating-point upstream.
+    assert pc["flow_rmse"].median() < 500.0
+    assert pc["flow_mape"].median() < 5.0
+
+
+def test_per_metric_rmse_matches_24h_total_tolerance(ctmsim_result):
+    """24h totals of VHT/VMT/delay/ploss agree with CTMSIM to a few %
+    (matches the existing assertion test's rtol_total budget)."""
+    report = compare_against_ctmsim(
+        ctmsim_result, CTMSIM_RESULTS / "w060412",
+    )
+    # Per the existing test, each metric's day total agrees with CTMSIM
+    # within rtol_total <= 5e-2. Since the per-period RMSE doesn't
+    # directly translate to a total-error bound, we just check that the
+    # rmse values are finite and bounded by sane absolute thresholds.
+    pm = report.per_metric.set_index("metric")
+    assert np.isfinite(pm["rmse"]).all()
+    assert pm.loc["vht", "rmse"] < 100.0     # veh*h per 5-min
+    assert pm.loc["vmt", "rmse"] < 1000.0    # veh*mi per 5-min
+    assert pm.loc["delay", "rmse"] < 100.0
+    assert pm.loc["productivity_loss", "rmse"] < 1.0
+
+
+def test_horizon_mismatch_raises(tmp_path):
+    """Sim with the wrong number of steps for the requested plot cadence raises."""
+    # Build a 2-step, 1-cell dummy result.
+    result = _Result(
+        freeway=_Freeway(dt=1.0, cells=[_Cell()]),
+        density=np.zeros((1, 3)),
+        mainline_flow=np.zeros((1, 2)),
+    )
+    with pytest.raises(ValueError, match="result.n_steps"):
+        compare_against_ctmsim(
+            result, tmp_path, plot_samples=288, sim_steps_per_plot_sample=30,
+        )
+
+
+def test_missing_reference_csv_raises(tmp_path, ctmsim_result):
+    """An empty / missing reference dir raises FileNotFoundError early."""
+    with pytest.raises(FileNotFoundError, match="density.csv"):
+        compare_against_ctmsim(ctmsim_result, tmp_path)

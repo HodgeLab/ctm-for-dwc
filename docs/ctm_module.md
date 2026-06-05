@@ -52,6 +52,8 @@ against historical PeMS observations to validate the fit.
   - [Lane-count contract](#lane-count-contract)
   - [RMSE and MAPE](#rmse-and-mape)
   - [Output](#output)
+  - [CLI](#cli-2)
+  - [CTMSIM ground-truth comparison](#ctmsim-ground-truth-comparison)
   - [Roadmap](#roadmap)
 - [CTM State Update Equations](#ctm-state-update-equations)
   - [Notation (units per Kurzhanskiy Table 4.1)](#notation-units-per-kurzhanskiy-table-41)
@@ -1055,10 +1057,66 @@ vs assigned VDS), corridor aggregates (median / mean / max of RMSE
 and MAPE for both density and flow), and the top-K worst-fitting
 cells by density RMSE (`--top-k`, default 5).
 
+### CTMSIM ground-truth comparison
+
+A second validation surface: regression-style comparison of our
+engine against the **CTMSIM v1.1 reference output** bundled under
+`utils/ctm/ctmsim_results/<day>/`. Useful when calibrating engine
+changes -- if a refactor breaks the round-trip, the per-cell or
+per-metric stats surface it immediately.
+
+`compare_against_ctmsim(result, ctmsim_results_dir, *,
+plot_samples=288, sim_steps_per_plot_sample=30)` returns a
+`CTMSIMValidation` dataclass with two DataFrames:
+
+* `per_cell` -- one row per cell, columns:
+  `cell, n_density_samples, density_rmse, density_mape,
+  n_flow_samples, flow_rmse, flow_mape`. Density in veh/mi, flow in
+  veh/h, MAPE in %.
+* `per_metric` -- one row per aggregate metric (`vht, vmt, delay,
+  productivity_loss`), columns: `metric, n_samples, rmse, mape`.
+  RMSE in the metric's native unit; MAPE in %.
+
+CTMSIM CSVs are at a fixed plotting cadence (`plotTS = 5 min`,
+`TS = 10 s` by default -> 30 sim steps per plotting sample over 24
+hours = 288 samples). The sim is sampled at the same boundaries
+before computing stats.
+
+`scripts/run_ctm_ctmsim_demo.py` calls this automatically after the
+sim + plotting block whenever `ctmsim_results/<day>/` exists and
+prints a summary alongside the figures:
+
+```
+=== CTMSIM ground-truth comparison (w060412) ===
+  cells              : 40
+  density RMSE [veh/mi]: median 31.85, mean 49.53, max 201
+  density MAPE [%]     : median 5.803, mean 7.191, max 22.95
+  flow    RMSE [veh/h] : median 289.5, mean 336.7, max 1016
+  flow    MAPE [%]     : median 1.695, mean 3.337, max 12.64
+
+  Aggregate metrics (per 5-min period):
+    metric                       rmse   mape [%]
+    vht                          47.1      9.623
+    vmt                         321.9      3.081
+    delay                       44.48      97.56
+    productivity_loss         0.05653      89.51
+```
+
+The full per-cell and per-metric tables also land on disk as
+`validation_per_cell.csv` and `validation_per_metric.csv` next to
+the demo's figures.
+
+**Caveat: MAPE on near-zero series.** Delay and productivity loss are
+~0 outside the morning peak, so per-sample MAPE divides by tiny
+values and yields headline-grabbing percentages that don't reflect
+the actual disagreement. RMSE is the more informative number for
+those two metrics. VHT and VMT are always positive and MAPE behaves
+sensibly there.
+
 ### Roadmap
 
-This is **step 1** of the validation pipeline. Future steps will
-likely cover:
+`compare_against_historical` is **step 1** of the PeMS-validation
+pipeline. Future steps will likely cover:
 
 * Aligned residual frames (long format with `cell`, `timestamp`,
   `sim`, `observed` columns) for plotting and inspection.

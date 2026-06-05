@@ -63,7 +63,11 @@ from .scenario import (
     inflow_from_vds,
     initial_state_from_vds,
 )
-from .validation import compare_against_historical
+from .validation import (
+    CTMSIMValidation,
+    compare_against_ctmsim,
+    compare_against_historical,
+)
 from .vds import (
     DEFAULT_PEMS_DIR,
     assign_ramp_vds_to_cells,
@@ -119,6 +123,8 @@ __all__ = [
     "historical_average_fill",
     "stochastic_historical_fill",
     "compare_against_historical",
+    "CTMSIMValidation",
+    "compare_against_ctmsim",
     "summarize_refs",
     "extract_route_number",
     "load_postmiles",

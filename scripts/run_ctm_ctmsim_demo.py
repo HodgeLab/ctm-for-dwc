@@ -27,6 +27,7 @@ import scipy.io as sio
 
 from transportation_models.utils.ctm import (
     Scenario,
+    compare_against_ctmsim,
     compute_metrics,
     ctmsim_demand_at_sim_steps,
     ctmsim_initial_densities,
@@ -43,6 +44,7 @@ from transportation_models.utils.ctm.plots import (
 
 REPO = Path(__file__).resolve().parents[1]
 CONFIGS = REPO / "src/transportation_models/utils/ctm/ctmsim_configs"
+RESULTS = REPO / "src/transportation_models/utils/ctm/ctmsim_results"
 DEFAULT_OUT = REPO / "scripts/output/ctm_demo"
 
 # CTMSIM I-210W defaults: 5-min plotting period over 10-s sampling -> 30 sim
@@ -207,6 +209,54 @@ def main() -> None:
     for name in ("flow_contour.png", "density_contour.png",
                  "aggregate_metrics.png", "per_cell_metrics.png"):
         print(f"  {name}")
+
+    # ---- CTMSIM ground-truth comparison ----------------------------------
+    # Compare our trajectory and aggregate metrics against the CTMSIM v1.1
+    # reference CSVs bundled under utils/ctm/ctmsim_results/<day>/. The
+    # block is skipped (with a note) when the reference directory is
+    # missing for the chosen day.
+    ref_dir = RESULTS / args.day
+    if not ref_dir.exists():
+        print(f"\nCTMSIM reference dir not found at {ref_dir}; "
+              "skipping ground-truth comparison.")
+        return
+
+    report = compare_against_ctmsim(res, ref_dir)
+    report.per_cell.to_csv(out_dir / "validation_per_cell.csv", index=False)
+    report.per_metric.to_csv(out_dir / "validation_per_metric.csv", index=False)
+
+    print(f"\n=== CTMSIM ground-truth comparison ({args.day}) ===")
+    pc = report.per_cell
+    print(f"  cells              : {len(pc)}")
+    print(f"  density RMSE [veh/mi]: "
+          f"median {pc['density_rmse'].median():.4g}, "
+          f"mean {pc['density_rmse'].mean():.4g}, "
+          f"max {pc['density_rmse'].max():.4g}")
+    print(f"  density MAPE [%]     : "
+          f"median {pc['density_mape'].median():.4g}, "
+          f"mean {pc['density_mape'].mean():.4g}, "
+          f"max {pc['density_mape'].max():.4g}")
+    print(f"  flow    RMSE [veh/h] : "
+          f"median {pc['flow_rmse'].median():.4g}, "
+          f"mean {pc['flow_rmse'].mean():.4g}, "
+          f"max {pc['flow_rmse'].max():.4g}")
+    print(f"  flow    MAPE [%]     : "
+          f"median {pc['flow_mape'].median():.4g}, "
+          f"mean {pc['flow_mape'].mean():.4g}, "
+          f"max {pc['flow_mape'].max():.4g}")
+    print()
+    print("  Aggregate metrics (per 5-min period):")
+    print(f"    {'metric':<20} {'rmse':>12} {'mape [%]':>10}")
+    for _, row in report.per_metric.iterrows():
+        print(f"    {row['metric']:<20} {row['rmse']:>12.4g} "
+              f"{row['mape']:>10.4g}")
+    print()
+    print(f"  Note: MAPE on delay / productivity_loss is dominated by "
+          "near-zero values outside")
+    print(f"  the morning peak; RMSE is the more informative number for "
+          "those metrics.")
+    print()
+    print(f"  Wrote validation_per_cell.csv, validation_per_metric.csv")
 
 
 if __name__ == "__main__":

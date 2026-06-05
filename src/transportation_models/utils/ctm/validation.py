@@ -1,27 +1,34 @@
-"""Compare CTM simulation results against historical PeMS observations.
+"""Compare CTM simulation results against ground-truth observations.
 
-Step 1 of the validation pipeline: for each cell, compare the sim's
-predicted mainline flow and density to the historical 5-min PeMS
-samples at the cell's assigned mainline VDS (``vds_id`` in
-``cells.csv`` -- not ``fd_vds_id``; we want observed traffic data,
-not the calibration source).
+Two ground-truth sources are supported today:
 
-Both quantities are evaluated at PeMS's native 5-min cadence: sim
-density is sampled at the start of each 5-min interval (instantaneous
-state); sim mainline flow is averaged across the interval (matching
-PeMS's interval-rate semantics). RMSE and MAPE are computed across
-all non-NaN observed samples per cell; MAPE additionally skips
-samples where the observed value is zero (undefined ratio).
+* **Historical PeMS** (:func:`compare_against_historical`) -- the field
+  data the model is calibrated against. Compares sim density and
+  mainline flow to the cell's assigned mainline VDS over the sim
+  window. RMSE/MAPE per cell.
+
+* **CTMSIM reference output** (:func:`compare_against_ctmsim`) -- the
+  Kurzhanskiy 2007 / Aurora reference CSVs bundled under
+  ``utils/ctm/ctmsim_results/<day>/``. Compares sim density, mainline
+  flow, and the four aggregate metrics (VHT, VMT, delay, productivity
+  loss) to CTMSIM v1.1's CSV exports for the same .mat config.
+  Useful for regression-style validation of engine behavior against
+  the canonical reference implementation.
+
+Both functions return RMSE and MAPE; MAPE skips zero-observed samples
+(undefined ratio).
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Union
 
 import numpy as np
 import pandas as pd
 
+from .metrics import compute_metrics
 from .results import SimulationResult
 
 
@@ -272,3 +279,195 @@ def _nan_row(cell_idx: int, *, vds_id) -> dict:
         "flow_rmse": float("nan"),
         "flow_mape": float("nan"),
     }
+
+
+# ---- CTMSIM ground-truth comparison --------------------------------------
+
+
+_CTMSIM_AGG_COLUMNS = ("vht", "vmt", "delay", "productivity_loss")
+
+
+@dataclass
+class CTMSIMValidation:
+    """Two-part sim-vs-CTMSIM comparison report.
+
+    Attributes
+    ----------
+    per_cell : pandas.DataFrame
+        One row per cell with density + mainline-flow RMSE and MAPE.
+        Columns mirror :func:`compare_against_historical`'s output for
+        consistency: ``cell``, ``n_density_samples``, ``density_rmse``,
+        ``density_mape``, ``n_flow_samples``, ``flow_rmse``,
+        ``flow_mape``. Density in veh/mi, flow in veh/h, MAPE in %.
+    per_metric : pandas.DataFrame
+        One row per aggregate metric (vht, vmt, delay,
+        productivity_loss). Columns: ``metric``, ``n_samples``,
+        ``rmse``, ``mape``. RMSE in the metric's native unit
+        (veh*h, veh*mi, veh*h, mi*h respectively); MAPE in %.
+    """
+
+    per_cell: pd.DataFrame
+    per_metric: pd.DataFrame
+
+
+def compare_against_ctmsim(
+    result: SimulationResult,
+    ctmsim_results_dir: Union[Path, str],
+    *,
+    plot_samples: int = 288,
+    sim_steps_per_plot_sample: int = 30,
+) -> CTMSIMValidation:
+    """Compare our CTM trajectory + aggregate metrics to CTMSIM reference output.
+
+    CTMSIM exports its trajectories at a fixed plotting cadence
+    (``plotTS = 5 min`` by default, i.e. 30 sim steps for the canonical
+    ``TS = 10 s`` over a 24-hour horizon -> 288 plotting samples).
+    Our sim runs at the native ``dt`` cadence; we sample it at the same
+    plotting boundaries before computing per-cell and per-metric
+    RMSE/MAPE.
+
+    The CSV layout under ``ctmsim_results/<day>/`` (per CTMSIM User
+    Guide §8, transposed to wide format):
+
+    * ``density.csv``           -- ``(K+1, N+1)`` state at plotting
+                                    boundaries; the last column is a
+                                    to-be-ignored placeholder.
+    * ``mainline_flow.csv``     -- ``(K+1, N+1)`` flow; col 0 is the
+                                    upstream boundary inflow, cols
+                                    ``1..N`` are the flow entering each
+                                    cell (= our ``f_0..f_{N-1}``); the
+                                    trailing row is a junk sample.
+    * ``aggregate_metrics.csv`` -- ``(K+1, 4)`` per-period totals; row
+                                    0 is the initial-state snapshot
+                                    (skipped); rows ``1..K`` are
+                                    ``[vht, vmt, delay, ploss]``.
+
+    Parameters
+    ----------
+    result : SimulationResult
+        Output of :func:`utils.ctm.engine.simulate`. Must have horizon
+        ``plot_samples * sim_steps_per_plot_sample``.
+    ctmsim_results_dir : Path or str
+        Directory containing the three reference CSVs above (typically
+        ``utils/ctm/ctmsim_results/<day>/``).
+    plot_samples : int, default 288
+        Number of plotting samples (``K``) in the CTMSIM CSVs --
+        24 hours / 5 min per sample = 288 for the I-210W reference.
+    sim_steps_per_plot_sample : int, default 30
+        Sim steps per plotting period (``plotTS / TS``). 30 for the
+        canonical 10-s sim / 5-min plot cadence.
+
+    Returns
+    -------
+    CTMSIMValidation
+        See class docstring.
+
+    Raises
+    ------
+    ValueError
+        Sim horizon doesn't match ``plot_samples * sim_steps_per_plot_sample``,
+        or the reference CSVs have unexpected shapes.
+    FileNotFoundError
+        Required reference CSVs are missing from ``ctmsim_results_dir``.
+    """
+    P = int(sim_steps_per_plot_sample)
+    K = int(plot_samples)
+    if result.n_steps != K * P:
+        raise ValueError(
+            f"result.n_steps={result.n_steps} doesn't match "
+            f"plot_samples * sim_steps_per_plot_sample = {K} * {P} = {K * P}; "
+            "pass matching --plot-samples / --sim-steps-per-plot-sample "
+            "or re-run the sim at the canonical CTMSIM cadence."
+        )
+
+    ctmsim_results_dir = Path(ctmsim_results_dir)
+    n_cells = result.freeway.n_cells
+
+    # ---- Density: state at plotting boundaries (N, K+1).
+    ours_density = result.density[:, ::P]
+    ctm_density = _load_ctmsim_csv(
+        ctmsim_results_dir / "density.csv",
+        expected_shape=(K + 1, n_cells + 1),
+        label="density",
+    )[:, :-1].T
+
+    # ---- Mainline flow: (N, K) at the start of each plotting period.
+    ours_flow = result.mainline_flow[:, ::P]
+    ctm_flow_full = _load_ctmsim_csv(
+        ctmsim_results_dir / "mainline_flow.csv",
+        expected_shape=(K + 1, n_cells + 1),
+        label="mainline_flow",
+    )
+    # Drop the trailing junk row, drop col 0 (upstream boundary inflow,
+    # not one of our per-cell mainline flows), transpose to (N, K).
+    ctm_flow = ctm_flow_full[:-1, 1:].T
+
+    # ---- Per-cell stats.
+    per_cell_rows = []
+    for i in range(n_cells):
+        n_d, dens_rmse, dens_mape = _rmse_mape(ours_density[i], ctm_density[i])
+        n_f, flow_rmse, flow_mape = _rmse_mape(ours_flow[i], ctm_flow[i])
+        per_cell_rows.append({
+            "cell": i,
+            "n_density_samples": n_d,
+            "density_rmse": dens_rmse,
+            "density_mape": dens_mape,
+            "n_flow_samples": n_f,
+            "flow_rmse": flow_rmse,
+            "flow_mape": flow_mape,
+        })
+    per_cell = pd.DataFrame(
+        per_cell_rows, columns=[
+            "cell",
+            "n_density_samples", "density_rmse", "density_mape",
+            "n_flow_samples", "flow_rmse", "flow_mape",
+        ],
+    )
+
+    # ---- Aggregate-metrics comparison.
+    m = compute_metrics(result)
+    ctm_agg = _load_ctmsim_csv(
+        ctmsim_results_dir / "aggregate_metrics.csv",
+        expected_shape=(K + 1, len(_CTMSIM_AGG_COLUMNS)),
+        label="aggregate_metrics",
+    )[1: K + 1, :]   # drop the initial-state row
+
+    ours_agg_per_period = {
+        "vht": _aggregate_to_periods(m.vht, P, K),
+        "vmt": _aggregate_to_periods(m.vmt, P, K),
+        "delay": _aggregate_to_periods(m.delay, P, K),
+        "productivity_loss": _aggregate_to_periods(m.productivity_loss, P, K),
+    }
+    per_metric_rows = []
+    for j, name in enumerate(_CTMSIM_AGG_COLUMNS):
+        n, rmse, mape = _rmse_mape(ours_agg_per_period[name], ctm_agg[:, j])
+        per_metric_rows.append({
+            "metric": name, "n_samples": n,
+            "rmse": rmse, "mape": mape,
+        })
+    per_metric = pd.DataFrame(
+        per_metric_rows, columns=["metric", "n_samples", "rmse", "mape"],
+    )
+
+    return CTMSIMValidation(per_cell=per_cell, per_metric=per_metric)
+
+
+def _load_ctmsim_csv(
+    path: Path, *, expected_shape: tuple[int, int], label: str,
+) -> np.ndarray:
+    if not path.exists():
+        raise FileNotFoundError(
+            f"CTMSIM reference {label}.csv not found at {path}."
+        )
+    arr = np.loadtxt(path, delimiter=",")
+    if arr.shape != expected_shape:
+        raise ValueError(
+            f"CTMSIM reference {label}.csv has shape {arr.shape}, "
+            f"expected {expected_shape}."
+        )
+    return arr
+
+
+def _aggregate_to_periods(per_step: np.ndarray, P: int, K: int) -> np.ndarray:
+    """Sum a (T,) per-sim-step series into per-plotting-period totals (K,)."""
+    return per_step[: K * P].reshape(K, P).sum(axis=1)
