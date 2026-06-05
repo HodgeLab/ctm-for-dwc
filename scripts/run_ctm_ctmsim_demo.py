@@ -61,7 +61,10 @@ def build_scenario(mat_path: Path):
     straight from the .mat. For β we prefer ``betaProfile`` (time-varying);
     otherwise (as in the bundled I-210W configs, which use ``frflowProfile``)
     we fall back to the constant per-cell ``FRbeta`` field on each ``celldata``
-    struct -- on these configs that matches CTMSIM's effective β exactly.
+    struct. Both branches multiply by the per-cell ``FRknob`` calibration
+    multiplier so the scenario matches CTMSIM's *effective* β (``FRknob`` is
+    degenerate in ``{0, 1}`` across the bundled I-210W days, but applying
+    it keeps the adapter correct against future calibrations).
     """
     fwy = freeway_from_ctmsim_mat(mat_path)
     n = fwy.n_cells
@@ -73,12 +76,16 @@ def build_scenario(mat_path: Path):
     inflow_plot = mat["demandProfile"][:, 0]
     inflow_sim = np.repeat(inflow_plot, PLOT_PERIOD_STEPS)[:n_steps]
 
+    fr_knobs = np.array([c.FRknob for c in mat["celldata"]], dtype=float)
     if "betaProfile" in mat:
         # Same K x (N+2) shape as demandProfile: trim mainline/downstream cols.
-        beta_plot = mat["betaProfile"][:, 1 : n + 1]
+        beta_plot = mat["betaProfile"][:, 1 : n + 1] * fr_knobs[None, :]
         beta_sim = np.repeat(beta_plot, PLOT_PERIOD_STEPS, axis=0)[:n_steps, :].T
     else:
-        beta_const = np.array([c.FRbeta for c in mat["celldata"]], dtype=float)
+        beta_const = (
+            np.array([c.FRbeta for c in mat["celldata"]], dtype=float)
+            * fr_knobs
+        )
         beta_sim = np.broadcast_to(beta_const[:, None], (n, n_steps)).copy()
 
     scn = Scenario(

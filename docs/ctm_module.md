@@ -486,6 +486,18 @@ no constraint" fall-back; the CTM cell defaults already allow
 infinite ramp capacity (`utils.ctm.io` schema: `on_ramp_capacity`
 defaults to `inf` when missing/NaN).
 
+**Calibration philosophy: data-driven, not knob-based.** CTMSIM
+exposes per-cell calibration multipliers (`ORknob`, `FRknob`) that the
+operator hand-tunes to match observed corridor behavior. Our pipeline
+takes a different route: the on-ramp demand $d_i(k)$ comes straight
+from the observed ramp VDS flow (Step 7's `demand_from_ramp_vds`),
+the off-ramp split $\beta_i(k)$ comes from `s_i / (f_i + s_i)`
+computed from observed flows, and the ramp capacities $R_i$ / $S_i$
+come from the 99th-percentile measurement above. No per-cell knob
+layer — the measurements *are* the calibration. (When we round-trip a
+CTMSIM `.mat` for validation, our adapter does apply CTMSIM's
+`ORknob` so the comparison is apples-to-apples — see Step 9.)
+
 The Step-4 CLI gets a `--ramp-detectors <comma,list>` flag that runs
 this pass alongside the mainline FD calibration:
 
@@ -1112,6 +1124,31 @@ values and yields headline-grabbing percentages that don't reflect
 the actual disagreement. RMSE is the more informative number for
 those two metrics. VHT and VMT are always positive and MAPE behaves
 sensibly there.
+
+**Known divergences from CTMSIM (engine gaps).** Our adapter applies
+CTMSIM's `ORknob` (on-ramp demand multiplier, per cell) and `FRknob`
+(off-ramp split multiplier, per cell) so the *effective* inputs match
+CTMSIM exactly. After that fix, five of the seven bundled days
+(`w060411`, `w060412`, `w060414`, `w060415`, `w060416`) match
+CTMSIM's per-period VHT, VMT, delay, and productivity loss to
+<0.01 % on day totals. The remaining two days exercise CTMSIM engine
+features our engine doesn't model yet:
+
+* `w060410` -- ramp metering controllers (`ORmlcontroller`) fire on
+  cells 1, 3, 4, 7, 8, 11, 12, 14, 16, 18, 19, 21, 22, 24, 25, 26,
+  28, 30, 31, 34, 36. CTMSIM's controllers cap the admitted on-ramp
+  flow `r_i` below the requested demand `d_i`; our engine just uses
+  `min(demand + queue/dt, space, R)` with `R = ORfmax`. Adding a
+  metering hook is engine work.
+* `w060410` + `w060413` -- on-ramp queue caps (`ORqsize`) bind in
+  CTMSIM. Our engine has no queue ceiling, so during heavy demand
+  our queues grow unboundedly.
+
+Both gaps are deferred until needed for production work. The
+parameterized regression test
+`tests/test_ctm_ctmsim_compare.py::test_demo_path_matches_ctmsim_tightly`
+covers the five quiet days so any future input-shaping regression
+surfaces immediately.
 
 ### Roadmap
 

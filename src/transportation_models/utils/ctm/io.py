@@ -329,7 +329,7 @@ def ctmsim_initial_densities(path: Union[str, Path]) -> np.ndarray:
 
 
 def ctmsim_demand_at_sim_steps(path: Union[str, Path]) -> np.ndarray:
-    """Expand CTMSIM's ``demandProfile`` to per-step on-ramp demand.
+    """Expand CTMSIM's ``demandProfile`` to per-step *effective* on-ramp demand.
 
     ``demandProfile`` is sampled at the display cadence ``plotTS`` (e.g. 5 min),
     one column per cell with a 1-based offset (column ``k`` corresponds to
@@ -337,6 +337,20 @@ def ctmsim_demand_at_sim_steps(path: Union[str, Path]) -> np.ndarray:
     upstream demand lives in this same array. The simulation step ``TS`` is
     typically much finer (e.g. 10 s), and CTMSIM holds each sample constant
     across ``plotTS / TS`` simulation steps (zero-order hold).
+
+    CTMSIM also applies a per-cell on-ramp demand multiplier ``ORknob`` --
+    a calibration knob the operator tweaks to match observed corridor
+    behavior. Verified empirically against every bundled day:
+
+    .. math::
+        \\text{effective\\_demand}[k, i] = \\text{demandProfile}[k, i{+}1]
+                                          \\times \\text{celldata}[i].\\text{ORknob}
+
+    Ignoring ``ORknob`` under-injects flow at cells where CTMSIM amplifies
+    the raw profile (e.g. cell 36 / Lake on-ramp with ``ORknob=2`` on
+    w060411) and over-injects at cells where CTMSIM silences the
+    detector (``ORknob=0``). Applying it makes our solver consume the
+    same effective demand that produced CTMSIM's reference output.
 
     Returns an array of shape ``(n_cells, T)`` where ``T = n_samples *
     plotTS / TS``. Cells without an on-ramp receive a zero column, which is
@@ -351,6 +365,10 @@ def ctmsim_demand_at_sim_steps(path: Union[str, Path]) -> np.ndarray:
     # Column k in demandProfile corresponds to cell k-1 (CTMSIM is 1-indexed).
     # Columns 0 and the trailing N+1 are unused/padding and dropped here.
     per_cell = profile[:, 1 : n_cells + 1]                       # (n_samples, n_cells)
+    or_knobs = np.array(
+        [float(c.ORknob) for c in mat["celldata"]], dtype=float,
+    )
+    per_cell = per_cell * or_knobs[None, :]                       # apply ORknob
     expanded = np.repeat(per_cell, steps_per_sample, axis=0)      # (T, n_cells)
     return expanded.T                                             # (n_cells, T)
 

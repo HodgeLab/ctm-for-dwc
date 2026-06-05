@@ -222,3 +222,69 @@ def test_aggregate_metrics_match_ctmsim(result):
                 f"{label}: 24h total {total_ours:.4g} vs CTMSIM {total_ref:.4g} "
                 f"(rel.err {rel:.4g} > {rtol_total})"
             )
+
+
+# ---- Demo-path regression -----------------------------------------------
+#
+# The tests above all consume the ``effective_*`` CSVs directly, bypassing
+# our adapter (``ctmsim_demand_at_sim_steps`` etc.). The tests below verify
+# that the demo path -- ``scripts/run_ctm_ctmsim_demo.build_scenario`` ->
+# ``simulate`` -- *also* matches CTMSIM tightly on every bundled day where
+# ramp metering and queue caps are inactive. That's what protects us against
+# silently re-introducing a "knob" gap (like the ORknob one we missed for
+# months).
+#
+# We skip w060410 (ramp metering fires) and w060413 (queue cap fires)
+# because the engine doesn't model either yet -- their VHT will diverge
+# from CTMSIM by construction.
+
+import sys
+
+DEMO_QUIET_DAYS = ["w060411", "w060412", "w060414", "w060415", "w060416"]
+
+
+def _build_scenario_via_demo(day: str):
+    """Use scripts/run_ctm_ctmsim_demo.build_scenario directly so we exercise
+    the public adapter path (incl. ctmsim_demand_at_sim_steps + ORknob)."""
+    sys.path.insert(0, str(REPO / "scripts"))
+    from run_ctm_ctmsim_demo import build_scenario   # noqa: E402
+    return build_scenario(CONFIGS / f"{day}.mat")
+
+
+@pytest.mark.parametrize("day", DEMO_QUIET_DAYS)
+def test_demo_path_matches_ctmsim_tightly(day):
+    """Demo-path VHT/VMT/delay/ploss per period match CTMSIM to <0.01% on the
+    day total, ensuring our adapter applies every input shaping CTMSIM does."""
+    if not (CONFIGS / f"{day}.mat").exists():
+        pytest.skip(f"CTMSIM config {day}.mat missing")
+    if not (RESULTS / day).exists():
+        pytest.skip(f"CTMSIM reference dir {day}/ missing")
+
+    fwy, scn = _build_scenario_via_demo(day)
+    res = simulate(fwy, scn)
+    m = compute_metrics(res)
+    ctm = np.loadtxt(RESULTS / day / "aggregate_metrics.csv", delimiter=",")
+    ref = ctm[1 : PLOT_SAMPLES_PER_DAY + 1, :]                    # (K, 4)
+
+    # Per-metric tolerances calibrated empirically against the bundled days.
+    # vht/vmt hit floating-point precision on day totals; delay and ploss
+    # are noisier because they accrue only during congestion (small absolute
+    # numbers amplify relative error). Per-period max-diff stays small for
+    # all four.
+    for label, ours, col, atol_max, rtol_total in [
+        ("vht",   _aggregate_to_periods(m.vht),                0, 0.5,   1e-3),
+        ("vmt",   _aggregate_to_periods(m.vmt),                1, 50.0,  1e-3),
+        ("delay", _aggregate_to_periods(m.delay),              2, 3.0,   2.5e-2),
+        ("ploss", _aggregate_to_periods(m.productivity_loss),  3, 0.05,  1.5e-1),
+    ]:
+        diff = ours - ref[:, col]
+        assert np.max(np.abs(diff)) < atol_max, (
+            f"{day}.{label}: max|Δ|={np.max(np.abs(diff)):.4g} exceeds {atol_max}"
+        )
+        total_ours, total_ref = ours.sum(), ref[:, col].sum()
+        if total_ref != 0:
+            rel = abs(total_ours - total_ref) / abs(total_ref)
+            assert rel < rtol_total, (
+                f"{day}.{label}: 24h total {total_ours:.4g} vs CTMSIM "
+                f"{total_ref:.4g} (rel.err {rel:.4g} > {rtol_total})"
+            )

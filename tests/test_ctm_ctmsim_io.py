@@ -129,14 +129,41 @@ def test_demand_zero_on_cells_without_an_on_ramp(mat_path, freeway):
 
 
 def test_demand_first_step_matches_first_sample(mat_path, freeway):
-    """First 30 sim steps should hold the first plotTS sample constant."""
+    """First 30 sim steps should hold the first plotTS sample constant.
+
+    The expected value is the raw ``demandProfile`` sample **times** each
+    cell's ``ORknob`` -- CTMSIM applies the knob during effective-demand
+    construction, and our adapter mirrors that.
+    """
     import scipy.io as sio
     mat = sio.loadmat(str(mat_path), squeeze_me=True, struct_as_record=False)
-    raw_first_sample = mat["demandProfile"][0, 1 : freeway.n_cells + 1]
+    n = freeway.n_cells
+    or_knobs = np.array([c.ORknob for c in mat["celldata"]], dtype=float)
+    raw_first = mat["demandProfile"][0, 1 : n + 1] * or_knobs
+    raw_second = mat["demandProfile"][1, 1 : n + 1] * or_knobs
+
     demand = ctmsim_demand_at_sim_steps(mat_path)
     # Steps 0..29 are the first 5-minute window.
-    np.testing.assert_array_equal(demand[:, 0], raw_first_sample)
-    np.testing.assert_array_equal(demand[:, 29], raw_first_sample)
+    np.testing.assert_array_equal(demand[:, 0], raw_first)
+    np.testing.assert_array_equal(demand[:, 29], raw_first)
     # Step 30 should switch to the second sample.
-    second_sample = mat["demandProfile"][1, 1 : freeway.n_cells + 1]
-    np.testing.assert_array_equal(demand[:, 30], second_sample)
+    np.testing.assert_array_equal(demand[:, 30], raw_second)
+
+
+def test_demand_applies_ORknob_multiplier(mat_path, freeway):
+    """Every cell where ORknob != 1 must have its demand scaled accordingly."""
+    import scipy.io as sio
+    mat = sio.loadmat(str(mat_path), squeeze_me=True, struct_as_record=False)
+    or_knobs = np.array([c.ORknob for c in mat["celldata"]], dtype=float)
+    nontrivial = np.where((or_knobs != 1.0) & (or_knobs != 0.0))[0]
+    assert len(nontrivial) > 0, (
+        "w060412 should have at least one cell with ORknob outside {0, 1}; "
+        "if not, this test fixture has drifted."
+    )
+    raw_per_period = mat["demandProfile"][:, 1 : freeway.n_cells + 1]
+    expected = raw_per_period * or_knobs[None, :]            # (n_samples, n_cells)
+    # Downsample our (n_cells, T) back to (n_samples, n_cells).
+    P = 30
+    demand = ctmsim_demand_at_sim_steps(mat_path)
+    actual = demand[:, ::P].T
+    np.testing.assert_array_equal(actual, expected)
