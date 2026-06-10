@@ -256,3 +256,38 @@ the example builder.
 Full suite (excluding pre-existing failures in
 `tests/test_model_prototyping.py`, which is unrelated GRU work): 400
 passed.
+
+### P1 — 2026-06-10 — spatial pure functions
+
+**Shipped.**
+[`src/transportation_models/utils/dwpt/spatial.py`](../src/transportation_models/utils/dwpt/spatial.py):
+`build_S_T`, `build_S_R`, `build_T_R` (Newbolt 2024a Algorithms 1-2).
+[`tests/test_dwpt_spatial.py`](../tests/test_dwpt_spatial.py): 11
+hand-calc + property tests (layer 1) — `S_T` tile bit-pattern,
+truncation, and value set; `S_R` constant magnitude and length; `T_R`
+banded-Toeplitz entries by hand, `(n + δ_grid - 1) × n` shape,
+off-band zeros, and the `δ_grid = 1` diagonal case.
+
+**Implementation assumptions made (not pre-specified by the plan).**
+- **Grid-integer signatures** instead of the plan's meter+`dx_grid`
+  signatures (user-approved). The functions take grid-unit integers
+  (`n`, `alpha_grid`, `lambda_grid`, `delta_grid`); the meter→grid
+  conversion stays solely in `CorridorSpec` (P0), which already
+  validates it. This makes all three consistent with the plan's own
+  grid-based `build_T_R(S_R, n)` and avoids duplicating the conversion.
+  P2's `CorridorSpec.build()` composes them via the validated `*_grid`
+  properties.
+- `T_R` is built dense via a per-column loop (NumPy-only, clarity over
+  speed). The `fftconvolve` / stride-trick path remains deferred to P5
+  per the plan's "T_R materialization" open item.
+
+**Open items raised during build.**
+1. The off-by-one convention (`m = n + δ_grid - 1`, no trailing zero
+   row) is now pinned in code and tested. P3's `build_M_CTM` must agree:
+   the approach/exit positions it zeroes are the first/last partial-
+   overlap rows of this `T_R`. Verify the column alignment there.
+
+**Verify.** `pytest tests/test_dwpt_spatial.py` → 11 passed in 0.07s;
+`tests/test_dwpt_model.py tests/test_dwpt_spatial.py` → 33 passed.
+Purely additive (no existing module imports `spatial` yet), so no
+regression surface elsewhere.
