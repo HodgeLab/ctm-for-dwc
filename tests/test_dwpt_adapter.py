@@ -11,9 +11,16 @@ from transportation_models.utils.ctm.engine import simulate
 from transportation_models.utils.ctm.examples import (
     four_cell_freeway,
     four_cell_scenario,
+    metered_on_ramp_freeway,
+    metered_on_ramp_scenario,
 )
 from transportation_models.utils.ctm.metrics import compute_metrics
-from transportation_models.utils.dwpt.adapter import from_ctm, mainline_vht
+from transportation_models.utils.dwpt.adapter import (
+    corridor_from_ctm,
+    from_ctm,
+    mainline_vht,
+)
+from transportation_models.utils.dwpt.demand import compute
 from transportation_models.utils.dwpt.model import PadSpec
 
 _METERS_PER_MILE = 1609.344
@@ -43,8 +50,8 @@ def test_mainline_vht_matches_ctm_metrics_minus_queue():
 def test_mainline_vht_excludes_queue_contribution():
     """With a nonzero on-ramp queue, mainline VHT drops the queue term.
 
-    The four-cell example happens never to spill back into a queue, so the
-    exclusion is proven on a controlled synthetic result instead.
+    A controlled unit-level check; ``test_from_ctm_demand_excludes_queue_vht``
+    below confirms the same exclusion end-to-end on a real queuing run.
     """
     import types
 
@@ -88,3 +95,52 @@ def test_from_ctm_to_dataframe_round_trips():
     df = dr.to_dataframe()
     assert list(df.columns) == ["timestep", "position_m", "energy_wh"]
     assert len(df) == dr.E.size
+
+
+# ---------------------------------------------------------------------------
+# Queuing scenario: confirm demand excludes on-ramp queue VHT end-to-end
+# ---------------------------------------------------------------------------
+
+
+def _queuing_ctm_result(steps: int = 40):
+    """A two-cell run whose metered on-ramp actually builds (then drains) a queue."""
+    return simulate(
+        metered_on_ramp_freeway(), metered_on_ramp_scenario(steps=steps)
+    )
+
+
+def test_metered_on_ramp_actually_builds_queue():
+    """Sanity: unlike the four-cell example, this scenario accumulates queue."""
+    result = _queuing_ctm_result()
+    assert np.any(result.queue[:, 1:] > 0)
+
+
+def test_mainline_vht_below_total_on_real_queuing_run():
+    """On a run that truly queues, mainline VHT is strictly below the CTM's VHT."""
+    result = _queuing_ctm_result()
+    metrics = compute_metrics(result)
+    queue_vht = result.queue[:, 1:] * result.freeway.dt
+    ml = mainline_vht(result)
+    np.testing.assert_allclose(ml, metrics.vht_per_cell - queue_vht)
+    assert np.any(ml < metrics.vht_per_cell)  # strictly less wherever queue > 0
+
+
+def test_from_ctm_demand_excludes_queue_vht():
+    """End-to-end: DWPT demand omits exactly the on-ramp queue's contribution.
+
+    By linearity of ``compute`` in VHT, the queue-inclusive demand splits as
+    mainline demand + queue-only demand; ``from_ctm`` keeps only the first.
+    """
+    result = _queuing_ctm_result()
+    metrics = compute_metrics(result)
+    pad, dx, eta = _coarse_pad(), 10.0, 0.3
+    corridor = corridor_from_ctm(result, pad, dx)
+
+    E_mainline = from_ctm(result, pad, dx_grid=dx, eta_EV=eta).E
+    queue_vht = result.queue[:, 1:] * result.freeway.dt
+    E_with_queue = compute(metrics.vht_per_cell, corridor, eta).E
+    E_queue_only = compute(queue_vht, corridor, eta).E
+
+    np.testing.assert_allclose(E_with_queue, E_mainline + E_queue_only)
+    assert E_queue_only.sum() > 0.0  # the queue carries real energy...
+    assert E_mainline.sum() < E_with_queue.sum()  # ...which the demand excludes

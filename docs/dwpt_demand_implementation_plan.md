@@ -509,3 +509,20 @@ transient (downstream cells dark until vehicles arrive). Both sensible.
 **Verify.** `pytest tests/test_dwpt_plots.py` → 4 passed;
 `python scripts/run_dwpt_demand_demo.py` writes two PNGs; full DWPT suite
 (7 files) → 72 passed.
+
+### Follow-up — 2026-06-10 — queuing confirmation
+
+The P5 caveat — that the four-cell example never spills back into a queue,
+so the queue exclusion was only proven synthetically — is now closed. A new
+CTM example, `metered_on_ramp_scenario` (capacity-limited on-ramp, demand
+1000 > R=600 veh/h), drives a real on-ramp queue. Three tests in
+[`tests/test_dwpt_adapter.py`](../tests/test_dwpt_adapter.py) confirm
+end-to-end that DWPT demand excludes queue VHT: the scenario builds queue;
+`mainline_vht` is strictly below the CTM's (queue-inclusive) VHT; and, by
+linearity of `compute`, demand splits as mainline + queue-only with
+`from_ctm` keeping only the mainline part. On a 40-step run the excluded
+queue contribution is ~277 kWh — **21.9 % of the queue-inclusive total** —
+so the exclusion is materially significant, not cosmetic.
+
+**Verify.** `pytest tests/test_dwpt_adapter.py` → 7 passed; full DWPT suite
+→ 75 passed.
