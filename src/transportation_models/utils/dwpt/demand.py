@@ -8,7 +8,15 @@ pieces into the spatiotemporal demand
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
+
+from .mapping import build_M_CTM
+from .model import DemandResult
+
+if TYPE_CHECKING:
+    from .model import CorridorSpec
 
 
 def compute_demand(
@@ -33,3 +41,31 @@ def compute_demand(
     ``E`` to come out in watt-hours.
     """
     return eta_EV * (VHT.T @ M_CTM) * P_y
+
+
+def compute(
+    VHT: np.ndarray, corridor: CorridorSpec, eta_EV: float
+) -> DemandResult:
+    """Assemble a labeled ``DemandResult`` from a corridor and its VHT.
+
+    Composes the spatial build (``corridor.build_P_y``), the cell->position
+    map (``build_M_CTM``), and ``compute_demand``. Column positions use the
+    center-reference convention, ``position_m[j] = (j - off) * dx_grid`` with
+    ``off = (delta_grid - 1)//2``; rows are timestep indices.
+    """
+    if not 0.0 <= eta_EV <= 1.0:
+        raise ValueError(f"eta_EV must be in [0, 1], got {eta_EV}")
+    n_cells = len(corridor.positions_per_cell)
+    if VHT.shape[0] != n_cells:
+        raise ValueError(
+            f"VHT has {VHT.shape[0]} cells but corridor has {n_cells}"
+        )
+
+    M_CTM = build_M_CTM(corridor.positions_per_cell, corridor.delta_grid)
+    P_y = corridor.build_P_y()
+    E = compute_demand(VHT, M_CTM, P_y, eta_EV)
+
+    off = (corridor.delta_grid - 1) // 2
+    position_m = (np.arange(corridor.m_traversal) - off) * corridor.dx_grid
+    timesteps = np.arange(VHT.shape[1])
+    return DemandResult(E=E, position_m=position_m, timesteps=timesteps)

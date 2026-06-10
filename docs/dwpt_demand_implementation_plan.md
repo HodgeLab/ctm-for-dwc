@@ -434,3 +434,45 @@ the CTM adapter (`from_ctm`).
 **Verify.** `pytest tests/test_dwpt_demand.py` → 7 passed; full DWPT suite
 (`test_dwpt_model.py test_dwpt_spatial.py test_dwpt_mapping.py
 test_dwpt_demand.py`) → 58 passed.
+
+### P5 — 2026-06-10 — CTM adapter + compute orchestrator
+
+**Shipped.**
+- [`CorridorSpec.build_P_y()`](../src/transportation_models/utils/dwpt/model.py)
+  — composes P1-P2 over the corridor's grid properties.
+- [`compute(VHT, corridor, eta_EV)`](../src/transportation_models/utils/dwpt/demand.py)
+  — orchestrates `build_M_CTM` + `build_P_y` + `compute_demand` into a
+  labeled `DemandResult` (center-reference `position_m`, timestep-index
+  rows; validates `eta_EV ∈ [0,1]` and VHT cell count).
+- [`adapter.py`](../src/transportation_models/utils/dwpt/adapter.py) (new
+  module): `mainline_vht(result)` and `from_ctm(result, pad_spec, dx_grid,
+  eta_EV)` — the single CTM seam.
+- `compute` and `from_ctm` exported from the package `__init__`.
+[`tests/test_dwpt_compute.py`](../tests/test_dwpt_compute.py) (6) and
+[`tests/test_dwpt_adapter.py`](../tests/test_dwpt_adapter.py) (4), incl. an
+end-to-end smoke test on the four-cell CTM run (Kurzhanskiy §3.4).
+
+**Decisions (user, after CTM-code review).**
+1. **Mainline VHT from `SimulationResult`** (`density[:,1:] * L * dt`),
+   queue-free by construction. Deviates from the plan's "read
+   `Metrics.vht_per_cell`" seam — that field includes the on-ramp queue —
+   so the adapter takes the `SimulationResult` and recomputes (one-line
+   duplication of the `rho·L·dt` formula).
+2. **Snap cell lengths to the grid** in `from_ctm` (round `L_m/dx_grid`),
+   error ≤ `dx_grid`/2 per cell, keeping `CorridorSpec` strict.
+3. **Dense `T_R`, `fftconvolve` deferred.** P5 verifies on a tiny CTM run
+   at coarse `dx_grid`; mile-scale corridors at fine `dx_grid` remain
+   infeasible until the convolution path is added (resolution-vs-compute
+   section).
+
+**Implementation notes (not pre-specified by the plan).**
+- New `adapter.py` module (not in the original layout list) isolates the
+  CTM import; the DWPT package has no runtime CTM dependency (`from_ctm`
+  duck-types the passed result; CTM types are `TYPE_CHECKING`-only).
+- **The four-cell example never spills back into an on-ramp queue**, so
+  `mainline_vht`'s queue exclusion is proven on a controlled synthetic
+  result (`test_mainline_vht_excludes_queue_contribution`); the real-run
+  test checks `mainline = metrics_VHT − queue·dt`.
+
+**Verify.** `pytest tests/test_dwpt_compute.py tests/test_dwpt_adapter.py`
+→ 10 passed; full DWPT suite (6 files) → 68 passed.
