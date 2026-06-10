@@ -1,6 +1,6 @@
 # Dynamic Wireless Power Transfer Demand Module
 Traffic dynamics are simulated using the cell transmission model (CTM), which enables high-resolution modeling of dynamic wireless power transfer (DWPT) demand from electric vehicles (EVs). 
-To translate macroscopic traffic simulation outputs to DWPT demand, we adapt a method called *mCONV* originally introduced by [Newbolt et al.](https://ieeexplore.ieee.org/document/10750800) for DWPT load modeling with microscopic traffic simulation.
+To translate macroscopic traffic simulation outputs to DWPT demand, we adapt a method called *mCONV* originally introduced in [Newbolt 2024a](https://ieeexplore.ieee.org/document/10750800) for DWPT load modeling with microscopic traffic simulation.
 The method facilitates repeatable simulation with a single model of the spatial position-vs-power profile of the roadway and a separate, configurable model of the temporal time-vs-position profile for the vehicles on the roadway.
 In this way, a diverse set of traffic simulation scenarios may be evaluated using the same model of the physical infrastructure.
 
@@ -16,7 +16,7 @@ Without loss of generality, $\mathbf{S_T}$ may be constructed by repetition of a
 
 Discrete convolution of $\mathbf{S_R}$ with $\mathbf{S_T}$ can be expressed by matrix multiplication after conversion of $\mathbf{S_R}$ into a Toeplitz matrix $\mathbf{T_R} \in \mathbb{R} ^ {m \times n}$, where $m$ is the number of available positions for an Rx pad on a vehicle traversing the corridor.
 Multiplication by a factor $\gamma$, which converts spatial overlap to power transfer, produces the position-dependent power profile $\mathbf{P_y} \in \mathbb{R}^{m \times 1}$.
-Physically, $\gamma$ represents the minimum of the Tx and Rx pad power, $\rho = min(\beta, \beta').$
+Physically, $\gamma$ represents the minimum of the Tx and Rx pad power, $\gamma = min(\beta, \beta').$
 
 $$\mathbf{P_y} = \gamma \mathbf{T_R}  \mathbf{S_T}$$
 
@@ -26,18 +26,18 @@ For reference, see the image below from Newbolt et al. Note that, for reasons th
 
 ### Temporal Dependence
 Assume that a vehicle's velocity $\mathbf{v} \in \mathbb{R}^{m \times 1}$ along the corridor $\mathbf{x} \in \mathbb{R}^{m \times 1}$ is known (e.g., through a traffic simulation module).
-In that case, we can calculate the time spent by the vehicle at each position $x_i \forall i \in [0, m] $ along the roadway as 
+In that case, we can calculate the time spent by the vehicle at each position $x_j \forall j \in [0, m] $ along the roadway as 
 
-$$ t_i = t_{i-1} + \frac{x_i - x_{i-1}}{\bar{v}_i}$$
+$$ t_j = t_{j-1} + \frac{x_j - x_{j-1}}{\bar{v}_j}$$
 
-where $\bar{v_i}$ is the average speed of the vehicle at $x_i$.
+where $\bar{v_j}$ is the average speed of the vehicle at $x_j$.
 
 The result is a vector $\mathbf{t} \in \mathbb{R}^{m \times 1}$, which encodes the time-vs-position profile for a single vehicle.
 
 ### Putting It All Together
 With $\mathbf{P_y}$ and $\mathbf{t}$ established, the total energy demand for a single vehicle traversing the DWPT corridor is found by discrete integration.
 
-$$ \mathbf{E} = \sum_{i=1}^m \frac{P_{y,i-1} + P_{y,i}}{2} \Delta t_i$$
+$$ \mathbf{E} = \sum_{j=1}^m \frac{P_{y,j-1} + P_{y,j}}{2} \Delta t_j$$
 
 In the original *mCONV* formulation, multiple vehicle trajectories are modeled with a microscopic traffic simulation. Each trajectory is used to produce a vehicle-specific load profiles, which are summed across all vehicles in the simulation.
 
@@ -47,31 +47,62 @@ The spatial dependence submodule remains unchanged, as this relates strictly to 
 The temporal dependence submodule introduces the dependence on traffic dynamics, and as such it must be adapted to account for the fact that macroscopic traffic simulation describes the trajectory of vehicles in *aggregate*, and (specific to the CTM), assumes that vehicles within a single cell move identically.
 
 The temporal dependence submodule is responsible for generating the time-vs-position profile. 
-In a macroscopic simulation context, we are concerned with vehicle-hours rather than time-spent by a single vehicle.
+In a macroscopic simulation context, we are concerned with gross vehicle-hours rather than time-spent by a single vehicle.
 As such, the relevant metric is the vehicle hours traveled (VHT) over time in each cell, which is already calculated by the CTM module.
-This is a $T \times N$ matrix, where $T$ is the number of timesteps and $N$ is the number of cells, which is computed as:
+This is a $N \times T$ matrix, where $N$ is the number of cells and $T$ is the number of timesteps, which is computed as:
 
-$$ VHT_i^k = \rho_i^k \Delta x_i \Delta t $$
+$$ VHT[i,k] = \rho[i,k] \Delta x[i] \Delta t $$
 
 Each row in $\mathbf{VHT}$ describes a timeseries of vehicle-hours-traveled within a given cell in the CTM, while each column describes the vehicle-hours-traveled on the freeway at a given moment in time.
 
-The power-vs-position profile $\mathbf{P}$ that we generate in the spatial dependence submodule maps the power generated by a single Rx pad as it traverses the set of positions along the roadway.
-To relate $\mathbf{VHT}$ to $\mathbf{P}$, we require a mapping between Rx pad position and cell index, which we call $\mathbf{M_{CTM}}$.
+The power-vs-position profile $\mathbf{P_y}$ that we generate in the spatial dependence submodule maps the power generated by a single Rx pad as it traverses the set of positions along the roadway.
+To relate $\mathbf{VHT}$ to $\mathbf{P_y}$, we require a mapping between Rx pad position and cell index, which we call $\mathbf{M_{CTM}}$.
 The transformation $\mathbf{M_{CTM}}$ takes the form of a $N \times m$ matrix, where each row $i$ describes the set of Rx pad positions attributed to cell $i$.
-In its cleanest form, rows in $\mathbf{M_{CTM}}$ are mutually exclusive, i.e., 
-$$\begin{bmatrix}1 &1 &1 &1 &1 &0 &0 &0 &0\\0 &0 &0 &0 &0 &1 &1 &1 &1 \end{bmatrix}$$
-However, if a cell boundary happens to split an Rx pad position, this may be accounted for by proportionally distributing entries in $\mathbf{M_{CTM}}$ according to the Rx pad area spanned by each cell, i.e.,
-$$\begin{bmatrix}1 &1 &1 &1 &0.6 &0 &0 &0 &0\\0 &0 &0 &0 &0.4 &1 &1 &1 &1 \end{bmatrix}$$
-In any case, the columns in $\mathbf{M_{CTM}}$ must add to 1.
+$\mathbf{M_{CTM}}$ serves a secondary purpose, which is to distribute the cell's vehicle-hours across the Rx pad positions within the cell.
+For this purpose, we must assume that all vehicles move through the cell with uniform velocity, and thus spend equal time at each Rx pad position.
 
-Armed with $\mathbf{VHT}$ and $\mathbf{M_{CTM}}$, we can now compute $\mathbf{P}$, the power profile for the roadway indexed by time and Rx pad position:
+Entries in $\mathbf{M_{CTM}}$ are determined as shown below, where $n_i$ is the number of Rx pad positions included in cell $i$.
 
-$$ \mathbf{P} = (\mathbf{VHT}^T \mathbf{M_{CTM}}) * \mathbf{P_y} $$
+$$ M_{CTM}[i,j] = \frac{1}{n_i} \text{ if } j \in \text{cell } i, 0 \text{ otherwise}$$
+
+Finally, as in the original *mCONV* method, we assume a constant EV density rate $\eta_{EV}$. 
+
+Armed with $\mathbf{VHT}$, $\mathbf{M_{CTM}}$, and $\eta_{EV}$, we can now compute $\mathbf{E}$, the demand profile for the roadway indexed by time and Rx pad position:
+
+$$ \mathbf{E} = \eta_{EV} * (\mathbf{VHT}^T \mathbf{M_{CTM}}) * \mathbf{P_y} $$
 
 where $*$ denotes element-wise multiplication.
 
-$\mathbf{P}$ is a $T \times m$ matrix, where column $j$ describes the DWPT load timeseries at position $j$. 
+$\mathbf{E}$ is a $T \times m$ matrix, where entry $E[k,j]$ is the total energy delivered to EVs at position $j$ during timestep $k$, measured in Wh. 
 
 Note that, as a result of our construction of $\mathbf{M_{CTM}}$, the load within a single cell spanning Rx pad positions $[j, j+l]$ is identical. 
 This reflects the fact that in the CTM, vehicles within a given cell are assumed to move identically.
 At the same time, by leaving the $\mathbf{P_y}$ construction unchanged, we are able to retain the realistic power profile which the *mCONV* method was invented to address.
+
+### Key Assumptions
+1. __Homogenous Vehicle Class__
+
+    In v0, we assume that physical dimensions, power limits, and VHT are uniform across all vehicles in the simulation.
+    In reality, heavy duty EVs would have a longer Rx pad length and higher rated power than passenger EVs; traffic dynamics may differ by vehicle class, introducing distinct VHT matrices.
+    These complications are left to future work, however we note that the extension is straightforward (just use class-indexed $\mathbf{VHT}$ and $\mathbf{P_y}$).
+
+1. __Single-lane Equivalent__
+    
+    In v0, we treat the roadway as a single-lane equivalent, i.e., density and flow are not distributed across lanes.
+    This implicitly assumes that DWPT infrastructure spans every lane on the roadway.
+    In reality, we expect DWPT infrastructure to be installed in a specific lane, which will require a lane-by-lane $\mathbf{VHT}$ and $\mathbf{P_y}$.
+    As before, the extension is straightforward and left as future work.
+
+1. __Ramp Handling__
+
+    Ramps are not assumed to contain DWPT infrastructure, and as such we only include DWPT demand from EVs traveling on mainline segments.
+    This requires an adjustment to the default VHT calculation, which accounts for ramp queue time in each cell's VHT tally.
+
+1. __Tx Pad Power__
+
+    We assume that vehicle headways are always strictly greater than Tx pad length (3 meters in Newbolt et al.).
+    As such, multiple Rx pads do not occupy the same Tx pad at once, and the Tx pad always delivers $\beta'$.
+
+### Validation Plan
+To validate the adapted *mCONV* model, we plan to implement the car-following, multi-lane microsimulation described in [Newbolt 2024b](https://ieeexplore.ieee.org/document/10741859) for a small corridor and run the original *mCONV* over many sampled microscopic trajectories.
+We will compare the resulting DWPT demand profile against one that we generate with a CTM + adapted *mCONV* approach, and confirm that the aggregate behavior is within the modeling tolerances.
