@@ -147,7 +147,7 @@ $$ M_{CTM}[i,j] = \frac{1}{n_i} \text{ if } j \in \text{cell } i, 0 \text{ other
 
 Because $\mathbf{T_R}$ spans $m = n + \delta - 1$ traversal positions while the corridor itself spans $n$ positions, the boundary positions where the Rx pad only partially overlaps the corridor — entering or leaving the DWPT segment — belong to no CTM cell.
 These approach/exit positions receive zero columns in $\mathbf{M_{CTM}}$ (no cell distributes vehicle-hours to them), so the cell rows partition only the on-corridor positions and each row $i$ sums to $1$ over its $n_i$ positions.
-The precise indexing of the boundary positions is fixed in the spatial submodule's implementation; reporting DWPT demand during the approach/exit transient is deferred to future work.
+Concretely, we use a center-reference convention: traversal position $j$ is attributed to the cell containing the Rx-pad center, at corridor position $j - \lfloor (\delta - 1)/2 \rfloor$; the positions whose center falls off-corridor are exactly the zeroed boundary positions. The map is then 1:1 over the $n$ corridor positions, so $n_i$ is the cell's position count and no cell is left empty. Reporting DWPT demand during the approach/exit transient is deferred to future work.
 
 Finally, as in the original *mCONV* method, we assume a constant EV fraction $\eta_{EV}$. 
 

@@ -364,3 +364,41 @@ in `gamma`, and the Fig-4 qualitative shape (layer 3).
 
 **Verify.** `pytest tests/test_dwpt_spatial.py` → 17 passed in 0.07s;
 `tests/test_dwpt_model.py tests/test_dwpt_spatial.py` → 39 passed.
+
+### P3 — 2026-06-10 — M_CTM cell->position map
+
+**Shipped.**
+[`build_M_CTM`](../src/transportation_models/utils/dwpt/mapping.py) in
+`mapping.py` — the `(N, m)` row-partition-of-unity.
+[`tests/test_dwpt_mapping.py`](../tests/test_dwpt_mapping.py): 8 tests —
+hand calcs (symmetric `δ_grid=3`, even-`δ_grid` floor, `δ_grid=1` plain
+partition) plus invariants (shape, rows sum to 1, `n_i` entries each
+`1/n_i`, exactly `δ_grid-1` zeroed boundary columns, one cell per mapped
+column).
+
+**Decision: center-reference convention (Option C), chosen by the user**
+after evaluating three options in
+[`scripts/dwpt_m_ctm_options.ipynb`](../src/transportation_models/scripts/dwpt_m_ctm_options.ipynb).
+Traversal position `j` maps to corridor position `j - off`, where
+`off = (δ_grid - 1)//2` is the floored Rx-pad center; off-corridor centers
+get zero columns. This resolves the long-standing off-by-one (P0 open
+item, spec edit #2): the map is 1:1 over the `n` corridor positions, so
+`n_i = positions_per_cell[i]` exactly (no division by zero) and the
+boundary treatment is symmetric. Signature is grid-integer
+(`positions_per_cell`, `delta_grid`), consistent with P1.
+
+**Implementation assumptions made (not pre-specified by the plan).**
+- **Even `δ_grid` floors the offset.** Newbolt's `δ_grid = 15000` is even,
+  so `off = (δ_grid-1)//2` zeroes one more column at the exit than the
+  approach (a single-position asymmetry, negligible for `n ≫ δ_grid`).
+  Pinned by `test_build_M_CTM_hand_calc_even_delta_floors_offset`.
+
+**Open items raised during build.**
+1. The spec's `M_CTM` paragraph still says the boundary indexing is "fixed
+   in the implementation" (deferred). Now that Option C is chosen, the
+   spec could name the center-reference convention. Left for a spec touch-up
+   so the build stays moving; not blocking.
+
+**Verify.** `pytest tests/test_dwpt_mapping.py` → 8 passed in 0.07s;
+`tests/test_dwpt_model.py tests/test_dwpt_spatial.py tests/test_dwpt_mapping.py`
+→ 47 passed.
