@@ -65,7 +65,7 @@ Entries in $\mathbf{M_{CTM}}$ are determined as shown below, where $n_i$ is the 
 
 $$ M_{CTM}[i,j] = \frac{1}{n_i} \text{ if } j \in \text{cell } i, 0 \text{ otherwise}$$
 
-Finally, as in the original *mCONV* method, we assume a constant EV density rate $\eta_{EV}$. 
+Finally, as in the original *mCONV* method, we assume a constant EV fraction $\eta_{EV}$. 
 
 Armed with $\mathbf{VHT}$, $\mathbf{M_{CTM}}$, and $\eta_{EV}$, we can now compute $\mathbf{E}$, the demand profile for the roadway indexed by time and Rx pad position:
 
@@ -96,12 +96,12 @@ At the same time, by leaving the $\mathbf{P_y}$ construction unchanged, we are a
 1. __Ramp Handling__
 
     Ramps are not assumed to contain DWPT infrastructure, and as such we only include DWPT demand from EVs traveling on mainline segments.
-    This requires an adjustment to the default VHT calculation, which accounts for ramp queue time in each cell's VHT tally.
+    This requires removing ramp queue time from each cell's VHT tally, which is included by default in the CTM's VHT calculation.
 
 1. __Tx Pad Power__
 
-    We assume that vehicle headways are always strictly greater than Tx pad length (3 meters in Newbolt et al.).
-    As such, multiple Rx pads do not occupy the same Tx pad at once, and the Tx pad always delivers $\beta'$.
+    We assume that vehicle headways are always strictly greater than $\alpha + \delta$ (4.5 m using the dimensions from Newbolt 2024a).
+    As such, multiple Rx pads do not occupy the same Tx pad simultaneously, and the Tx pad delivers $\beta'$ to a single vehicle at all times.
 
 ### Validation Plan
 To validate the adapted *mCONV* model, we plan to implement the car-following, multi-lane microsimulation described in [Newbolt 2024b](https://ieeexplore.ieee.org/document/10741859) for a small corridor and run the original *mCONV* over many sampled microscopic trajectories.
