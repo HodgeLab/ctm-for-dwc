@@ -50,3 +50,16 @@ def build_T_R(S_R: np.ndarray, n: int) -> np.ndarray:
     for j in range(n):
         T_R[j : j + delta_grid, j] = S_R
     return T_R
+
+
+def build_P_y(T_R: np.ndarray, S_T: np.ndarray, gamma: float) -> np.ndarray:
+    """Power-vs-position profile over the m traversal positions (Algorithm 3).
+
+    Forms the raw cross-sectional-area profile ``P_A = T_R @ S_T``, then
+    rescales by ``gamma / P_A.max()`` so the peak power equals
+    ``gamma = min(beta, beta_prime)``. The ``/ P_A.max()`` factor is the
+    spec's normalization (``gamma / max(T_R S_T)``); without it the peak
+    overshoots by ``P_A.max()``.
+    """
+    P_A = T_R @ S_T
+    return gamma * P_A / P_A.max()

@@ -10,6 +10,7 @@ verification strategy).
 import numpy as np
 
 from transportation_models.utils.dwpt.spatial import (
+    build_P_y,
     build_S_R,
     build_S_T,
     build_T_R,
@@ -105,3 +106,67 @@ def test_build_T_R_single_position_kernel_is_diagonal():
     S_R = np.array([5.0])
     T_R = build_T_R(S_R, n=3)
     np.testing.assert_array_equal(T_R, 5.0 * np.eye(3))
+
+
+# ---------------------------------------------------------------------------
+# build_P_y  — power-vs-position profile (Algorithm 3)
+# ---------------------------------------------------------------------------
+
+
+def _build_profile(alpha_grid, lambda_grid, delta_grid, n, gamma):
+    """Compose the P1 functions into a P_y, as CorridorSpec.build() will."""
+    S_T = build_S_T(n=n, alpha_grid=alpha_grid, lambda_grid=lambda_grid, beta_prime=1.0)
+    S_R = build_S_R(delta_grid=delta_grid, beta=1.0)
+    T_R = build_T_R(S_R, n=n)
+    return build_P_y(T_R, S_T, gamma)
+
+
+def test_build_P_y_hand_calc_two_pad_profile():
+    """alpha=lambda=delta=2 (grid), n=6: P_A=[1,2,1,0,1,2,1], gamma=10 -> /max=2."""
+    P_y = _build_profile(alpha_grid=2, lambda_grid=2, delta_grid=2, n=6, gamma=10.0)
+    np.testing.assert_allclose(P_y, [5.0, 10.0, 5.0, 0.0, 5.0, 10.0, 5.0])
+
+
+def test_build_P_y_peak_equals_gamma_exactly():
+    """The /max normalization pins the peak to gamma (Newbolt's 150 kW)."""
+    P_y = _build_profile(alpha_grid=3, lambda_grid=1, delta_grid=2, n=12, gamma=150_000.0)
+    assert P_y.max() == 150_000.0
+
+
+def test_build_P_y_never_exceeds_gamma():
+    P_y = _build_profile(alpha_grid=3, lambda_grid=1, delta_grid=2, n=12, gamma=150_000.0)
+    assert np.all(P_y <= 150_000.0)
+
+
+def test_build_P_y_is_nonnegative():
+    P_y = _build_profile(alpha_grid=3, lambda_grid=1, delta_grid=2, n=12, gamma=150_000.0)
+    assert np.all(P_y >= 0.0)
+
+
+def test_build_P_y_scales_linearly_with_gamma():
+    base = _build_profile(alpha_grid=3, lambda_grid=1, delta_grid=2, n=12, gamma=1.0)
+    doubled = _build_profile(alpha_grid=3, lambda_grid=1, delta_grid=2, n=12, gamma=2.0)
+    np.testing.assert_allclose(doubled, 2.0 * base)
+
+
+def test_build_P_y_three_pad_system_matches_fig4_shape():
+    """Newbolt Fig. 4 qualitative match on a coarse 3-pad analog.
+
+    The Table-1 dimensions at dx_grid=0.0001 m make T_R ~41 GB dense, so we
+    use a geometry-preserving coarse analog (alpha > delta, small gap) and
+    assert the qualitative shape: one hump per pad, valleys between, tapered
+    ends, and a peak equal to gamma.
+    """
+    alpha_grid, lambda_grid, delta_grid, n_pads = 3, 1, 2, 3
+    n = n_pads * (alpha_grid + lambda_grid)
+    P_y = _build_profile(alpha_grid, lambda_grid, delta_grid, n, gamma=150_000.0)
+
+    # One hump per Tx pad: count contiguous runs of at-peak positions.
+    on_peak = np.isclose(P_y, P_y.max()).astype(int)
+    n_humps = int((np.diff(np.concatenate([[0], on_peak, [0]])) == 1).sum())
+    assert n_humps == n_pads
+
+    # Valleys between pads dip below the peak, and the ends taper down.
+    assert P_y.min() < P_y.max()
+    assert P_y[0] < P_y.max()
+    assert P_y[-1] < P_y.max()

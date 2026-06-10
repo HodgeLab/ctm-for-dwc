@@ -176,12 +176,54 @@ For each function in P1–P4, **the test comes first**:
   helper provides a long-format `(timestep, position_m, energy_wh)` table
   for joining with other analyses.
 
+## Resolution vs. compute (fundamental tradeoff)
+
+The spatial submodule discretizes the corridor onto a grid of spacing
+`dx_grid`, so the number of positions is `n = corridor_length / dx_grid`.
+**Every** spatial quantity scales with `n`: `S_T`, `S_R`, and `P_y` are
+`O(n)`; `M_CTM` and `E` are `O(N·m)` and `O(T·m)` with `m ≈ n`; a dense
+`T_R` is `O(n·δ_grid)` nonzeros.
+
+The pad geometry forces the grid fine. Newbolt's `λ = 0.1524 m` only
+resolves to integer grid units at `dx_grid = 0.0001 m` (0.1 mm), and at
+that resolution `n` explodes with corridor length:
+
+| Corridor | `dx_grid` | `n` | dense `T_R` (float64) |
+|---|---|---|---|
+| 6.5 m bench | 0.1 mm | 64,572 | ~41 GB |
+| 1 mile | 0.1 mm | ~16 million | infeasible |
+| 10 miles | 0.1 mm | ~160 million | infeasible (even 1-D `P_y` ≈ 1.3 GB) |
+| 10 miles | 10 cm | ~160,000 | small — **but does not resolve `λ`** |
+
+**This is the core bottleneck, and a sparse/`fftconvolve` `T_R` does not
+solve it.** Replacing the dense Toeplitz with a convolution removes the
+`O(n·δ_grid)` materialization, but `n` itself — and therefore `P_y`,
+`M_CTM`, and `E` — still grows linearly with `corridor_length / dx_grid`.
+There is no representation trick that escapes this. We are balancing
+**model resolution against compute/memory**: fidelity to the physical pad
+geometry (small `λ`) drives `dx_grid` down, while usable corridor length
+and runtime drive it up.
+
+Consequences for the build:
+- v0 keeps the dense path for clarity/correctness and validates on small,
+  coarse systems. The P2 layer-3 test uses a coarse analog for exactly
+  this reason — the literal Table-1 dimensions are not testable densely.
+- Before modeling real corridors (P5+) we must (a) move to a convolution
+  path (`fftconvolve`, `O(n log n)`, no dense `T_R`) **and/or** (b)
+  coarsen `dx_grid` and accept a bounded rounding error in pad dimensions
+  (snap `λ` to the grid), trading geometric fidelity for tractability.
+- `dx_grid` is therefore a per-study decision, not a global default:
+  bench validation wants 0.1 mm; a 10-mile grid-impact study may tolerate
+  cm-scale spacing with quantified error.
+
 ## Open items flagged during build
 
 - **`T_R` materialization.** For corridors > ~2 mi the dense `(m, n)`
   Toeplitz is wasteful. Plan: keep the dense path for tests (clarity)
   but expose an `fft_convolve=True` flag on `build_P_y` for production
-  runs. Decide based on profiling at P5.
+  runs. Decide based on profiling at P5. Note this only addresses the
+  `T_R` term — the deeper `n`-scaling limit is the resolution-vs-compute
+  tradeoff above.
 - **`dx_grid` default.** Newbolt's `λ = 0.1524 m` is not a nice round
   number. If we round to mm, the tile won't tessellate cleanly. May
   need to upsample to 0.1 mm or accept a tiny rounding error in the
@@ -291,3 +333,34 @@ off-band zeros, and the `δ_grid = 1` diagonal case.
 `tests/test_dwpt_model.py tests/test_dwpt_spatial.py` → 33 passed.
 Purely additive (no existing module imports `spatial` yet), so no
 regression surface elsewhere.
+
+### P2 — 2026-06-10 — P_y power profile
+
+**Shipped.**
+[`build_P_y`](../src/transportation_models/utils/dwpt/spatial.py) in
+`spatial.py` — implements Newbolt 2024a Algorithm 3:
+`gamma * (T_R @ S_T) / (T_R @ S_T).max()`, so the peak equals
+`gamma = min(beta, beta_prime)`.
+[`tests/test_dwpt_spatial.py`](../tests/test_dwpt_spatial.py): 6 new
+tests — exact two-pad hand-calc (`[5,10,5,0,5,10,5]`), peak-equals-gamma
+(150 kW), `P_y <= gamma` and `P_y >= 0` invariants (layer 2), linearity
+in `gamma`, and the Fig-4 qualitative shape (layer 3).
+
+**Implementation assumptions made (not pre-specified by the plan).**
+- **Layer-3 uses a coarse 3-pad analog, not the literal Table-1 dims.**
+  At the Newbolt example's `dx_grid = 0.0001 m`, `T_R` is
+  ~79571 × 64572 dense float64 ≈ 41 GB — the dense-`T_R` ceiling the
+  plan flags for P5. The shape test therefore uses a geometry-preserving
+  coarse system (`alpha_grid=3 > delta_grid=2`, `lambda_grid=1`, 3 pads)
+  and asserts the qualitative Fig-4 properties (one hump per pad,
+  inter-pad valleys, tapered ends) plus the exact peak height. A
+  faithful full-resolution check waits on the P5 `fftconvolve` path.
+
+**Open items raised during build.**
+1. `build_P_y` divides by `P_A.max()` with no guard for an all-zero
+   `S_T` (`max == 0`). That config is impossible for a real corridor
+   (always has pads) and `CorridorSpec` rejects empty cells, so no guard
+   was added per "no error handling for impossible scenarios."
+
+**Verify.** `pytest tests/test_dwpt_spatial.py` → 17 passed in 0.07s;
+`tests/test_dwpt_model.py tests/test_dwpt_spatial.py` → 39 passed.
