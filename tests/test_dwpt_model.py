@@ -5,9 +5,14 @@ Each test pins one property of ``PadSpec`` or ``CorridorSpec`` from
 ``docs/dwpt_demand_implementation_plan.md`` (plan, P0 row).
 """
 
+import numpy as np
 import pytest
 
-from transportation_models.utils.dwpt.model import CorridorSpec, PadSpec
+from transportation_models.utils.dwpt.model import (
+    CorridorSpec,
+    DemandResult,
+    PadSpec,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -165,3 +170,48 @@ def test_newbolt_small_scale_corridor_holds_three_tiles():
     spec = newbolt_small_scale()
     assert len(spec.cell_lengths_m) == 1
     assert spec.corridor_length_m == pytest.approx(3 * (2.0 + 0.1524))
+
+
+# ---------------------------------------------------------------------------
+# DemandResult
+# ---------------------------------------------------------------------------
+
+
+def _demand_result() -> DemandResult:
+    return DemandResult(
+        E=np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]),  # (T=2, m=3)
+        position_m=np.array([0.0, 0.5, 1.0]),
+        timesteps=np.array([0, 1]),
+    )
+
+
+def test_demand_result_holds_fields():
+    r = _demand_result()
+    assert r.E.shape == (2, 3)
+    np.testing.assert_array_equal(r.position_m, [0.0, 0.5, 1.0])
+    np.testing.assert_array_equal(r.timesteps, [0, 1])
+
+
+def test_demand_result_rejects_timestep_length_mismatch():
+    with pytest.raises(ValueError, match="timesteps"):
+        DemandResult(
+            E=np.zeros((2, 3)), position_m=np.zeros(3), timesteps=np.zeros(5),
+        )
+
+
+def test_demand_result_rejects_position_length_mismatch():
+    with pytest.raises(ValueError, match="position_m"):
+        DemandResult(
+            E=np.zeros((2, 3)), position_m=np.zeros(4), timesteps=np.zeros(2),
+        )
+
+
+def test_demand_result_to_dataframe_is_long_format():
+    df = _demand_result().to_dataframe()
+    assert list(df.columns) == ["timestep", "position_m", "energy_wh"]
+    assert len(df) == 2 * 3
+    np.testing.assert_array_equal(df["timestep"].to_numpy(), [0, 0, 0, 1, 1, 1])
+    np.testing.assert_array_equal(
+        df["position_m"].to_numpy(), [0.0, 0.5, 1.0, 0.0, 0.5, 1.0]
+    )
+    np.testing.assert_array_equal(df["energy_wh"].to_numpy(), [1, 2, 3, 4, 5, 6])

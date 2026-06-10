@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import numpy as np
+
 # Float tolerance for "is ``value`` an integer multiple of ``dx_grid``?"
 # checks. ~1e-6 is comfortably above float64 round-trip noise for the
 # scales we care about (meters, sub-millimeter grids).
@@ -132,6 +134,51 @@ class CorridorSpec:
     def positions_per_cell(self) -> tuple[int, ...]:
         return tuple(
             round(length / self.dx_grid) for length in self.cell_lengths_m
+        )
+
+
+@dataclass(frozen=True)
+class DemandResult:
+    """Spatiotemporal DWPT demand: ``E`` (Wh) indexed by (timestep, position).
+
+    Parameters
+    ----------
+    E : ndarray (T, m)
+        Energy in watt-hours; rows are timesteps, columns Rx-pad positions.
+    position_m : ndarray (m,)
+        Column position labels, meters.
+    timesteps : ndarray (T,)
+        Row labels (timestep index).
+    """
+
+    E: np.ndarray
+    position_m: np.ndarray
+    timesteps: np.ndarray
+
+    def __post_init__(self) -> None:
+        if self.E.ndim != 2:
+            raise ValueError(f"E must be 2-D (T, m), got shape {self.E.shape}")
+        n_t, n_m = self.E.shape
+        if self.timesteps.shape != (n_t,):
+            raise ValueError(
+                f"timesteps must have length T={n_t}, got {self.timesteps.shape}"
+            )
+        if self.position_m.shape != (n_m,):
+            raise ValueError(
+                f"position_m must have length m={n_m}, got {self.position_m.shape}"
+            )
+
+    def to_dataframe(self):
+        """Long-format ``(timestep, position_m, energy_wh)`` table."""
+        import pandas as pd
+
+        n_t, n_m = self.E.shape
+        return pd.DataFrame(
+            {
+                "timestep": np.repeat(self.timesteps, n_m),
+                "position_m": np.tile(self.position_m, n_t),
+                "energy_wh": self.E.ravel(),
+            }
         )
 
 

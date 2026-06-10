@@ -402,3 +402,35 @@ boundary treatment is symmetric. Signature is grid-integer
 **Verify.** `pytest tests/test_dwpt_mapping.py` → 8 passed in 0.07s;
 `tests/test_dwpt_model.py tests/test_dwpt_spatial.py tests/test_dwpt_mapping.py`
 → 47 passed.
+
+### P4 — 2026-06-10 — compute_demand + DemandResult
+
+**Shipped.**
+[`compute_demand`](../src/transportation_models/utils/dwpt/demand.py) in
+`demand.py` — `eta_EV * (VHT.T @ M_CTM) * P_y`, shape `(T, m)` in Wh.
+[`DemandResult`](../src/transportation_models/utils/dwpt/model.py) in
+`model.py` — frozen container holding `E` (Wh), `position_m`, `timesteps`,
+with shape validation and a `to_dataframe()` long-format helper; exported
+from the package `__init__`.
+[`tests/test_dwpt_demand.py`](../tests/test_dwpt_demand.py): 7 tests —
+single-cell hand calc, shape, the energy-conservation identity (checked
+against a per-cell mean power computed directly from `P_y`), linearity in
+`eta_EV` and `VHT`, non-negativity, and zero-where-`VHT`-zero.
+4 `DemandResult` tests added to `tests/test_dwpt_model.py`.
+
+**Scope decision (user): container only; orchestrator deferred to P5.**
+P4 delivers `compute_demand` + the `DemandResult` container. The
+`compute(VHT, corridor)` orchestrator, `CorridorSpec.build_P_y()`, and the
+center-reference `position_m` derivation move to P5, where they pair with
+the CTM adapter (`from_ctm`).
+
+**Implementation assumptions made (not pre-specified by the plan).**
+- `compute_demand` is a pure array function with no `eta_EV ∈ [0,1]` or
+  shape validation; that guarding lives at the `compute()` orchestrator
+  boundary (P5). Units assume `VHT` in vehicle-hours so `E` is in Wh.
+- `to_dataframe` imports pandas lazily so importing `PadSpec`/`CorridorSpec`
+  does not pull in pandas.
+
+**Verify.** `pytest tests/test_dwpt_demand.py` → 7 passed; full DWPT suite
+(`test_dwpt_model.py test_dwpt_spatial.py test_dwpt_mapping.py
+test_dwpt_demand.py`) → 58 passed.
