@@ -65,7 +65,5 @@ def compute(
     P_y = corridor.build_P_y()
     E = compute_demand(VHT, M_CTM, P_y, eta_EV)
 
-    off = (corridor.delta_grid - 1) // 2
-    position_m = (np.arange(corridor.m_traversal) - off) * corridor.dx_grid
     timesteps = np.arange(VHT.shape[1])
-    return DemandResult(E=E, position_m=position_m, timesteps=timesteps)
+    return DemandResult(E=E, position_m=corridor.position_m, timesteps=timesteps)

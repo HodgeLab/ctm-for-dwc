@@ -476,3 +476,36 @@ end-to-end smoke test on the four-cell CTM run (Kurzhanskiy §3.4).
 
 **Verify.** `pytest tests/test_dwpt_compute.py tests/test_dwpt_adapter.py`
 → 10 passed; full DWPT suite (6 files) → 68 passed.
+
+### P6 — 2026-06-10 — demo script + plotting
+
+**Shipped.**
+- [`plots.py`](../src/transportation_models/utils/dwpt/plots.py):
+  `plot_P_y` (power-vs-position) and `plot_demand_heatmap`
+  (E space-time heatmap), following the `ctm/plots.py` convention
+  (data + keyword-only `out_path`, save at 120 dpi, close).
+- [`scripts/run_dwpt_demand_demo.py`](../scripts/run_dwpt_demand_demo.py):
+  four-cell CTM run -> `compute` -> both plots; run via
+  `python scripts/run_dwpt_demand_demo.py`. Lives in the repo-root `scripts/`
+  (the CTM module's entrypoint convention), **not** in the package — only
+  importable library code belongs under `src/`.
+[`tests/test_dwpt_plots.py`](../tests/test_dwpt_plots.py): 4 tests
+(`position_m` property, `corridor_from_ctm` snapping, two plot smoke
+tests under the Agg backend). The demo entrypoint is not unit-tested
+(its pieces are), matching the CTM convention for runnable scripts.
+
+**Small refactors folded in (DRY).**
+- Added `CorridorSpec.position_m` property (center-reference); `compute`
+  now uses it instead of recomputing the offset inline.
+- Extracted `corridor_from_ctm(result, pad, dx_grid)` from `from_ctm` so
+  the demo (and callers) can get the snapped corridor without duplicating
+  the miles->grid logic. Exported from `__init__`.
+
+**Visual check.** Ran the demo for real: `P_y` oscillates 150 kW (peak =
+gamma) to 75 kW (gap valleys, overlap 2->1 at `delta_grid=2`); the heatmap
+shows the pad striping, per-cell VHT bands, and the empty-start fill-in
+transient (downstream cells dark until vehicles arrive). Both sensible.
+
+**Verify.** `pytest tests/test_dwpt_plots.py` → 4 passed;
+`python scripts/run_dwpt_demand_demo.py` writes two PNGs; full DWPT suite
+(7 files) → 72 passed.

@@ -7,7 +7,7 @@ outputs and produce a spatiotemporal DWPT demand profile.
 - Plan: ``docs/dwpt_demand_implementation_plan.md``
 """
 
-from .adapter import from_ctm
+from .adapter import corridor_from_ctm, from_ctm
 from .demand import compute
 from .model import CorridorSpec, DemandResult, PadSpec
 
@@ -16,5 +16,6 @@ __all__ = [
     "DemandResult",
     "PadSpec",
     "compute",
+    "corridor_from_ctm",
     "from_ctm",
 ]

@@ -136,6 +136,16 @@ class CorridorSpec:
             round(length / self.dx_grid) for length in self.cell_lengths_m
         )
 
+    @property
+    def position_m(self) -> np.ndarray:
+        """Column position labels (meters), center-reference convention.
+
+        ``position_m[j] = (j - off) * dx_grid`` with ``off = (delta_grid-1)//2``;
+        off-corridor boundary positions get out-of-``[0, L)`` labels.
+        """
+        off = (self.delta_grid - 1) // 2
+        return (np.arange(self.m_traversal) - off) * self.dx_grid
+
     def build_P_y(self) -> np.ndarray:
         """Power-vs-position profile for this corridor (spatial submodule).
 

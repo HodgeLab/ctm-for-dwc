@@ -33,6 +33,22 @@ def mainline_vht(result: SimulationResult) -> np.ndarray:
     return rho * L[:, None] * result.freeway.dt
 
 
+def corridor_from_ctm(
+    result: SimulationResult, pad_spec: PadSpec, dx_grid: float
+) -> CorridorSpec:
+    """Build a ``CorridorSpec`` from the CTM freeway geometry.
+
+    Cell lengths (miles -> meters) are snapped to the nearest ``dx_grid``
+    multiple so the corridor satisfies the spatial submodule's integer-grid
+    requirement (error <= ``dx_grid``/2 per cell).
+    """
+    L_m = np.array([c.length for c in result.freeway.cells]) * _METERS_PER_MILE
+    cell_lengths_m = tuple((np.round(L_m / dx_grid) * dx_grid).tolist())
+    return CorridorSpec(
+        cell_lengths_m=cell_lengths_m, pad=pad_spec, dx_grid=dx_grid
+    )
+
+
 def from_ctm(
     result: SimulationResult,
     pad_spec: PadSpec,
@@ -41,14 +57,7 @@ def from_ctm(
 ) -> DemandResult:
     """Assemble DWPT demand from a CTM ``SimulationResult``.
 
-    Cell lengths (miles -> meters) are snapped to the nearest ``dx_grid``
-    multiple so the corridor satisfies the spatial submodule's integer-grid
-    requirement (error <= ``dx_grid``/2 per cell). Mainline (queue-free) VHT
-    drives the demand.
+    Mainline (queue-free) VHT drives the demand over the snapped corridor.
     """
-    L_m = np.array([c.length for c in result.freeway.cells]) * _METERS_PER_MILE
-    cell_lengths_m = tuple((np.round(L_m / dx_grid) * dx_grid).tolist())
-    corridor = CorridorSpec(
-        cell_lengths_m=cell_lengths_m, pad=pad_spec, dx_grid=dx_grid
-    )
+    corridor = corridor_from_ctm(result, pad_spec, dx_grid)
     return compute(mainline_vht(result), corridor, eta_EV)
