@@ -72,8 +72,13 @@ Pure functions, NumPy-only:
 3. **`build_T_R(S_R, n) -> ndarray (m, n)`** — Toeplitz of `S_R` over an
    `(n + δ_grid - 1) × n` band, mimicking Rx traversal. (Spec eq. for
    $\mathbf{T_R}$.)
-4. **`build_P_y(T_R, S_T, gamma) -> ndarray (m,)`** — `gamma · T_R @ S_T`
-   with `gamma = min(beta, beta_prime)`. (Spec eq. for $\mathbf{P_y}$.)
+4. **`build_P_y(T_R, S_T, gamma) -> ndarray (m,)`** — implements Newbolt
+   Algorithm 3: form the raw area profile `P_A = T_R @ S_T`, then return
+   `gamma * P_A / P_A.max()` so the peak equals `gamma = min(beta,
+   beta_prime)`. The `/ P_A.max()` normalization **is** the spec's
+   $\gamma = \min(\beta,\beta')/\max(\mathbf{T_R}\mathbf{S_T})$ — do not drop
+   it, or the peak overshoots by a factor of `P_A.max()`. (Spec eq. for
+   $\mathbf{P_y}$; Algorithm 3.)
 5. **`build_M_CTM(cell_lengths_m, n_corridor, dx_grid, m_traversal,
    approach_positions) -> ndarray (N, m)`** — row-partition-of-unity:
    `M[i, j] = 1/n_i` for `j` in cell `i`, else 0. Approach/exit positions
@@ -93,8 +98,9 @@ a top-level `compute(VHT, corridor) -> DemandResult` composes 5–6.
    - `build_S_T` with 2 tiles → exact bit pattern.
    - `build_T_R` with `δ_grid=3, n=4` → check banded-Toeplitz entries
      directly.
-   - `build_P_y` with `α=2, δ=2, λ=2` (toy units) → triangular peaks of
-     known height.
+   - `build_P_y` with `α=2, δ=2, λ=2` (toy units) → triangular peaks whose
+     height equals `gamma` exactly (the `/ P_A.max()` normalization pins the
+     peak) with valleys of known fraction between.
    - `build_M_CTM` with 2 cells of 4 and 6 positions → row sums to 1,
      entries `0.25` and `0.1667`.
    - `compute_demand` with constant `VHT` and constant `P_y` on 1 cell →

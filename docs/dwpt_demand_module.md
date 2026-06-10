@@ -15,14 +15,92 @@ The physical layout of the Tx infrastructure along a DWPT corridor of length $n$
 Without loss of generality, $\mathbf{S_T}$ may be constructed by repetition of a single "tile" describing a Tx pad of length $\alpha$ and gap distance $\lambda$.
 
 Discrete convolution of $\mathbf{S_R}$ with $\mathbf{S_T}$ can be expressed by matrix multiplication after conversion of $\mathbf{S_R}$ into a Toeplitz matrix $\mathbf{T_R} \in \mathbb{R} ^ {m \times n}$, where $m$ is the number of available positions for an Rx pad on a vehicle traversing the corridor.
-Multiplication by a factor $\gamma$, which converts spatial overlap to power transfer, produces the position-dependent power profile $\mathbf{P_y} \in \mathbb{R}^{m \times 1}$.
-Physically, $\gamma$ represents the minimum of the Tx and Rx pad power, $\gamma = min(\beta, \beta').$
+Multiplication by a fitting factor $\gamma$, which converts the cross-sectional overlap area into power, produces the position-dependent power profile $\mathbf{P_y} \in \mathbb{R}^{m \times 1}$.
+Following Newbolt 2024a (Algorithm 3, reproduced below), $\gamma$ normalizes the convolution by its peak so that the maximum delivered power equals the smaller of the two pad capacities:
+
+$$ \gamma = \frac{\min(\beta, \beta')}{\max(\mathbf{T_R}\,\mathbf{S_T})}, \qquad \max(\mathbf{P_y}) = \min(\beta, \beta').$$
+
+Physically, this caps the link at $\min(\beta, \beta')$ — power transfer is limited by whichever pad, Tx or Rx, has the lower rated capacity.
 
 $$\mathbf{P_y} = \gamma \mathbf{T_R}  \mathbf{S_T}$$
 
-For reference, see the image below from Newbolt et al. Note that, for reasons that will soon become clear, we have named the conversion factor $\gamma$, whereas in the figure it is indicated by $\rho$.
+For reference, see the image below from Newbolt 2024a. 
+Note that we have renamed the paper's conversion factor $\rho$ to $\gamma$; we reserve the symbol $\rho$ for traffic density in the adapted method (see the $\mathbf{VHT}$ definition below).
 
 ![mCONV_image](mCONV.png)
+
+### Reference Algorithms (Newbolt 2024a)
+The spatial submodule reproduces the three algorithms of the conventional
+*mCONV* method, which are restated here for completeness.
+The pseudocode is transcribed from Newbolt 2024a (§II-C) with additional comments.
+
+> **Notation bridge.** The paper's power-output fitting variable $\rho$
+> (Algorithm 3) is what we call $\gamma$ throughout this document — we reserve
+> $\rho$ for traffic density. The overlap-percentage term $\epsilon$
+> (Algorithm 1) accounts for lateral Tx–Rx misalignment; under our **Tx Pad
+> Power** assumption we take $\epsilon = 1$ (full lateral overlap).
+
+**Algorithm 1 — Produce DWPT transmitter pad profile $\mathbf{S_T}$**
+```
+Input:  network dimensions (α, λ, n), Tx capacity β′
+Output: transmitter pad profile S_T  (length n)
+ 1: for i = 1 to (α + λ) do            # one tile = pad + gap
+ 2:     if i ≤ α then                  # within the Tx pad
+ 3:         temp(i) = β′
+ 4:     else                           # within the gap
+ 5:         temp(i) = 0
+ 6:     end if
+ 7: end for
+ 8: N = (n + 1) / size(temp)           # tiles needed to fill the corridor
+ 9: ε = ones(N, 1)                     # per-pad lateral-overlap percentage
+10: for j = 1 to N do
+11:     if size(S_T, 1) > n then break
+12:     else S_T = [ S_T ; temp · ε(j) ]
+13:     end if
+14: end for
+15: return S_T
+```
+
+**Algorithm 2 — Produce mCONV matrix $\mathbf{T_R}$**
+```
+Input:  transmitter profile S_T (length n), Rx capacity β, Rx length δ
+Output: modified Toeplitz matrix T_R
+ 1: S_R = zeros(δ, 1)
+ 2: for i = 1 to δ do
+ 3:     S_R(i) = β                     # constant-magnitude Rx kernel
+ 4: end for
+ 5: T_R = eye(n, n)                     # scaffold; overwritten below
+ 6: for j = 1 to n do
+ 7:     x = 0
+ 8:     for k = 1 to δ do
+ 9:         T_R(j + x, j) = S_R(k)      # slide the kernel down each column
+10:         x = x + 1
+11:     end for
+12: end for
+13: T_R(end + 1, :) = zeros(1, n)       # trailing position past the corridor
+14: return T_R
+```
+
+**Algorithm 3 — Produce DWPT output power profile $\mathbf{P_y}$**
+```
+Input:  transmitter profile S_T, mCONV matrix T_R, capacities β, β′
+Output: power-output profile P_y
+ 1: P_A = T_R · S_T                      # raw cross-sectional-area profile
+ 2: peak = max(P_A)
+ 3: if β ≥ β′ then
+ 4:     ρ = β′ / peak                    # (ρ ≡ γ in this document)
+ 5: else
+ 6:     ρ = β / peak
+ 7: end if
+ 8: return (T_R · S_T) · ρ               # = P_y, with max(P_y) = min(β, β′)
+```
+
+Algorithm 3 makes the normalization explicit: $P_A = \mathbf{T_R}\mathbf{S_T}$
+is the raw cross-sectional-area profile, and $\rho\;(=\gamma) =
+\min(\beta,\beta') / \max(P_A)$ rescales it so the peak equals
+$\min(\beta,\beta')$. Algorithm 2 yields $\mathbf{T_R}$ with $m = n + \delta - 1$
+traversal positions (the paper appends one trailing zero row); the first and
+last positions correspond to the Rx pad entering and leaving the corridor.
 
 ### Temporal Dependence
 Assume that a vehicle's velocity $\mathbf{v} \in \mathbb{R}^{m \times 1}$ along the corridor $\mathbf{x} \in \mathbb{R}^{m \times 1}$ is known (e.g., through a traffic simulation module).
@@ -54,6 +132,8 @@ This is a $N \times T$ matrix, where $N$ is the number of cells and $T$ is the n
 $$ VHT[i,k] = \rho[i,k] \Delta x[i] \Delta t $$
 
 Each row in $\mathbf{VHT}$ describes a timeseries of vehicle-hours-traveled within a given cell in the CTM, while each column describes the vehicle-hours-traveled on the freeway at a given moment in time.
+Here $\rho[i,k]$ is the traffic density in cell $i$ at timestep $k$ — the symbol freed up by renaming the spatial conversion factor to $\gamma$.
+Per the **Ramp Handling** assumption below, the ramp-queue contribution that the CTM includes in $\mathbf{VHT}$ by default must be removed, so that only mainline vehicle-hours drive DWPT demand.
 
 The power-vs-position profile $\mathbf{P_y}$ that we generate in the spatial dependence submodule maps the power generated by a single Rx pad as it traverses the set of positions along the roadway.
 To relate $\mathbf{VHT}$ to $\mathbf{P_y}$, we require a mapping between Rx pad position and cell index, which we call $\mathbf{M_{CTM}}$.
@@ -64,6 +144,10 @@ For this purpose, we must assume that all vehicles move through the cell with un
 Entries in $\mathbf{M_{CTM}}$ are determined as shown below, where $n_i$ is the number of Rx pad positions included in cell $i$.
 
 $$ M_{CTM}[i,j] = \frac{1}{n_i} \text{ if } j \in \text{cell } i, 0 \text{ otherwise}$$
+
+Because $\mathbf{T_R}$ spans $m = n + \delta - 1$ traversal positions while the corridor itself spans $n$ positions, the boundary positions where the Rx pad only partially overlaps the corridor — entering or leaving the DWPT segment — belong to no CTM cell.
+These approach/exit positions receive zero columns in $\mathbf{M_{CTM}}$ (no cell distributes vehicle-hours to them), so the cell rows partition only the on-corridor positions and each row $i$ sums to $1$ over its $n_i$ positions.
+The precise indexing of the boundary positions is fixed in the spatial submodule's implementation; reporting DWPT demand during the approach/exit transient is deferred to future work.
 
 Finally, as in the original *mCONV* method, we assume a constant EV fraction $\eta_{EV}$. 
 
@@ -105,4 +189,7 @@ At the same time, by leaving the $\mathbf{P_y}$ construction unchanged, we are a
 
 ### Validation Plan
 To validate the adapted *mCONV* model, we plan to implement the car-following, multi-lane microsimulation described in [Newbolt 2024b](https://ieeexplore.ieee.org/document/10741859) for a small corridor and run the original *mCONV* over many sampled microscopic trajectories.
-We will compare the resulting DWPT demand profile against one that we generate with a CTM + adapted *mCONV* approach, and confirm that the aggregate behavior is within the modeling tolerances.
+We will compare the resulting DWPT demand profile against one that we generate with a CTM + adapted *mCONV* approach. Acceptance criteria:
+
+1. __Uniform-density limit__ — when density and velocity are constant within each cell, the adaptation is exact. Corridor-aggregate energy must agree with the microscopic computation to numerical tolerance (relative error $< 10^{-6}$).
+2. __Non-uniform regimes__ — the two methods diverge because $\mathbf{M_{CTM}}$ assumes uniform within-cell occupancy. We will report this divergence as a function of the within-cell density/velocity gradient and confirm it stays within a stated bound (provisional target: aggregate-energy relative error $< 5\%$ for realistic CTM density profiles; to be confirmed against the use case).
