@@ -102,6 +102,14 @@ $\min(\beta,\beta')$. Algorithm 2 yields $\mathbf{T_R}$ with $m = n + \delta - 1
 traversal positions (the paper appends one trailing zero row); the first and
 last positions correspond to the Rx pad entering and leaving the corridor.
 
+**Implementation note.** The product $\mathbf{T_R}\mathbf{S_T}$ is a discrete
+convolution, $P_A = \mathbf{S_R} * \mathbf{S_T}$ — the dense Toeplitz form is
+the paper's exposition, not a computational requirement. Our implementation
+forms $P_A$ directly (`np.convolve`, or `scipy.signal.fftconvolve` for large
+kernels) in $O(n)$ memory; the dense $\mathbf{T_R}$ is materialized only to
+reproduce the original mCONV exactly. See the implementation plan's
+"Resolution vs. compute" section.
+
 ### Temporal Dependence
 Assume that a vehicle's velocity $\mathbf{v} \in \mathbb{R}^{m \times 1}$ along the corridor $\mathbf{x} \in \mathbb{R}^{m \times 1}$ is known (e.g., through a traffic simulation module).
 In that case, we can calculate the time spent by the vehicle at each position $x_j \forall j \in [0, m] $ along the roadway as 

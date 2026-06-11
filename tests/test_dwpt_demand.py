@@ -13,7 +13,6 @@ from transportation_models.utils.dwpt.spatial import (
     build_P_y,
     build_S_R,
     build_S_T,
-    build_T_R,
 )
 
 
@@ -22,7 +21,7 @@ def _profile(ppc, alpha_grid, lambda_grid, delta_grid, gamma):
     n = sum(ppc)
     S_T = build_S_T(n=n, alpha_grid=alpha_grid, lambda_grid=lambda_grid, beta_prime=1.0)
     S_R = build_S_R(delta_grid=delta_grid, beta=1.0)
-    P_y = build_P_y(build_T_R(S_R, n=n), S_T, gamma)
+    P_y = build_P_y(S_T, S_R, gamma)
     M = build_M_CTM(positions_per_cell=ppc, delta_grid=delta_grid)
     return M, P_y
 

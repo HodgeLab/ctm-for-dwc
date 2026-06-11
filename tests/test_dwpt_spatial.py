@@ -8,6 +8,7 @@ verification strategy).
 """
 
 import numpy as np
+import pytest
 
 from transportation_models.utils.dwpt.spatial import (
     build_P_y,
@@ -117,8 +118,7 @@ def _build_profile(alpha_grid, lambda_grid, delta_grid, n, gamma):
     """Compose the P1 functions into a P_y, as CorridorSpec.build() will."""
     S_T = build_S_T(n=n, alpha_grid=alpha_grid, lambda_grid=lambda_grid, beta_prime=1.0)
     S_R = build_S_R(delta_grid=delta_grid, beta=1.0)
-    T_R = build_T_R(S_R, n=n)
-    return build_P_y(T_R, S_T, gamma)
+    return build_P_y(S_T, S_R, gamma)
 
 
 def test_build_P_y_hand_calc_two_pad_profile():
@@ -170,3 +170,32 @@ def test_build_P_y_three_pad_system_matches_fig4_shape():
     assert P_y.min() < P_y.max()
     assert P_y[0] < P_y.max()
     assert P_y[-1] < P_y.max()
+
+
+def test_build_P_y_methods_agree():
+    """convolve, fft, and the dense toeplitz reference give the same P_y."""
+    S_T = build_S_T(n=60, alpha_grid=4, lambda_grid=2, beta_prime=3.0)
+    S_R = build_S_R(delta_grid=5, beta=2.0)
+    ref = build_P_y(S_T, S_R, gamma=10.0, method="toeplitz")
+    for method in ("convolve", "fft", "auto"):
+        # atol covers fft float noise (~1e-15) at the exact-zero end positions.
+        np.testing.assert_allclose(
+            build_P_y(S_T, S_R, gamma=10.0, method=method), ref, atol=1e-9
+        )
+
+
+def test_build_P_y_scales_without_dense_matrix():
+    """A 200k-position corridor runs via convolution; a dense T_R would be ~320 GB."""
+    n, delta_grid = 200_000, 3
+    S_T = build_S_T(n=n, alpha_grid=7, lambda_grid=1, beta_prime=150_000.0)
+    S_R = build_S_R(delta_grid=delta_grid, beta=150_000.0)
+    P_y = build_P_y(S_T, S_R, gamma=150_000.0)  # auto -> convolve (small kernel)
+    assert P_y.shape == (n + delta_grid - 1,)
+    assert P_y.max() == 150_000.0
+
+
+def test_build_P_y_rejects_unknown_method():
+    S_T = build_S_T(n=10, alpha_grid=2, lambda_grid=1, beta_prime=1.0)
+    S_R = build_S_R(delta_grid=2, beta=1.0)
+    with pytest.raises(ValueError, match="method"):
+        build_P_y(S_T, S_R, 1.0, method="bogus")

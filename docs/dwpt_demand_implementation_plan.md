@@ -72,13 +72,16 @@ Pure functions, NumPy-only:
 3. **`build_T_R(S_R, n) -> ndarray (m, n)`** — Toeplitz of `S_R` over an
    `(n + δ_grid - 1) × n` band, mimicking Rx traversal. (Spec eq. for
    $\mathbf{T_R}$.)
-4. **`build_P_y(T_R, S_T, gamma) -> ndarray (m,)`** — implements Newbolt
-   Algorithm 3: form the raw area profile `P_A = T_R @ S_T`, then return
-   `gamma * P_A / P_A.max()` so the peak equals `gamma = min(beta,
+4. **`build_P_y(S_T, S_R, gamma, *, method="auto") -> ndarray (m,)`** —
+   implements Newbolt Algorithm 3: form the raw area profile
+   `P_A = S_R * S_T` (a convolution — same quantity as `T_R @ S_T`), then
+   return `gamma * P_A / P_A.max()` so the peak equals `gamma = min(beta,
    beta_prime)`. The `/ P_A.max()` normalization **is** the spec's
    $\gamma = \min(\beta,\beta')/\max(\mathbf{T_R}\mathbf{S_T})$ — do not drop
-   it, or the peak overshoots by a factor of `P_A.max()`. (Spec eq. for
-   $\mathbf{P_y}$; Algorithm 3.)
+   it, or the peak overshoots by a factor of `P_A.max()`. `method` is
+   `auto` (convolve for small kernels, fft for large) / `convolve` / `fft` /
+   `toeplitz` (the dense reference). (Spec eq. for $\mathbf{P_y}$;
+   Algorithm 3; Resolution-vs-compute.)
 5. **`build_M_CTM(cell_lengths_m, n_corridor, dx_grid, m_traversal,
    approach_positions) -> ndarray (N, m)`** — row-partition-of-unity:
    `M[i, j] = 1/n_i` for `j` in cell `i`, else 0. Approach/exit positions
@@ -161,12 +164,11 @@ For each function in P1–P4, **the test comes first**:
 
 ## Defaults chosen (override if needed)
 
-- **NumPy-only core** (no PyTorch / no sparse libs in v0). `T_R` is
-  built dense; for the scale of corridors we model (≤ 10 mi, `dx_grid` ~
-  0.1 m → `n` ~ 160 000 cells of `S_T`), this stays well under 1 GB if
-  we use `float32` and avoid materializing `T_R` for the multiplication
-  (compute `T_R @ S_T` via stride tricks or `scipy.signal.fftconvolve`).
-  **Revisit if memory bites.**
+- **NumPy core; scipy for the fft path.** `build_P_y` forms `P_A` by
+  convolution and never materializes `T_R`: `np.convolve` for small kernels,
+  `scipy.signal.fftconvolve` for large ones (`method="auto"` picks). This
+  keeps memory `O(n)` at any corridor length (see Resolution-vs-compute);
+  `scipy` is imported lazily, only on the fft path.
 - **Position grid `dx_grid` defaults to `gcd(alpha, delta, lambda_gap)`**
   rounded to the nearest mm — guarantees integer-position pad dimensions.
 - **Units convention:** all lengths in meters, all powers in watts inside
@@ -176,54 +178,58 @@ For each function in P1–P4, **the test comes first**:
   helper provides a long-format `(timestep, position_m, energy_wh)` table
   for joining with other analyses.
 
-## Resolution vs. compute (fundamental tradeoff)
+## Resolution vs. compute
 
 The spatial submodule discretizes the corridor onto a grid of spacing
 `dx_grid`, so the number of positions is `n = corridor_length / dx_grid`.
-**Every** spatial quantity scales with `n`: `S_T`, `S_R`, and `P_y` are
-`O(n)`; `M_CTM` and `E` are `O(N·m)` and `O(T·m)` with `m ≈ n`; a dense
-`T_R` is `O(n·δ_grid)` nonzeros.
+The one quantity that blew up — a **dense** `T_R` — is `O(n²)`, and it was
+the real bottleneck. But it is an **avoidable artifact**: `P_A = T_R @ S_T`
+is exactly the discrete convolution `S_R * S_T`, so `build_P_y` forms it
+directly (`np.convolve` / `scipy.signal.fftconvolve`) in `O(n)` memory and
+never materializes the matrix. `build_T_R` is kept only to reproduce the
+original mCONV exactly (`method="toeplitz"`).
 
-The pad geometry forces the grid fine. Newbolt's `λ = 0.1524 m` only
-resolves to integer grid units at `dx_grid = 0.0001 m` (0.1 mm), and at
-that resolution `n` explodes with corridor length:
+What remains scales **linearly** in `n`, with small constants: `P_y` and
+`S_T` are `O(n)` vectors (~100 KB even at 4 mi / 0.5 m); `E = (T, m)` is
+`O(T·n)` — the demand profile itself, aggregable to per-pad / per-feeder
+demand if `m` is large. There is no quadratic wall once the dense `T_R` is
+gone.
 
-| Corridor | `dx_grid` | `n` | dense `T_R` (float64) |
-|---|---|---|---|
-| 6.5 m bench | 0.1 mm | 64,572 | ~41 GB |
-| 1 mile | 0.1 mm | ~16 million | infeasible |
-| 10 miles | 0.1 mm | ~160 million | infeasible (even 1-D `P_y` ≈ 1.3 GB) |
-| 10 miles | 10 cm | ~160,000 | small — **but does not resolve `λ`** |
+**Benchmark** (`scripts/benchmark_dwpt_convolution.py`; Rx pad δ = 1.5 m,
+kernel = round(δ/dx); time to form `P_A`):
 
-**This is the core bottleneck, and a sparse/`fftconvolve` `T_R` does not
-solve it.** Replacing the dense Toeplitz with a convolution removes the
-`O(n·δ_grid)` materialization, but `n` itself — and therefore `P_y`,
-`M_CTM`, and `E` — still grows linearly with `corridor_length / dx_grid`.
-There is no representation trick that escapes this. We are balancing
-**model resolution against compute/memory**: fidelity to the physical pad
-geometry (small `λ`) drives `dx_grid` down, while usable corridor length
-and runtime drive it up.
+| corridor | resolution | n | kernel | np.convolve | fftconvolve | dense `T_R` |
+|---|---|---|---|---|---|---|
+| 1 mi | 0.5 m | 3.2 K | 3 | 0.00 ms | 0.06 ms | 7.0 ms |
+| 50 mi | 0.5 m | 161 K | 3 | 0.08 ms | 2.3 ms | OOM (207 GB) |
+| 50 mi | 0.1 m | 805 K | 15 | 5.4 ms | 12 ms | OOM (5.2 TB) |
+| 10 mi | 0.01 m | 1.6 M | 150 | 34 ms | 29 ms | OOM (21 TB) |
+| 1 mi | 0.001 m | 1.6 M | 1500 | 446 ms | 30 ms | OOM (21 TB) |
+| 12 m bench | 0.1 mm | 120 K | 15000 | 409 ms | 1.9 ms | OOM (130 GB) |
+
+Reading: the dense `T_R` is OOM beyond a 1-mile coarse corridor;
+`np.convolve` wins for small kernels (coarse grids), `fftconvolve` wins for
+large kernels (fine grids — Newbolt fidelity: 1.9 ms vs 409 ms). The
+crossover sits near a kernel of ~150–256 grid units, which is why
+`build_P_y(method="auto")` switches to `fft` above `len(S_R) > 256`.
 
 Consequences for the build:
-- v0 keeps the dense path for clarity/correctness and validates on small,
-  coarse systems. The P2 layer-3 test uses a coarse analog for exactly
-  this reason — the literal Table-1 dimensions are not testable densely.
-- Before modeling real corridors (P5+) we must (a) move to a convolution
-  path (`fftconvolve`, `O(n log n)`, no dense `T_R`) **and/or** (b)
-  coarsen `dx_grid` and accept a bounded rounding error in pad dimensions
-  (snap `λ` to the grid), trading geometric fidelity for tractability.
-- `dx_grid` is therefore a per-study decision, not a global default:
-  bench validation wants 0.1 mm; a 10-mile grid-impact study may tolerate
-  cm-scale spacing with quantified error.
+- `build_P_y` defaults to `method="auto"` (convolve for coarse grids, fft
+  for fine), with `convolve` / `fft` / `toeplitz` selectable for comparison
+  and exact reproduction.
+- `dx_grid` stays a per-study choice — fidelity to small `λ` drives it down;
+  output size (`E`) and the snap-to-grid rounding set practical bounds — but
+  it is no longer gated by a quadratic `T_R`.
+- For very large `(T, m)` outputs, aggregate `E` / `P_y` to per-pad demand
+  (a future output-format option, out of scope for the convolution change).
 
 ## Open items flagged during build
 
-- **`T_R` materialization.** For corridors > ~2 mi the dense `(m, n)`
-  Toeplitz is wasteful. Plan: keep the dense path for tests (clarity)
-  but expose an `fft_convolve=True` flag on `build_P_y` for production
-  runs. Decide based on profiling at P5. Note this only addresses the
-  `T_R` term — the deeper `n`-scaling limit is the resolution-vs-compute
-  tradeoff above.
+- **`T_R` materialization — resolved.** `build_P_y` now convolves directly
+  (`method="auto"`, `O(n)` memory); the dense `(m, n)` Toeplitz is built only
+  for `method="toeplitz"` (exact original-mCONV reproduction). See the
+  Resolution-vs-compute section above and
+  `scripts/benchmark_dwpt_convolution.py`.
 - **`dx_grid` default.** Newbolt's `λ = 0.1524 m` is not a nice round
   number. If we round to mm, the tile won't tessellate cleanly. May
   need to upsample to 0.1 mm or accept a tiny rounding error in the
@@ -526,3 +532,34 @@ so the exclusion is materially significant, not cosmetic.
 
 **Verify.** `pytest tests/test_dwpt_adapter.py` → 7 passed; full DWPT suite
 → 75 passed.
+
+### Follow-up — 2026-06-11 — build_P_y via convolution
+
+`build_P_y` no longer materializes the dense `T_R`. It forms
+`P_A = S_R * S_T` directly, signature now
+`build_P_y(S_T, S_R, gamma, *, method="auto")`:
+
+- `method="auto"` (default) picks `np.convolve` for small kernels (coarse
+  grids) and `scipy.signal.fftconvolve` for large ones (`len(S_R) > 256`,
+  the benchmarked crossover); `convolve` / `fft` / `toeplitz` are selectable.
+- `build_T_R` is retained as the reference / `method="toeplitz"` path and
+  documented as off the hot path.
+- `E` is **unchanged** — only how `P_y` is computed differs (identical values
+  to float round-off), so everything downstream is untouched.
+
+[`scripts/benchmark_dwpt_convolution.py`](../scripts/benchmark_dwpt_convolution.py)
+sweeps corridor length × resolution (physical units) across all three methods;
+results are tabled in the Resolution-vs-compute section. Headline: the dense
+`T_R` is OOM beyond ~1 coarse mile; convolution keeps memory `O(n)` and runs
+50 mi / 0.1 m in ~5–12 ms.
+
+New tests in [`tests/test_dwpt_spatial.py`](../tests/test_dwpt_spatial.py):
+all three methods agree, a 200k-position corridor runs with no dense matrix,
+and an unknown `method` is rejected. The "Resolution vs. compute" section and
+"Defaults chosen" / Functions-map / `T_R` open item were corrected — the
+earlier "no representation trick escapes this" framing overstated a bottleneck
+that convolution removes.
+
+**Verify.** `pytest tests/test_dwpt_spatial.py` → passed;
+`python scripts/benchmark_dwpt_convolution.py` prints the sweep;
+full DWPT suite → 78 passed.

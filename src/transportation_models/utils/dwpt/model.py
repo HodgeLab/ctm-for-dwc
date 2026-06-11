@@ -146,20 +146,21 @@ class CorridorSpec:
         off = (self.delta_grid - 1) // 2
         return (np.arange(self.m_traversal) - off) * self.dx_grid
 
-    def build_P_y(self) -> np.ndarray:
+    def build_P_y(self, *, method: str = "auto") -> np.ndarray:
         """Power-vs-position profile for this corridor (spatial submodule).
 
-        Composes the P1-P2 functions (``build_S_T``, ``build_S_R``,
-        ``build_T_R``, ``build_P_y``) over the corridor's grid properties,
-        returning ``P_y`` of length ``m_traversal``.
+        Composes ``build_S_T``, ``build_S_R``, and ``build_P_y`` over the
+        corridor's grid properties, returning ``P_y`` of length
+        ``m_traversal``. ``method`` is forwarded to ``build_P_y``; the default
+        ``"auto"`` selects convolution or FFT by kernel size.
         """
-        from .spatial import build_P_y, build_S_R, build_S_T, build_T_R
+        from .spatial import build_P_y, build_S_R, build_S_T
 
         S_T = build_S_T(
             self.n_corridor, self.alpha_grid, self.lambda_grid, self.pad.beta_prime
         )
         S_R = build_S_R(self.delta_grid, self.pad.beta)
-        return build_P_y(build_T_R(S_R, self.n_corridor), S_T, self.pad.gamma)
+        return build_P_y(S_T, S_R, self.pad.gamma, method=method)
 
 
 @dataclass(frozen=True)
