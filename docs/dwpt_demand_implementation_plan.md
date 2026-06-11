@@ -8,6 +8,61 @@ macroscopic outputs from this repo's CTM engine. The spec
 equations, notation, and assumptions; this doc is the build plan and the
 running progress log.
 
+## v0 status & retrospective
+
+**v0 is complete** (commits `2600440`..`b6eaa7c` on `add_mconv_module`): the
+pipeline runs end-to-end — CTM `SimulationResult` → `from_ctm` / `compute` →
+`DemandResult` → plots — at 78 passing tests. Phasing and as-built deltas are
+in the **Progress log** below; the sections between here and there are the
+*original* plan. The spec remains the source of truth for equations; the
+**code** is the source of truth for signatures.
+
+### What we learned (and why it mattered)
+
+- **The power normalization was under-specified — and we'd have got it
+  wrong.** The spec first asserted both "γ = min(β, β′)" and "γ is the paper's
+  ρ", but Algorithm 3 makes ρ a *fitting* factor, `min(β,β′)/max(P_A)`.
+  Without the `/max(P_A)` the peak overshoots and every power magnitude is
+  off. Fix: reproduce Newbolt's Algorithms 1–3 verbatim in the spec and pin
+  the `peak = γ` identity with a test. *Lesson: reproduce the source, don't
+  paraphrase it.*
+
+- **The dense `T_R` "memory wall" was an artifact, not a law.** We first
+  framed resolution-vs-compute as a fundamental `O(n²)` wall. It isn't:
+  `P_A = T_R·S_T` *is* a convolution, computable in `O(n)` with no matrix —
+  the dense path was just one *representation*. Fix: `build_P_y` convolves
+  (`method="auto"`); `build_T_R` stays only for exact reproduction. *Lesson:
+  separate the algorithm from the data structure before declaring a
+  bottleneck.*
+
+- **The off-by-one (`m = n + δ_grid − 1`) was real and load-bearing.** It
+  threatened every downstream array shape. Flagged at P0, pinned in P1,
+  resolved in P3 by the **center-reference** `M_CTM` convention (chosen from
+  three options, evaluated in a notebook): mapping traversal positions by the
+  pad *center* keeps a 1:1 correspondence with the `n` corridor positions, so
+  `n_i = positions_per_cell` exactly (no divide-by-zero) and entry/exit are
+  symmetric. *Lesson: surface index conventions early; settle them with a
+  worked example, not prose.*
+
+- **The CTM's `VHT` bakes in the on-ramp queue; DWPT must exclude it.**
+  `metrics.vht_per_cell = (ρL + queue)·dt`; mainline-only is `ρL·dt`. We
+  compute that from the `SimulationResult` (deviating from the planned
+  `Metrics` seam, which can't separate the queue). On a real metered-on-ramp
+  run, including the queue overcounts demand by **21.9 %**. *Lesson: verify an
+  upstream quantity against its definition, not its name.*
+
+- **Grid-integer signatures, one conversion.** The pure functions take grid
+  units; the single meter→grid conversion (and its validation) lives in
+  `CorridorSpec`, and real CTM cell lengths (miles→m) are *snapped* to the
+  grid at the seam (error ≤ `dx_grid`/2). *Lesson: one validated boundary
+  beats a conversion duplicated per function.*
+
+- **Process.** Spec-as-source-of-truth caught the normalization error before
+  any code; test-first with exact integer hand-calcs made the convolution
+  refactor safe (behavioral tests passed unchanged); and checking the *actual*
+  paper and *actual* CTM code — not assumptions — corrected the plan
+  repeatedly.
+
 ## Scope
 
 - **In:** spatial submodule (build $\mathbf{P_y}$ from corridor geometry +
@@ -61,6 +116,14 @@ cell — split case is deferred per the spec); `eta_EV ∈ [0, 1]`;
 `beta, beta_prime > 0`. Bad configs fail loudly.
 
 ## Functions map 1:1 to the spec
+
+> **As-built note.** Signatures below are the *original* plan. The shipped
+> functions take **grid-unit integers** (the meter→grid conversion lives once
+> in `CorridorSpec`): `build_P_y(S_T, S_R, gamma, *, method="auto")`
+> (convolution, not `T_R @ S_T`), `build_M_CTM(positions_per_cell,
+> delta_grid)`, and orchestrators `CorridorSpec.build_P_y()` /
+> `compute(VHT, corridor, eta_EV)` / `from_ctm(result, pad_spec, dx_grid,
+> eta_EV)`. See the progress log for the why.
 
 Pure functions, NumPy-only:
 
@@ -147,6 +210,9 @@ a top-level `compute(VHT, corridor) -> DemandResult` composes 5–6.
 | **P6** | demo script + plotting | runnable sandbox |
 | **P7 (opt-in)** | macroscopic-vs-microscopic validation harness | layer 4 |
 
+**Status:** P0–P6 shipped (see progress log); P7 is the one remaining phase,
+now tracked under Future work.
+
 ## TDD workflow per function
 
 For each function in P1–P4, **the test comes first**:
@@ -169,8 +235,10 @@ For each function in P1–P4, **the test comes first**:
   `scipy.signal.fftconvolve` for large ones (`method="auto"` picks). This
   keeps memory `O(n)` at any corridor length (see Resolution-vs-compute);
   `scipy` is imported lazily, only on the fft path.
-- **Position grid `dx_grid` defaults to `gcd(alpha, delta, lambda_gap)`**
-  rounded to the nearest mm — guarantees integer-position pad dimensions.
+- **Position grid `dx_grid` is user-specified** (no GCD default — Newbolt's
+  `λ = 0.1524 m` shares no clean GCD with `α`/`δ`). `CorridorSpec` validates
+  that all pad dims and cell lengths are integer multiples of `dx_grid` within
+  a `1e-6` ratio tolerance; the CTM adapter snaps real cell lengths to the grid.
 - **Units convention:** all lengths in meters, all powers in watts inside
   the DWPT module. The CTM adapter converts the freeway's miles → m at
   the seam.
@@ -223,28 +291,43 @@ Consequences for the build:
 - For very large `(T, m)` outputs, aggregate `E` / `P_y` to per-pad demand
   (a future output-format option, out of scope for the convolution change).
 
-## Open items flagged during build
+## Open items — final status
 
-- **`T_R` materialization — resolved.** `build_P_y` now convolves directly
-  (`method="auto"`, `O(n)` memory); the dense `(m, n)` Toeplitz is built only
-  for `method="toeplitz"` (exact original-mCONV reproduction). See the
-  Resolution-vs-compute section above and
-  `scripts/benchmark_dwpt_convolution.py`.
-- **`dx_grid` default.** Newbolt's `λ = 0.1524 m` is not a nice round
-  number. If we round to mm, the tile won't tessellate cleanly. May
-  need to upsample to 0.1 mm or accept a tiny rounding error in the
-  corridor length. Decide at P0.
-- **Approach/exit position handling.** `T_R` has `m > n` rows for the
-  vehicle entering/leaving the corridor. We zero those columns in
-  `M_CTM`. If a future use case wants to report demand "as the EV
-  enters the corridor" the approach rows would need their own
-  treatment. Out of scope for v0.
-- **CTM `VHT` includes ramp-queue contribution.** Per the spec's
-  ramp-handling assumption, this should be excluded from the mainline
-  demand. The CTM adapter needs to subtract ramp-queue VHT or pull
-  mainline-only VHT directly from `Metrics`. Confirm which is cleaner
-  at P5 (may require a small `metrics.py` addition rather than
-  doing it on the DWPT side).
+Every item flagged during the build (top-level + per-phase in the progress
+log) and its disposition:
+
+| Item (where raised) | Status |
+|---|---|
+| Dense `T_R` materialization (plan) | **Resolved** — `build_P_y` convolves (`O(n)`); dense kept only for `method="toeplitz"`. |
+| `dx_grid` default / `λ` not grid-clean (plan, P0) | **Decided** — `dx_grid` user-specified (no GCD); CTM adapter snaps cell lengths to the grid (≤ `dx_grid`/2 error). |
+| Approach/exit position handling (plan) | **Resolved** — center-reference `M_CTM` zeros off-corridor columns (P3). Reporting demand *during* the transient → v1. |
+| CTM `VHT` includes ramp queue (plan) | **Resolved** — mainline VHT (`ρL·dt`) from `SimulationResult` (P5), confirmed on a real queuing run (~21.9 % effect). |
+| Float drift in tile-length composition (P0) | **Mitigated** — snap-to-grid bounds per-cell error; `1e-6` validation tolerance. |
+| `m_traversal` off-by-one (P0, P1) | **Resolved** — pinned in P1, center-reference `M_CTM` in P3. |
+| Spec to name the `M_CTM` convention (P3) | **Resolved** — spec touch-up documents center-reference. |
+| `compute_demand` input validation (P4) | **Resolved** — `eta_EV ∈ [0,1]` + shape checks at the `compute()` boundary (P5). |
+| `build_P_y` divide-by-zero guard (P2) | **Decided** — none; all-zero `S_T` is impossible (`CorridorSpec` rejects empty cells). |
+| Four-cell example never queues (P5) | **Resolved** — `metered_on_ramp_scenario` + 3 end-to-end tests (follow-up). |
+
+## Future work (v1+)
+
+Deferred from the spec's v0 assumptions and surfaced during the build:
+
+- **P7 — macroscopic-vs-microscopic validation harness** (the one unbuilt
+  phase): run the microscopic mCONV over sampled trajectories and confirm
+  aggregate agreement in the uniform-density limit (verification strategy,
+  layer 4).
+- **Heterogeneous corridors** — a `Cell`-level dataclass for DWPT-on/off
+  stretches and per-cell pad variation (P0); the **split-cell** case
+  (fractional positions per cell), which `CorridorSpec` currently rejects.
+- **Fleet & infrastructure realism** (spec) — per-class fleet mix
+  (class-indexed `VHT`/`P_y`), lane-specific DWPT (lane-by-lane `VHT`/`P_y`),
+  velocity-dependent `P_y`, multi-vehicle Tx-pad saturation.
+- **Output scaling** — aggregate `E`/`P_y` to per-pad / per-feeder demand so
+  fine-grid, long-corridor, long-horizon `(T, m)` outputs stay tractable (the
+  linear residual in Resolution-vs-compute).
+- **Approach/exit transient** — report demand as the EV enters/leaves the
+  corridor (currently zeroed in `M_CTM`).
 
 ## Progress log
 
