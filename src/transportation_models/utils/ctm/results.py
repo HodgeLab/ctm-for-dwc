@@ -10,14 +10,32 @@ helper exposes the same data in wide format with a time index in hours.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Union
 
 import numpy as np
 import pandas as pd
 
-from .model import Freeway, Scenario
+from .model import Cell, Freeway, Scenario
 
 DataFrameOrSeries = Union[pd.DataFrame, pd.Series]
+
+# Per-cell Cell fields persisted in the .npz (covers all of Cell's parameters,
+# so freeway geometry / FD / ramp config round-trips exactly).
+_CELL_FIELDS: tuple[str, ...] = (
+    "length", "q_max", "v_f", "w", "rho_jam", "rho_crit",
+    "on_ramp", "off_ramp", "on_ramp_capacity", "off_ramp_capacity",
+    "gamma", "xi",
+)
+# The per-step arrays carried on a SimulationResult.
+_RESULT_ARRAYS: tuple[str, ...] = (
+    "density", "queue", "mainline_flow", "off_ramp", "on_ramp",
+    "speed", "boundary_inflow",
+)
+# The Scenario arrays (the run's inputs), kept so the round-trip is faithful.
+_SCENARIO_ARRAYS: tuple[str, ...] = (
+    "rho0", "inflow", "demand", "beta", "q0",
+)
 
 
 @dataclass
@@ -80,3 +98,53 @@ class SimulationResult:
                 self.boundary_inflow, index=idx_flow, name="boundary_inflow"
             ),
         }
+
+    def to_npz(self, path: Union[str, Path]) -> None:
+        """Save this result to a single self-contained ``.npz`` file.
+
+        Bundles the per-step arrays plus enough of the ``Freeway`` (``dt`` and
+        every per-cell parameter) and ``Scenario`` to reconstruct an equivalent
+        :class:`SimulationResult` via :meth:`from_npz` -- no original config
+        objects or CSVs needed. Intended for handing a run off to the DWPT
+        demand pipeline (``utils.dwpt.adapter``).
+        """
+        data: dict[str, np.ndarray] = {
+            f"result__{name}": getattr(self, name) for name in _RESULT_ARRAYS
+        }
+        data["freeway__dt"] = np.asarray(self.freeway.dt, dtype=float)
+        for field in _CELL_FIELDS:
+            data[f"cell__{field}"] = np.array(
+                [getattr(c, field) for c in self.freeway.cells]
+            )
+        for name in _SCENARIO_ARRAYS:
+            data[f"scenario__{name}"] = getattr(self.scenario, name)
+        np.savez(path, **data)
+
+    @classmethod
+    def from_npz(cls, path: Union[str, Path]) -> "SimulationResult":
+        """Reconstruct a :class:`SimulationResult` saved by :meth:`to_npz`.
+
+        Rebuilds the ``Freeway`` and ``Scenario`` and revalidates both (so a
+        corrupted or hand-edited file fails loudly), then re-packs the per-step
+        arrays.
+        """
+        npz = np.load(path)
+        dt = float(npz["freeway__dt"])
+        cols = {field: npz[f"cell__{field}"] for field in _CELL_FIELDS}
+        cells = [
+            Cell(**{
+                field: bool(cols[field][i]) if field in ("on_ramp", "off_ramp")
+                else float(cols[field][i])
+                for field in _CELL_FIELDS
+            })
+            for i in range(len(cols["length"]))
+        ]
+        freeway = Freeway(dt=dt, cells=cells).validate()
+        scenario = Scenario(
+            **{name: npz[f"scenario__{name}"] for name in _SCENARIO_ARRAYS}
+        ).validate(freeway)
+        return cls(
+            freeway=freeway,
+            scenario=scenario,
+            **{name: npz[f"result__{name}"] for name in _RESULT_ARRAYS},
+        )
