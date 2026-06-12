@@ -1,7 +1,7 @@
 """Plotting helpers for the DWPT demand module.
 
 ``plot_P_y``           -- power-vs-position profile of the corridor.
-``plot_demand_heatmap`` -- E(timestep, position) space-time heatmap.
+``plot_demand_heatmap`` -- E(time, position) space-time heatmap.
 
 Both follow the repo's ``utils/ctm/plots.py`` convention: take the data plus
 a keyword-only ``out_path``, render, save at 120 dpi, and close the figure.
@@ -39,23 +39,29 @@ def plot_P_y(
 def plot_demand_heatmap(
     result: DemandResult,
     *,
-    title: str = "DWPT demand $E$(timestep, position)",
+    dt_h: float,
+    title: str = "DWPT demand $E$(time, position)",
     cmap: str = "magma",
     out_path: Path,
 ) -> None:
-    """Render ``result.E`` as a space-time heatmap (position x, timestep y)."""
+    """Render ``result.E`` as a space-time heatmap (position x, time y).
+
+    ``dt_h`` is the timestep duration in hours (e.g. ``freeway.dt``); the
+    y-axis then runs from 0 to ``n_t * dt_h`` in hours rather than in raw
+    timestep indices.
+    """
     E = result.E
     position_m = result.position_m
     n_t = E.shape[0]
 
     dx = position_m[1] - position_m[0]
     x_edges = np.concatenate([position_m - dx / 2, [position_m[-1] + dx / 2]])
-    y_edges = np.arange(n_t + 1)
+    y_edges = np.linspace(0.0, n_t * dt_h, n_t + 1)
 
     fig, ax = plt.subplots(figsize=(10, 4.5))
     mesh = ax.pcolormesh(x_edges, y_edges, E, cmap=cmap, shading="flat")
     ax.set_xlabel("position [m]")
-    ax.set_ylabel("timestep")
+    ax.set_ylabel("time [h]")
     ax.set_title(title)
     fig.colorbar(mesh, ax=ax, label="energy [Wh]")
     fig.tight_layout()

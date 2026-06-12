@@ -71,5 +71,24 @@ def test_plot_demand_heatmap_writes_file(tmp_path):
         timesteps=np.arange(3),
     )
     out = tmp_path / "heat.png"
-    plots.plot_demand_heatmap(result, out_path=out)
+    plots.plot_demand_heatmap(result, dt_h=1.0 / 360.0, out_path=out)
     assert out.exists() and out.stat().st_size > 0
+
+
+def test_plot_demand_heatmap_y_axis_is_physical_time(tmp_path, monkeypatch):
+    """The y-axis spans physical hours (n_t * dt_h), not timestep indices."""
+    n_t, dt_h = 3, 10.0 / 3600.0  # 10-second timesteps
+    result = DemandResult(
+        E=np.arange(12, dtype=float).reshape(n_t, 4),
+        position_m=np.array([0.0, 1.0, 2.0, 3.0]),
+        timesteps=np.arange(n_t),
+    )
+    # Capture the figure instead of letting the plotter close it.
+    captured = {}
+    monkeypatch.setattr(plots.plt, "close", lambda fig: captured.setdefault("fig", fig))
+    plots.plot_demand_heatmap(result, dt_h=dt_h, out_path=tmp_path / "heat.png")
+
+    ax = captured["fig"].axes[0]
+    assert ax.get_ylabel() == "time [h]"
+    np.testing.assert_allclose(ax.get_ylim(), (0.0, n_t * dt_h))
+    plots.plt.close(captured["fig"])

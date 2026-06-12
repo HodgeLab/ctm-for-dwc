@@ -47,7 +47,9 @@ def main(out_dir: Path, *, steps: int = 60) -> Path:
         corridor.build_P_y(), corridor.position_m,
         out_path=out_dir / "dwpt_P_y.png",
     )
-    plots.plot_demand_heatmap(demand, out_path=out_dir / "dwpt_demand_heatmap.png")
+    plots.plot_demand_heatmap(
+        demand, dt_h=result.freeway.dt, out_path=out_dir / "dwpt_demand_heatmap.png",
+    )
     return out_dir
 
 
