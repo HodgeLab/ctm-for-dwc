@@ -210,8 +210,9 @@ a top-level `compute(VHT, corridor) -> DemandResult` composes 5–6.
 | **P6** | demo script + plotting | runnable sandbox |
 | **P7 (opt-in)** | macroscopic-vs-microscopic validation harness | layer 4 |
 
-**Status:** P0–P6 shipped (see progress log); P7 is the one remaining phase,
-now tracked under Future work.
+**Status:** P0–P7 shipped (see progress log). P7 (macroscopic-vs-microscopic
+validation harness) is specified in [dwpt_validation_spec.md](dwpt_validation_spec.md)
+and implemented under `utils/microsim/` + `scripts/run_dwpt_validation.py`.
 
 ## TDD workflow per function
 
@@ -313,10 +314,16 @@ log) and its disposition:
 
 Deferred from the spec's v0 assumptions and surfaced during the build:
 
-- **P7 — macroscopic-vs-microscopic validation harness** (the one unbuilt
-  phase): run the microscopic mCONV over sampled trajectories and confirm
-  aggregate agreement in the uniform-density limit (verification strategy,
-  layer 4).
+- **P7 — macroscopic-vs-microscopic validation harness** — **done** (2026-06-15;
+  see progress log and [dwpt_validation_spec.md](dwpt_validation_spec.md)).
+  Remaining refinements surfaced during the build:
+  - **Multi-seed confidence intervals** — the microsim is stochastic; the
+    Stage-2 divergence on a single seed swings with the horizon. Average over
+    seeds and report CIs (cf. Newbolt's 30 runs) before drawing study
+    conclusions.
+  - **Lane-changing + battery stack** — dual-lane (eq 6-14) and the
+    discharge/HVAC/SOC model (eq 15-39) were deferred; the microsim
+    architecture leaves both open.
 - **Heterogeneous corridors** — a `Cell`-level dataclass for DWPT-on/off
   stretches and per-cell pad variation (P0); the **split-cell** case
   (fractional positions per cell), which `CorridorSpec` currently rejects.
@@ -646,3 +653,56 @@ that convolution removes.
 **Verify.** `pytest tests/test_dwpt_spatial.py` → passed;
 `python scripts/benchmark_dwpt_convolution.py` prints the sweep;
 full DWPT suite → 78 passed.
+
+### P7 — 2026-06-15 — macroscopic-vs-microscopic validation harness
+
+**Shipped.** A from-scratch single-lane **Newbolt microsimulation** and a
+two-stage accuracy-vs-efficiency study, specified in
+[dwpt_validation_spec.md](dwpt_validation_spec.md) (full spec-driven workflow:
+interview → spec → plan → tasks → implement).
+[`src/transportation_models/utils/microsim/`](../src/transportation_models/utils/microsim/):
+`model.py` (`MicrosimSpec`/`Vehicles`/`MicrosimResult`/`GuardStats`), `gipps.py`
+(modified-Gipps eq 1-5), `seeding.py` (Poisson inflow → vehicles, `v_max ~
+U(v_f±15 mph)`), `simulate.py` (single-lane loop), `aggregate.py` (Edie
+per-cell density/flow → reused `compare_against_historical`), `charging.py`
+(original mCONV eq 30-32), `examples.py` (uniform-limit fixture).
+[`scripts/run_dwpt_validation.py`](../scripts/run_dwpt_validation.py): the
+study driver. 47 tests across `tests/test_microsim_*.py` +
+`tests/test_dwpt_validation.py`.
+
+**Decisions (user, via interview + spec gates).**
+- **Two stages, isolated by construction:** Stage 1 scores micro *and* CTM
+  against PeMS (`validation.csv` schema, RMSE/MAPE) + wall-clock; Stage 2
+  compares original mCONV (micro trajectories) vs adapted mCONV (CTM VHT). No
+  original-mCONV-on-CTM-resampled path.
+- **Scope:** single-lane equivalent, charging-load only (no SOC/discharge/HVAC),
+  modified Gipps from the 2026 TTE paper; dual-lane + battery stack deferred,
+  architecture left open. `v_max` ~ `U(v_f−15, v_f+15) mph` (uniform per 2024
+  NAPS, re-centered on corridor `v_f` to avoid biasing Stage 1).
+- **Edie per-cell aggregation** (matches the CTM's per-cell quantity), mainline
+  inflow only, Stage-2 divergence reported on the actual corridor.
+
+**What we learned (not in the plan).**
+- **Newbolt's simplified Gipps is not collision-free at practical `dt`.** Its
+  safe-velocity (eq 5) uses the *subject's* speed + a binary switch, so a fast
+  follower overshoots a slow leader (overlaps at `dt = 0.25–1 s`; clean only
+  near `0.1 s`, ~10× compute, non-monotone). Resolved with a **documented
+  displacement-cap guard** (cap displacement at the gap; velocity formula kept
+  verbatim) whose activation stats live in `MicrosimResult.guard_stats`. See
+  the spec's "Deviations from the published model".
+- **The uniform-density equivalence is exact by construction** (CP5,
+  `rel err < 1e-6`, per-position to `1e-9`): mapping each EV's in-corridor
+  position to the *interior* `P_y` index (center-reference) means the micro
+  charges exactly where `M_CTM` is non-zero — the approach/exit transient is
+  excluded automatically (resolves the plan's long-standing Risk-2 concern).
+- **On the real I-880 corridor the Stage-2 divergence swings with the horizon**
+  (−1.5% at 1 h, +8.5% at 3 h, −30% at 8 h on a single seed) — the genuine
+  macro-vs-micro traffic-physics signal varying with the day's inflow profile,
+  plus single-seed sampling noise. **Multi-seed CIs** (cf. Newbolt's 30 runs)
+  are the natural next refinement.
+
+**Verify.** `pytest tests/test_microsim_*.py tests/test_dwpt_validation.py` →
+passes; `pytest -m slow` runs the end-to-end driver smoke; full suite green
+(excluding the pre-existing unrelated `test_model_prototyping.py` GRU
+failures). `python scripts/run_dwpt_validation.py --case-dir
+scripts/output/1mi_case_study` writes a validation summary.
