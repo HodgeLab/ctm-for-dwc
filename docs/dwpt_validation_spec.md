@@ -71,11 +71,10 @@ In:
 - **Charging-load convolution only** (eq 30–32): per-vehicle `P_y` integrated
   over time. **No** SOC, discharge, HVAC, lighting, or priority cutoff.
 - **Vehicle seeding from the raw PeMS timeseries** (the same source the CTM
-  inflow derives from, for a fair comparison), via a faithful reproduction of
-  Newbolt's Monte-Carlo hourly→fine-grid arrival conversion (ref [31];
-  *pending that paper*). Each vehicle's Gipps cap `v_MAX` (= initial speed) is
-  drawn from `U(v_f − 15, v_f + 15) mph` (uniform per 2024 NAPS, re-centered on
-  corridor `v_f`).
+  inflow derives from, for a fair comparison), via a **Poisson arrival process**
+  with rate from the measured PeMS flow (not Newbolt's TTF MC — see decision 8).
+  Each vehicle's Gipps cap `v_MAX` (= initial speed) is drawn from
+  `U(v_f − 15, v_f + 15) mph` (uniform per 2024 NAPS, re-centered on `v_f`).
 - **Micro→macro aggregator** producing per-cell density (veh/mi) and flow
   (veh/h), **summed/averaged across lanes**, on the 5-min PeMS grid.
 
@@ -139,14 +138,14 @@ convention.
 ```
 src/transportation_models/utils/microsim/
   __init__.py        # public API
-  vehicle.py         # Vehicle state (position, velocity, length, is_ev)
+  model.py           # MicrosimSpec / Vehicles / MicrosimResult / GuardStats
   gipps.py           # modified Gipps longitudinal update (eq 1–5)
-  seeding.py         # boundary-inflow → vehicle entry times (Monte-Carlo)
-  simulate.py        # single-lane MS main loop (Newbolt Alg 1–2, single-lane)
-  aggregate.py       # trajectories → per-cell (density, flow) on 5-min grid (Edie)
+  lanechange.py      # N-lane incentive + random lane change (eq 6–14, Alg 3)
+  seeding.py         # PeMS-flow → Poisson arrivals + random entry lane
+  simulate.py        # N-lane MS main loop (lane-change + longitudinal + guard)
+  aggregate.py       # trajectories → per-cell (density, flow), Edie, summed across lanes
   charging.py        # original mCONV over trajectories (eq 30–32), reuses build_P_y
-  model.py           # MicrosimSpec / MicrosimResult dataclasses
-  examples.py        # tiny synthetic corridors; uniform-density fixture
+  examples.py        # synthetic corridors; uniform-density fixture
 
 scripts/run_dwpt_validation.py   # case-dir → micro run → Stage 1 + Stage 2 → figures/tables
 tests/test_microsim_*.py         # gipps, seeding, aggregate, charging — hand-calc + property
@@ -289,10 +288,15 @@ slow harness is opt-in (not on the default `pytest` path's fast subset).
    comparable in Stage 2; EVs and non-EVs share lane-change logic (Newbolt's
    EV-seeking eq 13 dropped — see Deviations). Lane-specific DWPT + a
    lane-specific macro is the deferred faithful-Newbolt alternative.
-8. **Seed from raw PeMS timeseries, Newbolt MC conversion.** Both macro and
-   micro inputs derive from the same raw PeMS source. Arrivals via a faithful
-   reproduction of Newbolt's hourly→fine-grid Monte-Carlo (ref [31]) — *blocked
-   on obtaining that paper*; until then the conversion is a flagged stub.
+8. **Seed from raw PeMS timeseries via a Poisson process.** Both macro and
+   micro inputs derive from the same raw PeMS source (mainline boundary VDS
+   flow). Arrivals are drawn as a per-step Poisson process with rate from the
+   measured 5-min PeMS flow (resampled to the micro `dt`). Newbolt's TTF
+   Monte-Carlo (ref [31], Alg 1) is **not** reproduced: that method exists to
+   *estimate* arrivals from junction left/right turning counts, which we don't
+   need given direct mainline flow counts — Poisson is the standard, simpler
+   arrival model for a measured rate. EV classification is independent
+   `Bernoulli(eta)` per arrival (Newbolt Alg 2's density sampling).
 9. **Paper parameter values + CLI overrides.** `a`/`b`/`s_o`/lengths and pad
    specs default to Newbolt's tables (fixing the earlier invented `a=1.5`,
    `b=2.0`), overridable per run for sensitivity.
@@ -306,12 +310,45 @@ disposition:
 |---|---|
 | `a=1.5`, `b=2.0`, pad defaults — invented, not Newbolt's | **Fixed** — use paper tables (decision 9). |
 | Boundary admission gate (`min_x−length>s_o`, drop if blocked) — invented | **Replaced** by lane-based entry (random lane; Newbolt bumps conflicts across lanes). |
-| Independent per-step Poisson arrivals | **Replaced** by Newbolt MC (decision 8). |
-| Admitted vs. offered inflow (seeded from CTM admitted) | **Replaced** — seed from raw PeMS (decision 8). |
+| Independent per-step Poisson arrivals | **Kept** — Poisson is the standard arrival model given direct flow counts (decision 8); Newbolt's TTF MC not needed. |
+| Admitted vs. offered inflow (seeded from CTM admitted) | **Replaced** — seed from raw PeMS flow (decision 8). |
 | `v_min = 0` (Gipps floor) | **Open** — keep `0` (vehicles can stop in congestion) unless the paper pins a 20 mph floor; revisit with ref [31]. |
 | EV assignment `Bernoulli(eta)` (stochastic count) | **Kept**, documented; multi-seed CIs average it out. |
 | Charging integral is a Riemann sum (start-of-interval `P_y`) | **Kept** — exact in the grid-aligned fixture, converges as `dt→0`; documented. |
 | `v_f` band center = mean of per-cell `v_f` | **Kept**, documented. |
+
+### Assumptions surfaced in review (v2, the N-lane rewrite)
+
+A review of the v2 code found these decisions made without explicit sign-off.
+Grouped by kind; **awaiting disposition**.
+
+**Lane-change rule (`lanechange.py`) — generalizing a 2-lane published rule:**
+
+| # | Assumption | Disposition |
+|---|---|---|
+| V1 | **N-lane generalization is mine.** Newbolt eq 13/14 are strictly 2-lane (`y∈{1,2}`). I generalized to "blocked in current lane → move to a feasible adjacent lane," which is *not* literally in the paper. | **Keep** (paper is 2-lane); documented as a designed generalization. |
+| V2 | **Backward gap convention differs.** Newbolt eq 7 `s_B = x_i + l_i − (x_{j-1} + l_{j-1})` is a back-to-back distance; I used a **bumper gap** `x − x_B − length` (one length stricter). | **Change → match eq 7** (back-to-back distance) for fidelity; the bumper-gap version was an unprompted stricter choice. |
+| V3 | **Lane choice among feasible adjacents.** I used largest-forward-gap. | **Change → lowest feasible lane index** (deterministic first pass, per user). |
+| V4 | **Lane changes were simultaneous (vectorized), not sequential** as Newbolt's per-vehicle Alg 1 loop. | **Change → sequential per-vehicle loop** (Newbolt Alg 1; 2024 Figs 3-4). Faithful *and* gives an honest micro compute cost for the Stage-1 efficiency comparison; the vectorized version understated it. |
+
+**Entry / seeding (`simulate.py`, `seeding.py`):**
+
+| # | Assumption | Disposition |
+|---|---|---|
+| V5 | **Boundary admission "most-room" bump + drop-if-never-admitted.** A due vehicle takes its entry lane, else the lane whose nearest active vehicle is farthest downstream; if no lane has room it waits and (rarely) may never enter. My rule, not the paper's. | **Keep**; documented (sequential loop + 4 lanes makes blocking rare). |
+| V6 | **Uniform-random entry lane.** Newbolt 2026 studies *preprocessing lane-determination ratios* (e.g. 40/60). I split lanes uniformly. | **Keep** uniform (user); expose a ratio later. |
+| V7 | **Per-lane inflow split is random.** PeMS flow is a station total (sum across lanes); I seed the total then assign lanes uniformly, rather than using measured per-lane flows. | **Keep** (user); documented (per-lane PeMS could refine). |
+
+**Parameters / wiring (`model.py`, driver):**
+
+| # | Assumption | Disposition |
+|---|---|---|
+| V8 | **`lane_change_prob` default 0.5** (Newbolt `w_o` base case). | **Keep** 0.5 (user); CLI-overridable. |
+| V9 | **Boundary VDS = cell-0 `vds_id`** as the inflow source. | **Confirmed** correct (user). |
+| V10 | **`n_lanes = max(cells.lanes)`** — one corridor-wide lane count (can't vary per cell). | **Keep** (fine for uniform I-880). Per-cell lane counts (lane drop/add + merge logic) deferred to **future work**. |
+| V11 | **Pad defaults kept non-Newbolt** (`α=3.5/λ=0.5/δ=1.0`, 150 kW) because Newbolt's 25 mm gap doesn't resolve on `dx_grid=0.5`. | **Keep** (user); Stage 2 compares the *same* pad both ways, so values don't bias it. Newbolt's 350 kW / 3 m / 25 mm would need a finer `dx_grid`. |
+| V12 | **Lane-change RNG seed = `spec.seed + 1`** to decorrelate from the seeding stream. | **Keep** (user); documented. |
+| V13 | **`v_min = 0`** carried from v1; ref [31] has no Gipps model / floor. | **Keep** `0` (user). |
 
 ## Deviations from the published model
 
@@ -414,10 +451,12 @@ charging). TDD per function throughout (test-first, per the DWPT module's habit)
    dynamics, not the desired-speed mean) are legitimately part of the Stage-1
    fidelity measurement; document the speed-distribution choice beside the numbers.
 4. **Compute-time comparison is apples-to-oranges.** Pure-Python per-vehicle vs.
-   the CTM's vectorized engine. → Vectorize the micro loop across active vehicles
-   in NumPy (O(steps × vehicles), arrays not objects); report wall-clock honestly
-   with an explicit caveat that both are Python/NumPy but structurally different.
-   24 h at `dt = 1 s` = 86 400 steps; keep per-step work array-vectorized.
+   the CTM's vectorized engine. **Superseded by v2 decision V4:** the micro is
+   deliberately a *sequential per-vehicle loop* (Newbolt Alg 1), **not**
+   vectorized — vectorizing would understate the micro's true cost and bias the
+   Stage-1 efficiency comparison. The micro is honestly the slow one (~O(active²)
+   per step); that gap is the result the study reports. Report wall-clock for
+   both with the structural caveat.
 5. **Edie ↔ comparator array contract.** Shapes/units must match what
    `compare_against_historical` expects (density veh/mi, flow veh/h, 5-min grid,
    one row per cell). → Pin with the uniform fixture (Edie density `= N/L`, flow

@@ -56,3 +56,28 @@ def micro_demand(result, corridor) -> np.ndarray:
         idx = grid + off
         np.add.at(E, idx, P_y[idx] * dt_h)
     return E
+
+
+def micro_power_timeseries(result, corridor) -> np.ndarray:
+    """Instantaneous corridor charging power [W] at each micro step.
+
+    For each step, the sum of ``P_y`` over the EVs in the corridor. The total
+    energy ``power.sum() * dt_h`` matches :func:`micro_demand`'s total; the
+    peak is the grid-load peak (resolution-dependent: finer ``dt`` -> higher).
+    """
+    P_y = corridor.build_P_y()
+    dx = corridor.dx_grid
+    off = (corridor.delta_grid - 1) // 2
+    n_corr = corridor.n_corridor
+    L = corridor.corridor_length_m
+
+    a = result.position[:, :-1]
+    v = result.velocity
+    in_corridor = (~np.isnan(v)) & (a >= 0.0) & (a < L)
+    ev_mask = result.is_ev[:, None] & in_corridor
+
+    power = np.zeros_like(v)
+    if ev_mask.any():
+        grid = np.clip(np.round(a[ev_mask] / dx).astype(int), 0, n_corr - 1)
+        power[ev_mask] = P_y[grid + off]
+    return power.sum(axis=0)

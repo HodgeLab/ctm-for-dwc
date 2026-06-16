@@ -8,16 +8,19 @@ Public API:
 
 * :class:`MicrosimSpec`, :class:`Vehicles`, :class:`MicrosimResult`,
   :class:`GuardStats` -- the data model.
-* :func:`seed_vehicles` -- inflow series -> seeded vehicles.
-* :func:`simulate` -- single-lane Gipps loop -> trajectories.
-* :func:`aggregate_to_cells` -- trajectories -> per-cell density/flow (Edie).
+* :func:`seed_vehicles` -- inflow series -> seeded vehicles (random entry lane).
+* :func:`decide_lane_change` -- per-subject N-lane incentive + random lane change.
+* :func:`simulate` -- N-lane Gipps + lane-change loop -> trajectories.
+* :func:`aggregate_to_cells` -- trajectories -> per-cell density/flow (Edie,
+  summed across lanes).
 * :func:`micro_demand` -- original mCONV charging over trajectories.
 """
 
 from __future__ import annotations
 
 from .aggregate import aggregate_to_cells
-from .charging import micro_demand
+from .charging import micro_demand, micro_power_timeseries
+from .lanechange import decide_lane_change
 from .model import (
     MPH_TO_MS,
     GuardStats,
@@ -35,7 +38,9 @@ __all__ = [
     "MicrosimSpec",
     "Vehicles",
     "aggregate_to_cells",
+    "decide_lane_change",
     "micro_demand",
+    "micro_power_timeseries",
     "seed_vehicles",
     "simulate",
 ]

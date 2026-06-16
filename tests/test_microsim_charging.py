@@ -38,9 +38,11 @@ def test_non_ev_vehicles_contribute_no_demand():
     res_non_ev = type(res)(
         position=res.position,
         velocity=res.velocity,
+        lane=res.lane,
         is_ev=np.zeros(res.n_vehicles, dtype=bool),
         dt=res.dt,
         corridor_length_m=res.corridor_length_m,
+        n_lanes=res.n_lanes,
     )
     E = micro_demand(res_non_ev, sc.corridor)
     assert np.all(E == 0.0)

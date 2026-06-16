@@ -706,3 +706,49 @@ passes; `pytest -m slow` runs the end-to-end driver smoke; full suite green
 (excluding the pre-existing unrelated `test_model_prototyping.py` GRU
 failures). `python scripts/run_dwpt_validation.py --case-dir
 scripts/output/1mi_case_study` writes a validation summary.
+
+### P7 v2 — 2026-06-15 — N-lane (lane-changing) rewrite
+
+**Why.** The single-lane v1 could not reproduce the CTM's multi-lane capacity
+(a literal lane caps ~2000 veh/h vs. I-880's 4-lane `q_max ≈ 6155`), so it
+could not be scored fairly against multi-lane PeMS over congested periods. A
+review also surfaced v1 assumptions made without sign-off (invented `a`/`b`,
+boundary-admission rule, admitted-vs-offered inflow); all are recorded and
+dispositioned in [dwpt_validation_spec.md](dwpt_validation_spec.md).
+
+**Shipped (v1 committed first at `5329ca1` as a restore point).**
+- `lanechange.py` (new): Newbolt's incentive + random lane change (eq 6–14,
+  Alg 3) **generalized to N lanes**, evaluated per subject; the EV
+  charging-lane-seeking term (eq 13) is dropped because DWPT spans all lanes (so
+  EVs/non-EVs share the rule). Backward gap matches eq 7 (back-to-back);
+  selection among feasible lanes is lowest-index (v2 audit V2/V3).
+- `simulate.py`: rewritten to a **sequential per-vehicle loop** (Newbolt Alg 1):
+  admit → per-vehicle {lane change → Gipps velocity → advance} → retire. The
+  loop is deliberately not vectorized so the micro's compute cost is honest for
+  the Stage-1 efficiency comparison (v2 audit V4).
+- `seeding.py`: Poisson arrivals from **raw PeMS flow** (same source as the CTM
+  inflow; driver reads the upstream boundary VDS) + random entry lane.
+- `model.py`: `lane`/`n_lanes` on results, `entry_lane` on vehicles,
+  **Newbolt paper defaults** (`a=4.79`, `b=2.50`, …) + `lane_change_prob`.
+- `aggregate.py`/`charging.py`: confirmed **lane-agnostic** (Edie sums across
+  lanes → PeMS-style station totals; charging sums EVs by position) — no logic
+  change needed.
+- Driver: lane count from `cells.csv`, raw-PeMS seeding (CTM-inflow fallback
+  when PeMS absent), paper Gipps params with CLI overrides.
+
+**Decisions (user).** Faithful Poisson (not Newbolt's TTF MC — that estimates
+arrivals from junction turning, unnecessary with direct flow counts); DWPT all
+lanes; paper params + CLI overrides.
+
+**What we learned.** Multi-lane makes the model markedly healthier: the
+displacement-guard activation rate on the 1-mile run dropped from ~1.95%
+(single-lane) to ~0.06% (4-lane) — lane-changing relieves the congestion that
+caused the overshoots. The uniform-limit `< 1e-6` equivalence is unaffected
+(lane-agnostic charging/aggregation). A v2 code audit (same as v1) surfaced 13
+unflagged assumptions; all are dispositioned in the spec (V2 backward-gap →
+match eq 7; V3 lane choice → lowest index; V4 → sequential loop; the rest
+kept/confirmed with the user).
+
+**Verify.** `pytest tests/test_microsim_*.py tests/test_dwpt_validation.py
+-m "slow or not slow"` → 68 passed (incl. end-to-end). Multi-seed CIs and
+lane-specific DWPT (per-cell lane counts + merge logic) remain future work.

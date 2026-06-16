@@ -22,6 +22,7 @@ def seed_vehicles(
     *,
     v_f_ms: float,
     eta_ev: float,
+    n_lanes: int,
     rng: np.random.Generator | None = None,
 ) -> Vehicles:
     """Seed vehicles from a per-step inflow rate series.
@@ -29,7 +30,8 @@ def seed_vehicles(
     Parameters
     ----------
     inflow_rate_per_step : ndarray (n_steps,)
-        Upstream mainline inflow rate, veh/h, at each microsim step.
+        Total upstream mainline inflow rate, veh/h, at each microsim step
+        (summed across lanes; the driver resamples raw PeMS flow to this grid).
     spec : MicrosimSpec
         Provides ``dt`` (s), ``seed``, and ``speed_halfwidth_ms``.
     v_f_ms : float
@@ -37,16 +39,21 @@ def seed_vehicles(
     eta_ev : float
         EV penetration fraction in [0, 1]; each vehicle is independently an
         EV with this probability.
+    n_lanes : int
+        Number of lanes; each vehicle is assigned a uniformly random entry lane.
     rng : numpy.random.Generator, optional
         Override RNG; defaults to ``np.random.default_rng(spec.seed)``.
 
     Returns
     -------
     Vehicles
-        Entry steps (sorted), per-vehicle ``v_max`` [m/s], and EV flags.
+        Entry steps (sorted), per-vehicle ``v_max`` [m/s], EV flags, and a
+        random entry lane in ``[0, n_lanes)``.
     """
     if not 0.0 <= eta_ev <= 1.0:
         raise ValueError(f"eta_ev must be in [0, 1], got {eta_ev}")
+    if n_lanes < 1:
+        raise ValueError(f"n_lanes must be >= 1, got {n_lanes}")
     if rng is None:
         rng = np.random.default_rng(spec.seed)
 
@@ -60,5 +67,8 @@ def seed_vehicles(
     hw = spec.speed_halfwidth_ms
     v_max = rng.uniform(v_f_ms - hw, v_f_ms + hw, size=n)
     is_ev = rng.random(n) < eta_ev
+    entry_lane = rng.integers(0, n_lanes, size=n)
 
-    return Vehicles(entry_step=entry_step, v_max=v_max, is_ev=is_ev)
+    return Vehicles(
+        entry_step=entry_step, v_max=v_max, is_ev=is_ev, entry_lane=entry_lane
+    )

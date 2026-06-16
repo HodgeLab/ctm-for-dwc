@@ -35,7 +35,7 @@ one-offs (run these, don't import them).
 | `utils/fetch_wandb_results.py` | Pull W&B runs into a DataFrame for analysis. |
 | `utils/logs.py` | `make_logger()` — timestamped file logger under `./logs/`. |
 | `utils/dwpt/` | DWPT demand module: CTM `VHT` → adapted mCONV → spatiotemporal charging demand (`E`). See `docs/dwpt_demand_module.md`. |
-| `utils/microsim/` | Single-lane Newbolt modified-Gipps microsimulation used to validate the macroscopic DWPT pipeline (`gipps`, `seeding`, `simulate`, `aggregate` (Edie), `charging`). See `docs/dwpt_validation_spec.md`. |
+| `utils/microsim/` | N-lane Newbolt modified-Gipps microsimulation (with lane-changing) used to validate the macroscopic DWPT pipeline (`gipps`, `lanechange`, `seeding`, `simulate`, `aggregate` (Edie), `charging`). See `docs/dwpt_validation_spec.md`. |
 
 Typical pipeline:
 

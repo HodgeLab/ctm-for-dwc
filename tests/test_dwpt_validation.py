@@ -48,7 +48,7 @@ def test_uniform_limit_matches_per_position():
 
 
 @pytest.mark.slow
-def test_end_to_end_driver_on_1mi_case():
+def test_end_to_end_driver_on_1mi_case(tmp_path):
     """CP6: the driver runs Stage 2 (+ Stage 1 timings) on the real case."""
     case_dir = _REPO / "scripts" / "output" / "1mi_case_study"
     if not (case_dir / "sim_no_ramps" / "result.npz").exists():
@@ -56,7 +56,11 @@ def test_end_to_end_driver_on_1mi_case():
 
     import pandas as pd
     from run_dwpt_validation import (
+        _ctm_traffic_metrics,
+        _micro_traffic_metrics,
         build_and_run_micro,
+        ctm_inflow_rate,
+        plot_flow_contours,
         run_stage1,
         run_stage2,
     )
@@ -70,9 +74,15 @@ def test_end_to_end_driver_on_1mi_case():
         alpha=3.5, delta=1.0, lambda_gap=0.5, beta=150000.0, beta_prime=150000.0
     )
 
+    dt = 1.0
+    n_steps = int(round(0.25 * 3600 / dt))
+    inflow = ctm_inflow_rate(result, dt, n_steps)  # no PeMS on CI -> fallback
+    n_lanes = int(cells_df["lanes"].max())
     run = build_and_run_micro(
-        result, pad=pad, dx_grid=0.5, dt=1.0, eta_ev=0.3, seed=0, hours=0.25
+        result, inflow, n_lanes=n_lanes, pad=pad, dx_grid=0.5, dt=dt,
+        eta_ev=0.3, seed=0,
     )
+    assert run.result.n_lanes == n_lanes
     # Micro produced trajectories and the collision guard reported stats.
     assert run.result.guard_stats is not None
     assert np.nanmax(run.result.position) > 0.0
@@ -82,8 +92,20 @@ def test_end_to_end_driver_on_1mi_case():
     assert stage1["micro_wall_s"] > 0.0
     assert stage1["ctm_wall_s"] > 0.0
 
-    # Stage 2 emits a finite divergence with positive energy on both sides.
+    # Stage 2 emits finite energy + peak-power divergences with positive sides.
     stage2 = run_stage2(run, result, eta_ev=0.3)
     assert stage2["total_adapted_wh"] > 0.0
     assert stage2["total_micro_wh"] > 0.0
-    assert np.isfinite(stage2["relative_divergence"])
+    assert np.isfinite(stage2["energy_divergence"])
+    assert stage2["peak_adapted_w"] > 0.0
+    assert stage2["peak_micro_w"] > 0.0
+    assert np.isfinite(stage2["peak_divergence"])
+
+    # Stage-1 traffic metrics are sane, and the flow-contour plot is written.
+    mtm = _micro_traffic_metrics(run)
+    ctm = _ctm_traffic_metrics(result, run.n_ctm_steps)
+    assert mtm["vht_h"] > 0 and mtm["vmt_mi"] > 0
+    assert mtm["n_completed"] <= mtm["n_entered"]
+    assert ctm["vht_h"] > 0 and ctm["vmt_mi"] > 0
+    plot = plot_flow_contours(tmp_path, run, result)
+    assert plot.exists()

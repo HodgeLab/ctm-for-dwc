@@ -18,18 +18,23 @@ from transportation_models.utils.microsim.aggregate import (
 )
 
 
-def _steady_result(n=4, v=10.0, dt=1.0, window=10, x0=100.0, spacing=200.0):
+def _steady_result(n=4, v=10.0, dt=1.0, window=10, x0=100.0, spacing=200.0,
+                   lane=None, n_lanes=1):
     """N vehicles fully inside a long cell for the whole window."""
     starts = x0 + spacing * np.arange(n)
     k = np.arange(window + 1)
     position = starts[:, None] + v * dt * k[None, :]
     velocity = np.full((n, window), v)
+    if lane is None:
+        lane = np.zeros((n, window), dtype=int)
     return MicrosimResult(
         position=position,
         velocity=velocity,
+        lane=lane,
         is_ev=np.ones(n, dtype=bool),
         dt=dt,
         corridor_length_m=2000.0,
+        n_lanes=n_lanes,
     )
 
 
@@ -55,6 +60,18 @@ def test_edie_two_cells_additivity():
     assert density.shape == (2, 1)
     assert density[0, 0] == pytest.approx(4 / 1000 * METERS_PER_MILE)
     assert density[1, 0] == pytest.approx(0.0)
+
+
+def test_edie_sums_across_lanes():
+    # Same 4 vehicles, but split across 2 lanes: Edie (lane-agnostic) must
+    # report the corridor total, matching the single-lane count -> PeMS-style
+    # station totals (sum across lanes).
+    lane = np.array([[0] * 10, [0] * 10, [1] * 10, [1] * 10])
+    res = _steady_result(n=4, v=10.0, dt=1.0, window=10, lane=lane, n_lanes=2)
+    edges = np.array([0.0, 2000.0])
+    density, flow = aggregate_to_cells(res, edges, window_steps=10)
+    assert density[0, 0] == pytest.approx(4 / 2000 * METERS_PER_MILE)
+    assert flow[0, 0] == pytest.approx(4 * 10 / 2000 * 3600)
 
 
 def test_edie_nonneg_and_zero_when_empty():

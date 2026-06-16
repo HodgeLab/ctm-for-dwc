@@ -113,9 +113,11 @@ def uniform_density_scenario(
     micro_result = MicrosimResult(
         position=position,
         velocity=velocity,
+        lane=np.zeros((n_vehicles, n_steps), dtype=int),
         is_ev=np.ones(n_vehicles, dtype=bool),
         dt=dt,
         corridor_length_m=length_m,
+        n_lanes=1,
     )
 
     # Analytic VHT: total vehicle-hours = N * n * dt_h (= N * L_mi / v_mph),
