@@ -7,8 +7,9 @@ this driver:
 * builds and runs the N-lane Newbolt microsim (lane-changing) over the corridor;
 * **Stage 1 (traffic fidelity):** aggregates the micro trajectories to per-cell
   density/flow (Edie, summed across lanes) and scores them against PeMS with the
-  same ``compare_against_historical`` path the CTM uses, alongside the existing
-  CTM ``validation.csv`` and wall-clock compute for each engine;
+  same ``compare_against_historical`` path the CTM uses, scoring the CTM over the
+  same window for a like-for-like macro validation, plus wall-clock compute for
+  each engine;
 * **Stage 2 (demand fidelity):** compares the original mCONV over micro
   trajectories against the adapted mCONV over the CTM VHT.
 
@@ -242,18 +243,27 @@ def run_stage1(
         )
 
     # Time the CTM over the SAME horizon as the micro (truncate the scenario)
-    # so the compute-cost comparison is fair when --hours caps the run.
+    # so the compute-cost comparison is fair when --hours caps the run. The
+    # truncated re-run also gives a CTM result over the micro's exact window,
+    # which we score against PeMS for a like-for-like macro validation.
     sc = result.scenario
     t = run.n_ctm_steps
     sc_h = replace(
         sc, inflow=sc.inflow[:t], demand=sc.demand[:, :t], beta=sc.beta[:, :t]
     )
     t0 = time.perf_counter()
-    ctm_simulate(result.freeway, sc_h)
+    ctm_result_h = ctm_simulate(result.freeway, sc_h)
     ctm_wall_s = time.perf_counter() - t0
+
+    ctm_val = None
+    if timeseries_dir is not None and start is not None:
+        ctm_val = compare_against_historical(
+            ctm_result_h, cells_df, timeseries_dir, start=pd.Timestamp(start)
+        )
 
     return {
         "micro_validation": micro_val,
+        "ctm_validation": ctm_val,
         "micro_wall_s": run.wall_s,
         "ctm_wall_s": ctm_wall_s,
         "micro_density": density,
@@ -263,6 +273,47 @@ def run_stage1(
 
 def _rel(micro: float, adapted: float) -> float:
     return (micro - adapted) / adapted if adapted else float("nan")
+
+
+_VAL_METRICS = ("density_rmse", "density_mape", "flow_rmse", "flow_mape")
+
+
+def _validation_stats(df: pd.DataFrame) -> dict:
+    """Per-cell mean/min/max for each RMSE/MAPE metric (NaN cells skipped)."""
+    out = {}
+    for m in _VAL_METRICS:
+        col = df[m].dropna()
+        out[m] = (
+            (float(col.mean()), float(col.min()), float(col.max()))
+            if not col.empty
+            else (float("nan"), float("nan"), float("nan"))
+        )
+    return out
+
+
+def _validation_block(micro_val: pd.DataFrame, ctm_val: pd.DataFrame) -> list:
+    """Stage-1 historical-validation lines: micro vs CTM, mean [min, max]."""
+    micro_s = _validation_stats(micro_val)
+    ctm_s = _validation_stats(ctm_val)
+    # (metric key, label, value format).
+    rows = (
+        ("density_rmse", "density RMSE [veh/mi]:", "{:.2f}"),
+        ("density_mape", "density MAPE [%]:", "{:.2f}"),
+        ("flow_rmse", "flow RMSE [veh/h]:", "{:.1f}"),
+        ("flow_mape", "flow MAPE [%]:", "{:.2f}"),
+    )
+
+    lines = ["Historical validation vs PeMS (per-cell, mean [min, max]):"]
+    for key, label, vf in rows:
+        cell = f"{vf} [{vf}, {vf}]"  # mean [min, max]
+        lines.append(
+            f"  {label:<21} micro {cell.format(*micro_s[key])}  "
+            f"|  CTM {cell.format(*ctm_s[key])}"
+        )
+    lines.append(
+        "  CSVs -> stage1_micro_validation.csv, stage1_macro_validation.csv"
+    )
+    return lines
 
 
 def run_stage2(
@@ -358,7 +409,7 @@ def _format_report(header: dict, stage1: dict, stage2: dict, micro_tm: dict,
         f"Flow contours -> {flow_plot}",
     ]
     if stage1.get("micro_validation") is not None:
-        L.append("Micro-vs-PeMS validation -> stage1_micro_validation.csv")
+        L += _validation_block(stage1["micro_validation"], stage1["ctm_validation"])
     L += [
         "",
         "── Stage 2: demand fidelity " + "─" * 36,
@@ -459,6 +510,9 @@ def main() -> None:
     if stage1.get("micro_validation") is not None:
         stage1["micro_validation"].to_csv(
             out_dir / "stage1_micro_validation.csv", index=False
+        )
+        stage1["ctm_validation"].to_csv(
+            out_dir / "stage1_macro_validation.csv", index=False
         )
 
     corridor_json = args.case_dir / "corridor.json"
