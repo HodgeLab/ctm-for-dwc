@@ -17,7 +17,7 @@ from transportation_models.utils.microsim.examples import uniform_density_scenar
 def test_single_vehicle_deposits_interior_p_y_times_dt():
     sc = uniform_density_scenario(n_vehicles=1)
     corridor = sc.corridor
-    E = micro_demand(sc.micro_result, corridor)
+    E = micro_demand(sc.micro_result, corridor).E.sum(axis=0)
 
     P_y = corridor.build_P_y()
     off = (corridor.delta_grid - 1) // 2
@@ -44,11 +44,11 @@ def test_non_ev_vehicles_contribute_no_demand():
         corridor_length_m=res.corridor_length_m,
         n_lanes=res.n_lanes,
     )
-    E = micro_demand(res_non_ev, sc.corridor)
+    E = micro_demand(res_non_ev, sc.corridor).E
     assert np.all(E == 0.0)
 
 
 def test_demand_non_negative():
     sc = uniform_density_scenario(n_vehicles=5)
-    E = micro_demand(sc.micro_result, sc.corridor)
+    E = micro_demand(sc.micro_result, sc.corridor).E
     assert np.all(E >= 0.0)

@@ -19,7 +19,7 @@ Public API:
 from __future__ import annotations
 
 from .aggregate import aggregate_to_cells
-from .charging import micro_demand, micro_power_timeseries
+from .charging import micro_demand
 from .lanechange import decide_lane_change
 from .model import (
     MPH_TO_MS,
@@ -40,7 +40,6 @@ __all__ = [
     "aggregate_to_cells",
     "decide_lane_change",
     "micro_demand",
-    "micro_power_timeseries",
     "seed_vehicles",
     "simulate",
 ]

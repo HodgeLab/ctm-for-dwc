@@ -52,10 +52,7 @@ from transportation_models.utils.microsim.aggregate import (
     aggregate_to_cells,
     to_validation_arrays,
 )
-from transportation_models.utils.microsim.charging import (
-    micro_demand,
-    micro_power_timeseries,
-)
+from transportation_models.utils.microsim.charging import micro_demand
 from transportation_models.utils.microsim.seeding import seed_vehicles
 from transportation_models.utils.microsim.simulate import simulate
 
@@ -276,21 +273,31 @@ def run_stage2(
     Reports corridor energy delivered and peak power, with the micro-vs-adapted
     divergence for each. Peak power is compared at the CTM timestep resolution
     (the micro power series is averaged into CTM bins) for a fair comparison.
+    Also times each demand model in isolation (``compute`` vs ``micro_demand``);
+    the upstream traffic-sim cost is reported by Stage 1, not here.
     """
     ctm_dt_h = float(result.freeway.dt)
     vht = mainline_vht(result)[:, : run.n_ctm_steps]
+
+    # Time each demand model in isolation (the traffic-sim cost is Stage 1's).
+    # Both build a (T, m) DemandResult, so this is a like-for-like comparison.
+    t0 = time.perf_counter()
     adapted = compute(vht, run.corridor, eta_EV=eta_ev)
-    micro_E = micro_demand(run.result, run.corridor)
+    adapted_wall_s = time.perf_counter() - t0
+
+    t0 = time.perf_counter()
+    micro = micro_demand(run.result, run.corridor)
+    micro_wall_s = time.perf_counter() - t0
 
     total_adapted = float(adapted.E.sum())
-    total_micro = float(micro_E.sum())
+    total_micro = float(micro.E.sum())
 
     # Peak power. Adapted: per-CTM-step energy / dt. Micro: instantaneous power
     # averaged into CTM-step bins for a like-for-like resolution.
     power_adapted = adapted.E.sum(axis=1) / ctm_dt_h  # W per CTM step
     peak_adapted = float(power_adapted.max()) if power_adapted.size else 0.0
 
-    power_micro = micro_power_timeseries(run.result, run.corridor)  # W per micro step
+    power_micro = micro.E.sum(axis=1) / (run.result.dt / _SECONDS_PER_HOUR)  # W per micro step
     spc = max(1, int(round(ctm_dt_h * _SECONDS_PER_HOUR / run.result.dt)))
     nbin = power_micro.size // spc
     if nbin:
@@ -306,6 +313,8 @@ def run_stage2(
         "peak_adapted_w": peak_adapted,
         "peak_micro_w": peak_micro,
         "peak_divergence": _rel(peak_micro, peak_adapted),
+        "adapted_wall_s": adapted_wall_s,
+        "micro_wall_s": micro_wall_s,
     }
 
 
@@ -355,8 +364,9 @@ def _format_report(header: dict, stage1: dict, stage2: dict, micro_tm: dict,
         "── Stage 2: demand fidelity " + "─" * 36,
         "Sim summary:",
         f"  same corridor/horizon; EV fraction {header['eta_ev']:.2f}",
-        "Compute cost (wall-clock):",
-        f"  micro: {micro_w:.3f} s | CTM: {ctm_w:.3f} s",
+        "Compute cost (wall-clock, demand model only):",
+        f"  adapted (CTM VHT)      : {stage2['adapted_wall_s']:.4f} s",
+        f"  original (micro traj.) : {stage2['micro_wall_s']:.4f} s",
         "Corridor energy delivered:",
         f"  adapted (CTM VHT)      : {stage2['total_adapted_wh'] / 1e3:.2f} kWh",
         f"  original (micro traj.) : {stage2['total_micro_wh'] / 1e3:.2f} kWh",

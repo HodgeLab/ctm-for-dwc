@@ -28,7 +28,7 @@ def test_uniform_limit_macro_micro_equivalence(n_vehicles):
     sc = uniform_density_scenario(n_vehicles=n_vehicles)
 
     # Original mCONV over micro trajectories.
-    E_micro = micro_demand(sc.micro_result, sc.corridor)
+    E_micro = micro_demand(sc.micro_result, sc.corridor).E
     total_micro = E_micro.sum()
 
     # Adapted mCONV over the CTM-equivalent VHT.
@@ -41,7 +41,7 @@ def test_uniform_limit_macro_micro_equivalence(n_vehicles):
 
 def test_uniform_limit_matches_per_position():
     sc = uniform_density_scenario(n_vehicles=10)
-    E_micro = micro_demand(sc.micro_result, sc.corridor)
+    E_micro = micro_demand(sc.micro_result, sc.corridor).E.sum(axis=0)
     adapted = compute(sc.vht, sc.corridor, eta_EV=sc.eta_ev)
     # Energy per position, summed over time, must match the micro deposits.
     np.testing.assert_allclose(adapted.E.sum(axis=0), E_micro, rtol=1e-9, atol=1e-12)

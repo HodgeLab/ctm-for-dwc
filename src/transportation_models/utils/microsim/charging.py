@@ -17,11 +17,26 @@ from __future__ import annotations
 
 import numpy as np
 
+from ..dwpt.model import DemandResult
+
 _SECONDS_PER_HOUR = 3600.0
 
 
-def micro_demand(result, corridor) -> np.ndarray:
-    """Per-position DWPT demand [Wh] from the original mCONV over trajectories.
+def micro_demand(result, corridor) -> DemandResult:
+    """Spatiotemporal DWPT demand [Wh] from the original mCONV over trajectories.
+
+    Builds the per-(timestep, position) energy array the same way the adapted
+    :func:`~transportation_models.utils.dwpt.demand.compute` does, returning the
+    same :class:`DemandResult` container so the two are a like-for-like
+    comparison. Both reductions follow from ``E``: corridor energy per position
+    is ``E.sum(axis=0)``, the corridor power series [W] is ``E.sum(axis=1)/dt_h``,
+    and total energy is ``E.sum()``.
+
+    Only ``is_ev`` vehicles in the corridor deposit charge; each in-corridor
+    position maps to the interior ``P_y`` index via the same center-reference
+    convention ``M_CTM`` uses (``j = off + round(x/dx_grid)``, clipped to the
+    corridor), so the micro charges exactly where ``M_CTM`` is non-zero and the
+    adapted/original methods agree in the uniform-density limit (CP5).
 
     Parameters
     ----------
@@ -32,9 +47,10 @@ def micro_demand(result, corridor) -> np.ndarray:
 
     Returns
     -------
-    ndarray (m,)
-        Energy delivered at each traversal position, watt-hours, summed over
-        time and over all EVs. Non-interior (approach/exit) positions stay 0.
+    DemandResult
+        ``E`` has shape ``(T, m)`` in watt-hours: rows are micro timesteps,
+        columns Rx-pad positions. Non-interior (approach/exit) positions and
+        non-EV vehicles contribute zero.
     """
     P_y = corridor.build_P_y()
     dx = corridor.dx_grid
@@ -49,35 +65,14 @@ def micro_demand(result, corridor) -> np.ndarray:
     in_corridor = (~np.isnan(v)) & (a >= 0.0) & (a < L)
     ev_mask = result.is_ev[:, None] & in_corridor
 
-    E = np.zeros_like(P_y)
-    positions = a[ev_mask]
-    if positions.size:
-        grid = np.clip(np.round(positions / dx).astype(int), 0, n_corr - 1)
-        idx = grid + off
-        np.add.at(E, idx, P_y[idx] * dt_h)
-    return E
-
-
-def micro_power_timeseries(result, corridor) -> np.ndarray:
-    """Instantaneous corridor charging power [W] at each micro step.
-
-    For each step, the sum of ``P_y`` over the EVs in the corridor. The total
-    energy ``power.sum() * dt_h`` matches :func:`micro_demand`'s total; the
-    peak is the grid-load peak (resolution-dependent: finer ``dt`` -> higher).
-    """
-    P_y = corridor.build_P_y()
-    dx = corridor.dx_grid
-    off = (corridor.delta_grid - 1) // 2
-    n_corr = corridor.n_corridor
-    L = corridor.corridor_length_m
-
-    a = result.position[:, :-1]
-    v = result.velocity
-    in_corridor = (~np.isnan(v)) & (a >= 0.0) & (a < L)
-    ev_mask = result.is_ev[:, None] & in_corridor
-
-    power = np.zeros_like(v)
+    n_steps = v.shape[1]
+    E = np.zeros((n_steps, P_y.size))  # (T, m), Wh
     if ev_mask.any():
-        grid = np.clip(np.round(a[ev_mask] / dx).astype(int), 0, n_corr - 1)
-        power[ev_mask] = P_y[grid + off]
-    return power.sum(axis=0)
+        veh_i, step_i = np.nonzero(ev_mask)
+        grid = np.clip(np.round(a[veh_i, step_i] / dx).astype(int), 0, n_corr - 1)
+        idx = grid + off
+        np.add.at(E, (step_i, idx), P_y[idx] * dt_h)
+
+    return DemandResult(
+        E=E, position_m=corridor.position_m, timesteps=np.arange(n_steps)
+    )
