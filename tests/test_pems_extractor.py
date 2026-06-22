@@ -68,9 +68,13 @@ def _write_pems_gz(
 
 
 def _ts_range(start: str, n: int) -> list[str]:
-    """``n`` consecutive 5-minute timestamps starting at ``start``."""
+    """``n`` consecutive 5-minute timestamps starting at ``start``.
+
+    Emitted in the real PeMS clearinghouse format (``MM/DD/YYYY HH:MM:SS``)
+    so fixtures match what the extractor parses in production.
+    """
     return [
-        (pd.Timestamp(start) + pd.Timedelta(minutes=5 * i)).strftime("%Y-%m-%d %H:%M:%S")
+        (pd.Timestamp(start) + pd.Timedelta(minutes=5 * i)).strftime("%m/%d/%Y %H:%M:%S")
         for i in range(n)
     ]
 

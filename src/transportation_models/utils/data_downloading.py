@@ -681,8 +681,11 @@ class PeMSExtractor(object):
         # Infer the column names
         df = self._infer_dataframe_columns(df, self.base_column_names)
 
-        # Make the timestamp column a datetime object
-        df["timestamp"] = pd.to_datetime(df["timestamp"])
+        # Make the timestamp column a datetime object. Specifying the PeMS
+        # format avoids slow per-element inference on large files.
+        df["timestamp"] = pd.to_datetime(
+            df["timestamp"], format="%m/%d/%Y %H:%M:%S"
+        )
 
         # Limit the dataframe to the time window that we need
         if self.start_datetime is not None:
@@ -831,13 +834,79 @@ class PeMSExtractor(object):
 
         return detectors
 
+    def _append_detector_csv(
+        self,
+        detector_id: int,
+        df: pd.DataFrame,
+        csv_root_dir: Path,
+        written: set,
+    ) -> None:
+        """
+        Append a detector's rows to its CSV without reading the file back.
+
+        The first time a detector is seen this run, any stale CSV is removed
+        and a header is written; subsequent calls append headerless. Dedup and
+        sort are deferred to :meth:`_finalize_csv` so this stays O(rows-written)
+        instead of re-reading and re-writing a growing file on every call.
+
+        Parameters
+        ----------
+        detector_id : int
+            VDS ID used to name the output file.
+        df : pd.DataFrame
+            Rows to append.
+        csv_root_dir : Path
+            Directory the CSV is written into.
+        written : set
+            Detector IDs already touched this run; mutated in place.
+        """
+        if df.empty:
+            return
+
+        filepath = Path(os.path.join(csv_root_dir, f"{detector_id}.csv"))
+
+        # First touch this run: clear any stale file and write a header.
+        first_write = detector_id not in written
+        if first_write and os.path.isfile(filepath):
+            os.remove(filepath)
+
+        df.to_csv(filepath, mode="a", header=first_write, index=False)
+        written.add(detector_id)
+
+    def _finalize_csv(self, detector_id: int, csv_root_dir: Path) -> None:
+        """
+        Dedup and sort a detector's accumulated CSV, once, in place.
+
+        Run after all ``.gz`` files have been streamed in by
+        :meth:`_append_detector_csv`. Reads the file a single time, drops
+        duplicate rows, sorts ascending by ``timestamp``, and rewrites.
+
+        Parameters
+        ----------
+        detector_id : int
+            VDS ID whose CSV should be finalized.
+        csv_root_dir : Path
+            Directory containing the CSV.
+        """
+        filepath = Path(os.path.join(csv_root_dir, f"{detector_id}.csv"))
+
+        df = pd.read_csv(filepath)
+        df["timestamp"] = pd.to_datetime(df["timestamp"])
+        df.drop_duplicates(inplace=True, ignore_index=True)
+        df.sort_values(
+            by="timestamp", ascending=True, inplace=True, ignore_index=True
+        )
+        df.to_csv(filepath, index=False)
+
     def process_gz_files(self) -> None:
         """
         Convert every ``.gz`` in the configured directory into per-detector CSVs.
 
         CSVs are written to a ``csv_files/`` subdirectory created inside
-        ``self.zipfile_directory``. Files for detectors that already have a
-        CSV are merged in-place by :meth:`make_csv`.
+        ``self.zipfile_directory``. Each ``.gz`` is streamed in once and its
+        rows appended to the relevant per-detector CSVs
+        (:meth:`_append_detector_csv`); each detector CSV is then deduped and
+        sorted a single time at the end (:meth:`_finalize_csv`).
         """
         # Get a list of all the .gz files to pull from
         gz_files = self._get_gz_files()
@@ -852,8 +921,12 @@ class PeMSExtractor(object):
         # Build the directory
         Path.mkdir(new_directory, exist_ok=True)
 
-        # Add each file to the DataFrame
+        # Detector IDs touched this run (drives header / stale-file handling)
+        written: set = set()
+
+        # Phase 1: stream each file in once, appending rows per detector
         for gz_file in gz_files:
+            start = time.time()
             print(f"Starting to process file: {gz_file}")
             # Load the data
             df = self._load_single_dataframe(gz_file)
@@ -865,14 +938,20 @@ class PeMSExtractor(object):
             # Get a valid list of detectors
             detectors_to_process = self._validate_detector_list(df, self.detectors)
 
-            # Split the data into a separate DataFrame for each detector
-            dataframes_by_detector = self.slice_dataframe_by_detector(
-                df, detectors_to_process
-            )
-
-            for detector_id, detector_df in dataframes_by_detector.items():
-                # Process the data into a CSV
-                self.make_csv(detector_id, detector_df, new_directory)
+            # Keep only the detectors we care about, then split in a single pass
+            df = df.loc[df["station"].isin(detectors_to_process), :]
+            for detector_id, detector_df in df.groupby("station"):
+                self._append_detector_csv(
+                    int(detector_id), detector_df, new_directory, written
+                )
 
             Nprocessed += 1
-            print(f"Completed processing on {Nprocessed}/{Nfiles} files")
+            print(
+                f"Completed processing on {Nprocessed}/{Nfiles} files "
+                f"({time.time() - start:.1f}s)"
+            )
+
+        # Phase 2: dedup + sort each detector CSV exactly once
+        for detector_id in sorted(written):
+            print(f"Finalizing CSV for detector: {detector_id}")
+            self._finalize_csv(detector_id, new_directory)
