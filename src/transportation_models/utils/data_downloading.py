@@ -870,7 +870,16 @@ class PeMSExtractor(object):
         if first_write and os.path.isfile(filepath):
             os.remove(filepath)
 
-        df.to_csv(filepath, mode="a", header=first_write, index=False)
+        # Pin the datetime format: without date_format, to_csv renders an
+        # all-midnight slice as date-only ("2022-08-26"), which mixes formats
+        # across appended slices and breaks the read-back in _finalize_csv.
+        df.to_csv(
+            filepath,
+            mode="a",
+            header=first_write,
+            index=False,
+            date_format="%Y-%m-%d %H:%M:%S",
+        )
         written.add(detector_id)
 
     def _finalize_csv(self, detector_id: int, csv_root_dir: Path) -> None:
@@ -891,7 +900,9 @@ class PeMSExtractor(object):
         filepath = Path(os.path.join(csv_root_dir, f"{detector_id}.csv"))
 
         df = pd.read_csv(filepath)
-        df["timestamp"] = pd.to_datetime(df["timestamp"])
+        df["timestamp"] = pd.to_datetime(
+            df["timestamp"], format="%Y-%m-%d %H:%M:%S"
+        )
         df.drop_duplicates(inplace=True, ignore_index=True)
         df.sort_values(
             by="timestamp", ascending=True, inplace=True, ignore_index=True

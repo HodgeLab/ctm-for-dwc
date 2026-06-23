@@ -306,6 +306,34 @@ def test_process_gz_files_writes_per_detector_csv(tmp_path):
     assert (timestamps.diff().dropna() > pd.Timedelta(0)).all()
 
 
+def test_process_gz_files_handles_all_midnight_slice(tmp_path):
+    """A slice whose timestamps are all midnight must not break finalize.
+
+    Regression: to_csv renders an all-midnight slice as date-only
+    ("2022-08-26"), which previously mixed formats within a detector's CSV and
+    crashed the timestamp parse in _finalize_csv.
+    """
+    # One file contributes a single 00:00:00 row (renders date-only); another
+    # contributes normal intra-day rows. Together they form a mixed-format file.
+    _write_pems_gz(
+        tmp_path / "midnight.gz",
+        timestamps=_ts_range("2022-08-26 00:00:00", 1), station=400839,
+    )
+    _write_pems_gz(
+        tmp_path / "daytime.gz",
+        timestamps=_ts_range("2022-08-27 08:00:00", 3), station=400839,
+    )
+    ext = PeMSExtractor(str(tmp_path), detectors=[400839])
+    ext.process_gz_files()  # must not raise
+
+    df = pd.read_csv(tmp_path / "csv_files" / "400839.csv")
+    assert len(df) == 4
+    # Every timestamp round-trips to a full datetime, sorted ascending.
+    timestamps = pd.to_datetime(df["timestamp"], format="%Y-%m-%d %H:%M:%S")
+    assert timestamps.is_monotonic_increasing
+    assert timestamps.iloc[0] == pd.Timestamp("2022-08-26 00:00:00")
+
+
 def test_process_gz_files_filters_unwanted_detectors(tmp_path):
     """A .gz containing multiple stations is filtered down to the requested one."""
     # Mixed-station file: 2 rows for 400839 followed by 2 rows for 400840.
