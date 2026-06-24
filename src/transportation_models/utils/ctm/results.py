@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Union
+from typing import Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -51,6 +51,7 @@ class SimulationResult:
     on_ramp: np.ndarray          # (n_cells, T)    r_i(k)   [veh/h]
     speed: np.ndarray            # (n_cells, T)    V_i(k)   [mi/h]
     boundary_inflow: np.ndarray  # (T,)            admitted f_0(k) [veh/h]
+    start: Optional[pd.Timestamp] = None  # wall-clock anchor of step 0, if known
 
     @property
     def n_cells(self) -> int:
@@ -118,6 +119,8 @@ class SimulationResult:
             )
         for name in _SCENARIO_ARRAYS:
             data[f"scenario__{name}"] = getattr(self.scenario, name)
+        if self.start is not None:
+            data["meta__start"] = np.array(pd.Timestamp(self.start).isoformat())
         np.savez(path, **data)
 
     @classmethod
@@ -143,8 +146,13 @@ class SimulationResult:
         scenario = Scenario(
             **{name: npz[f"scenario__{name}"] for name in _SCENARIO_ARRAYS}
         ).validate(freeway)
+        start = (
+            pd.Timestamp(str(npz["meta__start"])) if "meta__start" in npz
+            else None
+        )
         return cls(
             freeway=freeway,
             scenario=scenario,
+            start=start,
             **{name: npz[f"result__{name}"] for name in _RESULT_ARRAYS},
         )

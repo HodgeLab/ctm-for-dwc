@@ -1,10 +1,11 @@
 """Step 9: validate a CTM simulation result against historical PeMS data.
 
-Reads the per-quantity output CSVs that ``scripts/simulate_ctm_corridor.py``
-writes (``density.csv`` + ``mainline_flow.csv``), reconstructs the
-sim-side density and flow arrays, computes per-cell RMSE and MAPE
-against the historical 5-min PeMS samples over the same wallclock
-window, and writes a ``validation.csv`` with the per-cell stats.
+Loads the self-contained ``result.npz`` that
+``scripts/simulate_ctm_corridor.py`` writes (which carries the density
+and flow arrays, ``dt``, and the sim's wallclock ``start``), computes
+per-cell RMSE and MAPE against the historical 5-min PeMS samples over
+the same wallclock window, and writes a ``validation.csv`` with the
+per-cell stats.
 
 Stats are summarized to stdout: corridor-wide median / mean / max of
 each metric and the top-K worst-fitting cells by density RMSE.
@@ -14,8 +15,7 @@ Run from the repo root::
     python scripts/validate_ctm_corridor.py \\
         --sim-dir scripts/output/ctm_corridor/I_210_W/sim \\
         --cells   scripts/output/ctm_corridor/I_210_W/cells.csv \\
-        --timeseries-dir data/pems/csv_files \\
-        --start "2022-04-12 06:00"
+        --timeseries-dir data/pems/csv_files
 """
 
 from __future__ import annotations
@@ -23,46 +23,36 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 
 import pandas as pd
 
 from transportation_models.utils.ctm import compare_against_historical
+from transportation_models.utils.ctm.results import SimulationResult
 
 
-def _load_sim_arrays(sim_dir: Path) -> SimpleNamespace:
-    """Read density.csv + mainline_flow.csv into a minimal result-like wrapper.
+def resolve_start(
+    cli_start: pd.Timestamp | None, baked_start: pd.Timestamp | None,
+) -> pd.Timestamp:
+    """Pick the validation window's start: prefer the baked-in value.
 
-    Only the attributes :func:`compare_against_historical` reads are
-    populated: ``freeway.n_cells``, ``freeway.dt``, ``density``,
-    ``mainline_flow``, and ``n_steps``.
+    Falls back to ``--start`` for older npz files that predate
+    start-persistence. Raises :class:`ValueError` if neither is available or if
+    a given ``--start`` disagrees with the baked-in start.
     """
-    density_df = pd.read_csv(sim_dir / "density.csv", index_col=0)
-    flow_df = pd.read_csv(sim_dir / "mainline_flow.csv", index_col=0)
-    # CSVs are wide: time_h on the row index, cell indices on the columns.
-    # Validation wants (n_cells, T+1) / (n_cells, T) arrays.
-    density = density_df.to_numpy().T
-    mainline_flow = flow_df.to_numpy().T
-    # Derive sim dt from the time_h index of density (regularly spaced).
-    times = density_df.index.to_numpy()
-    if times.size < 2:
-        raise SystemExit(
-            f"density.csv has fewer than 2 rows -- cannot derive dt."
+    if cli_start is None and baked_start is None:
+        raise ValueError(
+            "result.npz has no persisted start; pass --start (or rebuild the "
+            "CTM with scripts/simulate_ctm_corridor.py to bake it in)."
         )
-    dt = float(times[1] - times[0])
-    n_cells = density.shape[0]
-    if mainline_flow.shape[0] != n_cells:
-        raise SystemExit(
-            f"density.csv has {n_cells} cells but mainline_flow.csv has "
-            f"{mainline_flow.shape[0]}; the two CSVs must come from the "
-            "same sim run."
+    if (
+        cli_start is not None and baked_start is not None
+        and cli_start != baked_start
+    ):
+        raise ValueError(
+            f"--start {cli_start} disagrees with the start baked into "
+            f"result.npz ({baked_start}); omit --start to use it."
         )
-    return SimpleNamespace(
-        freeway=SimpleNamespace(n_cells=n_cells, dt=dt),
-        density=density,
-        mainline_flow=mainline_flow,
-        n_steps=mainline_flow.shape[1],
-    )
+    return cli_start if cli_start is not None else baked_start
 
 
 def _print_summary(
@@ -128,7 +118,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--sim-dir", required=True, type=Path,
-        help=("Directory containing density.csv + mainline_flow.csv "
+        help=("Directory containing result.npz "
               "(output of scripts/simulate_ctm_corridor.py)."),
     )
     parser.add_argument(
@@ -141,9 +131,12 @@ def main() -> None:
         help="Directory of Step-3 per-VDS timeseries CSVs.",
     )
     parser.add_argument(
-        "--start", required=True, type=pd.Timestamp,
-        help=("Wallclock time of the sim's first step (k=0). Must align "
-              "to the PeMS 5-min grid."),
+        "--start", default=None, type=pd.Timestamp,
+        help=("Wallclock time of the sim's first step (k=0). Optional: "
+              "defaults to the start baked into result.npz. Only needed "
+              "for older result.npz files that predate start-persistence; "
+              "if given, must match the baked-in start. Must align to the "
+              "PeMS 5-min grid."),
     )
     parser.add_argument(
         "--out", default=None, type=Path,
@@ -156,12 +149,17 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    print(f"loading sim arrays from {args.sim_dir}", file=sys.stderr)
-    result = _load_sim_arrays(args.sim_dir)
+    print(f"loading result.npz from {args.sim_dir}", file=sys.stderr)
+    result = SimulationResult.from_npz(args.sim_dir / "result.npz")
     cells = pd.read_csv(args.cells)
 
+    try:
+        start = resolve_start(args.start, result.start)
+    except ValueError as e:
+        parser.error(str(e))
+
     stats = compare_against_historical(
-        result, cells, args.timeseries_dir, start=args.start,
+        result, cells, args.timeseries_dir, start=start,
     )
     n_5min = (
         stats.loc[stats["n_flow_samples"] > 0, "n_flow_samples"].max()
@@ -176,7 +174,7 @@ def main() -> None:
     print()
     _print_summary(
         stats, sim_dir=args.sim_dir, cells_path=args.cells,
-        ts_dir=args.timeseries_dir, start=args.start,
+        ts_dir=args.timeseries_dir, start=start,
         dt=result.freeway.dt, n_5min=int(n_5min),
         out_path=out_path, top_k=args.top_k,
     )

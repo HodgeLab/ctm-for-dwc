@@ -10,9 +10,11 @@ smoke (CP6) is added by T8 and marked ``slow``.
 from __future__ import annotations
 
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from transportation_models.utils.dwpt import compute
@@ -109,3 +111,175 @@ def test_end_to_end_driver_on_1mi_case(tmp_path):
     assert ctm["vht_h"] > 0 and ctm["vmt_mi"] > 0
     plot = plot_flow_contours(tmp_path, run, result)
     assert plot.exists()
+
+
+# ---- CTM/micro window alignment (--start later than the CTM sim start) -----
+
+
+def test_ctm_window_offset_basic():
+    from run_dwpt_validation import ctm_window_offset
+
+    baked = pd.Timestamp("2023-06-01 00:00")
+    # 3 h into a 0.5-h-step sim -> step 6; an on-grid start lands exactly.
+    assert ctm_window_offset("2023-06-01 03:00", baked, 0.5, 20) == 6
+    # start == baked -> no offset (reproduces today's front-window behavior).
+    assert ctm_window_offset(baked, baked, 0.5, 20) == 0
+
+
+def test_ctm_window_offset_requires_persisted_start():
+    from run_dwpt_validation import ctm_window_offset
+
+    with pytest.raises(ValueError, match="no persisted start"):
+        ctm_window_offset("2023-06-01 03:00", None, 0.5, 20)
+
+
+def test_ctm_window_offset_rejects_out_of_range():
+    from run_dwpt_validation import ctm_window_offset
+
+    baked = pd.Timestamp("2023-06-01 03:00")
+    with pytest.raises(ValueError, match="before the CTM result start"):
+        ctm_window_offset("2023-06-01 00:00", baked, 0.5, 20)
+    # step 20 is past the last index of a 20-step result.
+    with pytest.raises(ValueError, match="at/after the CTM result end"):
+        ctm_window_offset("2023-06-01 13:00", baked, 0.5, 20)
+
+
+@dataclass
+class _Cell:
+    length: float = 2.0
+
+
+@dataclass
+class _Freeway:
+    dt: float
+    cells: list
+
+    @property
+    def n_cells(self) -> int:
+        return len(self.cells)
+
+
+@dataclass
+class _Result:
+    """Minimal CTM-result stand-in: only what _ctm_traffic_metrics reads."""
+    freeway: _Freeway
+    density: np.ndarray       # (n_cells, T+1)
+    mainline_flow: np.ndarray  # (n_cells, T)
+
+    @property
+    def n_steps(self) -> int:
+        return self.mainline_flow.shape[1]
+
+
+def _ramp_result(t_steps: int = 10, dt_h: float = 0.5):
+    # One cell, flow and post-step density both rising linearly with the step
+    # index, so a windowed metric over [o, o+k) is exactly sum over that range.
+    flow = np.arange(t_steps, dtype=float)[None, :]          # flow[0,t] = t
+    density = np.arange(t_steps + 1, dtype=float)[None, :]   # density[0,k] = k
+    return _Result(_Freeway(dt_h, [_Cell()]), density, flow)
+
+
+def test_ctm_traffic_metrics_reads_the_offset_window():
+    from run_dwpt_validation import _ctm_traffic_metrics
+
+    res = _ramp_result()           # L=2, dt=0.5 -> L*dt = 1.0
+    k = 3
+    # offset 0: steps 0,1,2 -> VMT = (0+1+2)*1, VHT = (1+2+3)*1.
+    front = _ctm_traffic_metrics(res, k, 0)
+    assert front["vmt_mi"] == 3.0 and front["vht_h"] == 6.0
+    # offset 4: steps 4,5,6 -> VMT = (4+5+6)*1, VHT = (5+6+7)*1.
+    windowed = _ctm_traffic_metrics(res, k, 4)
+    assert windowed["vmt_mi"] == 15.0 and windowed["vht_h"] == 18.0
+
+
+# ---- CTM offset re-run: seeds from the mid-window state, not t=0 -----------
+
+
+def test_ctm_window_rerun_reproduces_original_window():
+    """The offset re-run must reproduce the original CTM trajectory over the
+    window -- which holds iff it seeds from the CTM's actual state at the offset
+    step (density + queue). Seeding from the t=0 rho0 would fail this.
+    """
+    from run_dwpt_validation import ctm_window_rerun
+    from transportation_models.utils.ctm import examples, simulate
+
+    result = simulate(
+        examples.four_cell_freeway(), examples.four_cell_scenario(steps=240)
+    )
+    o, t = 60, 60
+    # The window must start from a genuinely evolved state (rho0 is all zeros),
+    # otherwise seeding from rho0 would pass trivially.
+    assert not np.allclose(result.density[:, o], result.scenario.rho0)
+
+    rerun = ctm_window_rerun(result, o, t)
+    assert rerun.n_steps == t
+    np.testing.assert_allclose(
+        rerun.density, result.density[:, o : o + t + 1], rtol=0, atol=1e-9
+    )
+    np.testing.assert_allclose(
+        rerun.mainline_flow, result.mainline_flow[:, o : o + t],
+        rtol=0, atol=1e-9,
+    )
+    # offset 0 reproduces the original front window.
+    front = ctm_window_rerun(result, 0, t)
+    np.testing.assert_allclose(
+        front.density, result.density[:, : t + 1], rtol=0, atol=1e-9
+    )
+
+
+def _write_vds_csv(path, *, start, flows_5min, speeds_mph, station_id):
+    n = len(flows_5min)
+    pd.DataFrame({
+        "timestamp": pd.date_range(start=start, periods=n, freq="5min"),
+        "station": station_id,
+        "pct_observed": 100.0,
+        "total_flow_[veh/5-min]": flows_5min,
+        "avg_speed_[mph]": speeds_mph,
+    }).to_csv(path, index=False)
+
+
+@pytest.mark.slow
+def test_offset_rerun_scored_against_pems_honors_window(tmp_path):
+    """End-to-end: ctm_window_rerun -> compare_against_historical. PeMS is held
+    at the corridor's constant equilibrium; the offset window sits in the
+    equilibrium tail (matches PeMS ~exactly) while the front window includes the
+    rho0=0 transient (mismatches), proving the offset re-run is scored against
+    the correctly aligned PeMS window.
+    """
+    from run_dwpt_validation import ctm_window_rerun
+    from transportation_models.utils.ctm import (
+        compare_against_historical, examples, simulate,
+    )
+
+    result = simulate(
+        examples.four_cell_freeway(), examples.four_cell_scenario(steps=240)
+    )
+    n_cells = result.n_cells
+    d_eq = result.density[:, -1]        # constant equilibrium density per cell
+    f_eq = result.mainline_flow[:, -1]  # constant equilibrium flow per cell
+    vds_ids = list(range(101, 101 + n_cells))
+    base = pd.Timestamp("2022-04-12 06:00")
+    # 30 5-min bins of constant equilibrium PeMS -> covers front and tail.
+    for vid, fe, de in zip(vds_ids, f_eq, d_eq):
+        _write_vds_csv(
+            tmp_path / f"{vid}.csv", start=base,
+            flows_5min=np.full(30, fe / 12.0),   # veh/5min -> fe veh/h
+            speeds_mph=np.full(30, fe / de),     # so flow/speed == de
+            station_id=vid,
+        )
+    cells_df = pd.DataFrame({
+        "vds_id": vds_ids, "lanes": [1] * n_cells, "vds_lanes": [1] * n_cells,
+    })
+
+    t, o = 40, 200  # 4 5-min bins (dt=30s); offset 200 steps = +100 min
+    off = compare_against_historical(
+        ctm_window_rerun(result, o, t), cells_df, tmp_path,
+        start=base + pd.Timedelta(seconds=o * 30),
+    )
+    front = compare_against_historical(
+        ctm_window_rerun(result, 0, t), cells_df, tmp_path, start=base,
+    )
+    # Aligned equilibrium tail matches PeMS to ~0; the transient front does not.
+    assert (off["flow_rmse"] < 1e-6).all()
+    assert (off["density_rmse"] < 1e-6).all()
+    assert front["flow_rmse"].max() > 100.0

@@ -22,7 +22,8 @@ See ``docs/dwpt_validation_spec.md``.
 Run from the repo root::
 
     python scripts/run_dwpt_validation.py \\
-        --case-dir scripts/output/1mi_case_study \\
+        --layout-dir scripts/output/1mi_case_study \\
+        --sim-dir scripts/output/1mi_case_study/sim_no_ramps \\
         --timeseries-dir data/pems/csv_files --start "2022-04-12 06:00"
 """
 
@@ -68,6 +69,7 @@ class MicroRun:
     result: object  # MicrosimResult
     corridor: object  # CorridorSpec (snapped)
     cell_edges_m: np.ndarray
+    ctm_offset: int  # first CTM step aligned to the micro window's start
     n_ctm_steps: int  # CTM steps spanning the same horizon
     wall_s: float
 
@@ -107,10 +109,66 @@ def ctm_inflow_rate(result: SimulationResult, dt: float, n_steps: int) -> np.nda
     return boundary[idx]
 
 
+def ctm_window_offset(
+    start: str, result_start: Optional[pd.Timestamp],
+    ctm_dt_h: float, n_steps: int,
+) -> int:
+    """CTM step index aligned to the micro window's ``start``.
+
+    The PeMS path seeds the micro at ``start``, so the CTM metrics must be read
+    from the matching step. Raises :class:`ValueError` if the CTM result has no
+    persisted start (can't be aligned) or if ``start`` falls outside its span.
+    """
+    if result_start is None:
+        raise ValueError(
+            "result.npz has no persisted start timestamp, so the CTM cannot "
+            "be aligned to --start. Rebuild the CTM with "
+            "scripts/simulate_ctm_corridor.py (which now records --start)."
+        )
+    offset_h = (
+        pd.Timestamp(start) - result_start
+    ).total_seconds() / _SECONDS_PER_HOUR
+    offset = int(round(offset_h / ctm_dt_h))
+    if offset < 0:
+        raise ValueError(
+            f"--start {start} is before the CTM result start {result_start}."
+        )
+    if offset >= n_steps:
+        raise ValueError(
+            f"--start {start} is at/after the CTM result end "
+            f"({result_start} + {n_steps * ctm_dt_h:g} h)."
+        )
+    return offset
+
+
+def ctm_window_rerun(
+    result: SimulationResult, ctm_offset: int, n_ctm_steps: int
+) -> SimulationResult:
+    """Re-run the CTM over ``[ctm_offset, ctm_offset + n_ctm_steps)``.
+
+    Seeds from the CTM's *actual* state at the offset step (density/queue), not
+    the t=0 initial condition, and slices the scenario inputs to the window. The
+    re-run therefore faithfully reproduces the original trajectory over the
+    window (for ``ctm_offset == 0`` it is the original front-truncated run).
+    """
+    sc = result.scenario
+    o, t = ctm_offset, n_ctm_steps
+    sc_h = replace(
+        sc,
+        rho0=result.density[:, o],
+        q0=result.queue[:, o],
+        inflow=sc.inflow[o : o + t],
+        demand=sc.demand[:, o : o + t],
+        beta=sc.beta[:, o : o + t],
+    )
+    return ctm_simulate(result.freeway, sc_h)
+
+
 def build_and_run_micro(
     result: SimulationResult,
     inflow_rate_per_step: np.ndarray,
     *,
+    ctm_offset: int = 0,
     n_lanes: int,
     pad: PadSpec,
     dx_grid: float,
@@ -127,7 +185,9 @@ def build_and_run_micro(
     n_steps = int(inflow_rate_per_step.size)
     ctm_dt_h = float(result.freeway.dt)
     horizon_h = n_steps * dt / _SECONDS_PER_HOUR
-    n_ctm_steps = min(result.n_steps, max(1, int(round(horizon_h / ctm_dt_h))))
+    n_ctm_steps = min(
+        result.n_steps - ctm_offset, max(1, int(round(horizon_h / ctm_dt_h)))
+    )
 
     v_f_mph = float(np.mean([c.v_f for c in result.freeway.cells]))
     spec = MicrosimSpec(
@@ -151,7 +211,7 @@ def build_and_run_micro(
 
     return MicroRun(
         result=micro_result, corridor=corridor, cell_edges_m=cell_edges_m,
-        n_ctm_steps=n_ctm_steps, wall_s=wall_s,
+        ctm_offset=ctm_offset, n_ctm_steps=n_ctm_steps, wall_s=wall_s,
     )
 
 
@@ -177,12 +237,15 @@ def _micro_traffic_metrics(run: MicroRun) -> dict:
     }
 
 
-def _ctm_traffic_metrics(result: SimulationResult, n_ctm_steps: int) -> dict:
+def _ctm_traffic_metrics(
+    result: SimulationResult, n_ctm_steps: int, ctm_offset: int = 0
+) -> dict:
     """VHT, VMT, and an implied mean travel time from the CTM result."""
     dt_h = float(result.freeway.dt)
     L_cell = np.array([c.length for c in result.freeway.cells])  # miles
-    vht_h = float(mainline_vht(result)[:, :n_ctm_steps].sum())
-    flow = result.mainline_flow[:, :n_ctm_steps]  # veh/h
+    sl = slice(ctm_offset, ctm_offset + n_ctm_steps)
+    vht_h = float(mainline_vht(result)[:, sl].sum())
+    flow = result.mainline_flow[:, sl]  # veh/h
     vmt_mi = float((flow * L_cell[:, None] * dt_h).sum())
     corridor_mi = float(L_cell.sum())
     n_traversals = vmt_mi / corridor_mi if corridor_mi else 0.0
@@ -201,7 +264,7 @@ def plot_flow_contours(out_dir: Path, run: MicroRun, result: SimulationResult) -
     _, micro_flow = aggregate_to_cells(
         run.result, run.cell_edges_m, window_steps=window_steps
     )
-    ctm_flow = result.mainline_flow[:, : run.n_ctm_steps]
+    ctm_flow = result.mainline_flow[:, run.ctm_offset : run.ctm_offset + run.n_ctm_steps]
 
     fig, axes = plt.subplots(2, 1, figsize=(9, 5), constrained_layout=True)
     for ax, data, title in (
@@ -242,17 +305,12 @@ def run_stage1(
             wrapper, cells_df, timeseries_dir, start=pd.Timestamp(start)
         )
 
-    # Time the CTM over the SAME horizon as the micro (truncate the scenario)
-    # so the compute-cost comparison is fair when --hours caps the run. The
-    # truncated re-run also gives a CTM result over the micro's exact window,
+    # Time the CTM over the SAME window as the micro (re-run a slice of the
+    # scenario) so the compute-cost comparison is fair when --hours caps the
+    # run. The re-run also gives a CTM result over the micro's exact window,
     # which we score against PeMS for a like-for-like macro validation.
-    sc = result.scenario
-    t = run.n_ctm_steps
-    sc_h = replace(
-        sc, inflow=sc.inflow[:t], demand=sc.demand[:, :t], beta=sc.beta[:, :t]
-    )
     t0 = time.perf_counter()
-    ctm_result_h = ctm_simulate(result.freeway, sc_h)
+    ctm_result_h = ctm_window_rerun(result, run.ctm_offset, run.n_ctm_steps)
     ctm_wall_s = time.perf_counter() - t0
 
     ctm_val = None
@@ -328,7 +386,7 @@ def run_stage2(
     the upstream traffic-sim cost is reported by Stage 1, not here.
     """
     ctm_dt_h = float(result.freeway.dt)
-    vht = mainline_vht(result)[:, : run.n_ctm_steps]
+    vht = mainline_vht(result)[:, run.ctm_offset : run.ctm_offset + run.n_ctm_steps]
 
     # Time each demand model in isolation (the traffic-sim cost is Stage 1's).
     # Both build a (T, m) DemandResult, so this is a like-for-like comparison.
@@ -433,7 +491,14 @@ def _format_report(header: dict, stage1: dict, stage2: dict, micro_tm: dict,
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("--case-dir", required=True, type=Path)
+    p.add_argument(
+        "--layout-dir", required=True, type=Path,
+        help="dir with the static CTM freeway layout (cells.csv, corridor.json)",
+    )
+    p.add_argument(
+        "--sim-dir", required=True, type=Path,
+        help="dir with the dynamic CTM simulation (result.npz; default out-dir)",
+    )
     p.add_argument("--timeseries-dir", type=Path, default=None)
     p.add_argument("--start", type=str, default=None)
     p.add_argument("--dt", type=float, default=1.0, help="micro time step (s)")
@@ -457,19 +522,31 @@ def main() -> None:
     p.add_argument("--out-dir", type=Path, default=None)
     args = p.parse_args()
 
-    result = SimulationResult.from_npz(
-        args.case_dir / "sim_no_ramps" / "result.npz"
-    )
-    cells_df = pd.read_csv(args.case_dir / "cells.csv")
+    result = SimulationResult.from_npz(args.sim_dir / "result.npz")
+    cells_df = pd.read_csv(args.layout_dir / "cells.csv")
     pad = PadSpec(
         alpha=args.alpha, delta=args.delta, lambda_gap=args.lambda_gap,
         beta=args.beta, beta_prime=args.beta_prime,
     )
     n_lanes = args.n_lanes or int(cells_df["lanes"].max())
 
-    # Horizon (steps) and inflow source.
+    # Align the CTM to the micro window's start. The PeMS path seeds the micro
+    # at --start, so the CTM metrics must be read from the matching step; the
+    # fallback path seeds from CTM t=0, so it stays at offset 0.
     ctm_dt_h = float(result.freeway.dt)
-    full_h = result.n_steps * ctm_dt_h
+    pems_path = args.timeseries_dir is not None and args.start is not None
+    ctm_offset = 0
+    if pems_path:
+        try:
+            ctm_offset = ctm_window_offset(
+                args.start, result.start, ctm_dt_h, result.n_steps
+            )
+        except ValueError as e:
+            p.error(str(e))
+
+    # Horizon (steps) and inflow source. The available CTM horizon is what
+    # remains after the offset.
+    full_h = (result.n_steps - ctm_offset) * ctm_dt_h
     horizon_h = full_h if args.hours is None else min(args.hours, full_h)
     n_steps = int(round(horizon_h * _SECONDS_PER_HOUR / args.dt))
 
@@ -491,7 +568,8 @@ def main() -> None:
     )
 
     run = build_and_run_micro(
-        result, inflow, n_lanes=n_lanes, pad=pad, dx_grid=args.dx_grid,
+        result, inflow, ctm_offset=ctm_offset, n_lanes=n_lanes, pad=pad,
+        dx_grid=args.dx_grid,
         dt=args.dt, eta_ev=args.eta_ev, seed=args.seed,
         a=args.a, b=args.b, s_o=args.s_o, vehicle_length=args.vehicle_length,
         lane_change_prob=args.lane_change_prob,
@@ -502,9 +580,9 @@ def main() -> None:
     )
     stage2 = run_stage2(run, result, eta_ev=args.eta_ev)
     micro_tm = _micro_traffic_metrics(run)
-    ctm_tm = _ctm_traffic_metrics(result, run.n_ctm_steps)
+    ctm_tm = _ctm_traffic_metrics(result, run.n_ctm_steps, run.ctm_offset)
 
-    out_dir = args.out_dir or (args.case_dir / "dwpt_validation")
+    out_dir = args.out_dir or (args.sim_dir / "dwpt_validation")
     out_dir.mkdir(parents=True, exist_ok=True)
     flow_plot = plot_flow_contours(out_dir, run, result)
     if stage1.get("micro_validation") is not None:
@@ -515,7 +593,7 @@ def main() -> None:
             out_dir / "stage1_macro_validation.csv", index=False
         )
 
-    corridor_json = args.case_dir / "corridor.json"
+    corridor_json = args.layout_dir / "corridor.json"
     if corridor_json.exists():
         meta = json.loads(corridor_json.read_text())
         ref = f"{meta.get('ref', 'corridor')} {meta.get('direction', '')}".strip()

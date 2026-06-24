@@ -6,6 +6,8 @@ Structural bounds (density, flow, queue, speed) are checked on a stress
 scenario chosen to exercise them.
 """
 
+from dataclasses import replace
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -248,6 +250,29 @@ def test_to_npz_round_trips_scenario(ramp_run, tmp_path):
         np.testing.assert_array_equal(
             getattr(back.scenario, name), getattr(res.scenario, name)
         )
+
+
+def test_simulate_leaves_start_unset(ramp_run):
+    # The engine works in step/hour terms from t=0 and has no notion of a
+    # wall-clock anchor; scripts stamp --start on afterward (the replace() in
+    # simulate_ctm_corridor.py). So a fresh run's start must be None.
+    assert ramp_run.start is None
+
+
+def test_to_npz_round_trips_start(ramp_run, tmp_path):
+    ts = pd.Timestamp("2023-06-01 06:00")
+    res = replace(ramp_run, start=ts)
+    res.to_npz(tmp_path / "run.npz")
+    back = SimulationResult.from_npz(tmp_path / "run.npz")
+    assert back.start == ts
+
+
+def test_npz_omits_start_when_unset(ramp_run, tmp_path):
+    # Backward compat: a result with no start must not write the meta key, and
+    # must reload as start=None (so pre-existing .npz files keep loading).
+    ramp_run.to_npz(tmp_path / "run.npz")
+    assert "meta__start" not in np.load(tmp_path / "run.npz")
+    assert SimulationResult.from_npz(tmp_path / "run.npz").start is None
 
 
 def test_from_npz_revalidates(ramp_run, tmp_path):

@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -279,7 +280,7 @@ def main() -> None:
     )
 
     # 6. Run.
-    result = simulate(freeway, scenario)
+    result = replace(simulate(freeway, scenario), start=args.start)
     metrics = compute_metrics(result)
 
     # 7. Write per-quantity CSVs + summary.
