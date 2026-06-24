@@ -163,6 +163,10 @@ class PeMSDataProcessor:
         self.metadata_df = pd.read_csv(
             self.metadata_path,
         )
+        if "ID" in self.metadata_df.columns:
+            self.metadata_df.rename(
+                columns={"ID": "Station ID", "Abs_PM": "Abs PM"}, inplace=True
+            )
         self.metadata_cols = self.metadata_base_cols + [
             col for col in self.calibration_params if col in self.metadata_df.columns
         ]
@@ -252,16 +256,14 @@ class PeMSDataProcessor:
         list[str]
             List of VDSs
         """
-        # Load the metadata
-        metadata = pd.read_csv(self.metadata_path)
 
         # Get a set of detectors matching the specified type from the metadata
         if detector_type is None:
-            mask = pd.Series(True, index=metadata.index)
+            mask = pd.Series(True, index=self.metadata_df.index)
         else:
-            mask = metadata['Type'] == detector_type
+            mask = self.metadata_df["Type"] == detector_type
         detectors_in_metadata = set(
-            metadata.loc[mask, "Station ID"].astype(str).to_list()
+            self.metadata_df.loc[mask, "Station ID"].astype(str).to_list()
         )
 
         # Get a set of detectors from the timeseries directory
@@ -709,7 +711,7 @@ class PeMSDataProcessor:
         """
         # Get a list of detectors to work on
         if detectors is None:
-            detectors = self.retrieve_detectors(detector_type='Mainline')
+            detectors = self.retrieve_detectors(detector_type="ML")
 
         # Load dataframe for each detector
         detector_dfs = []
@@ -1321,7 +1323,7 @@ class PeMSDataProcessor:
         """
         # Get a list of detectors to work on
         if detectors is None:
-            detectors = self.retrieve_detectors(detector_type="Mainline")
+            detectors = self.retrieve_detectors(detector_type="ML")
 
         # If self._save_dir is set and no explicit saved_plot_dir was given,
         # auto-create a 'fundamental_diagram_plots' subdirectory within self._save_dir.
@@ -1362,7 +1364,11 @@ class PeMSDataProcessor:
                 f" pct_observed < {self.imputation_threshold}"
             )
             if df_standardized.empty:
-                logger.debug(f"Calibration failed for VDS: {detector}. Too many missing data points.")
+                logger.warning(
+                    f"Calibration skipped for VDS {detector}: 0 of {len_original} rows "
+                    f"had pct_observed >= {self.imputation_threshold}. "
+                    f"Lower the imputation threshold to retain partially-observed rows."
+                )
                 continue
 
             # Whiten the timeseries

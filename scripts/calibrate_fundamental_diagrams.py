@@ -40,10 +40,26 @@ Run from the repo root::
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 from pathlib import Path
 
 from transportation_models.utils.data_processing import PeMSDataProcessor
+
+
+def _enable_stdout_logging() -> None:
+    """Stream the data_processing logger's records to the terminal.
+
+    ``data_processing`` configures the root logger with a file handler only
+    (``include_stdout=False``), so its INFO/WARNING records never reach the
+    console. Attach a stdout StreamHandler so calibration progress and the
+    "0 rows survived the imputation threshold" warning are visible here.
+    """
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    )
+    logging.getLogger().addHandler(handler)
 
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_ROOT = REPO / "data" / "pems"
@@ -58,6 +74,7 @@ def _parse_detectors(value: str | None) -> list[str] | None:
 
 
 def main() -> None:
+    _enable_stdout_logging()
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--root-directory", type=Path, default=DEFAULT_ROOT,
