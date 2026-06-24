@@ -1399,6 +1399,27 @@ class PeMSDataProcessor:
             _default_dir = self._save_dir if self._save_dir is not None else self.processed_data_directory
             output_path = output_metadata_path or os.path.join(_default_dir, "station_metadata_calibrated.csv")
 
+            # Merge with any prior calibration so this run is incremental:
+            # metadata_df was loaded fresh from the (uncalibrated) metadata, so
+            # it only carries params for the detectors processed above. Without
+            # this, writing it out would wipe the calibration of every detector
+            # not in this run. Restore previously-calibrated params for detectors
+            # that exist in the output file but were NOT processed this run;
+            # detectors in this run keep their freshly-computed (or overwritten)
+            # params.
+            _fd_param_cols = [
+                "capacity", "free_flow_speed", "congestion_wave_speed",
+                "jam_density", "critical_density",
+            ]
+            processed_ids = {int(d) for d in detectors}
+            if os.path.exists(output_path):
+                prev = pd.read_csv(output_path).set_index("Station ID")
+                keep_mask = ~self.metadata_df["Station ID"].isin(processed_ids)
+                for col in _fd_param_cols:
+                    if col in prev.columns:
+                        prev_vals = self.metadata_df["Station ID"].map(prev[col])
+                        self.metadata_df.loc[keep_mask, col] = prev_vals[keep_mask]
+
             # Save metadata_df to a CSV file
             self.metadata_df.to_csv(output_path, index=False)
             logger.info(
