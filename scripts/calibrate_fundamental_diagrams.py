@@ -61,6 +61,10 @@ def _enable_stdout_logging() -> None:
     )
     logging.getLogger().addHandler(handler)
 
+    # The root logger runs at DEBUG, so matplotlib's noisy font-manager/backend
+    # DEBUG records would otherwise flood the terminal. Quiet them to WARNING.
+    logging.getLogger("matplotlib").setLevel(logging.WARNING)
+
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_ROOT = REPO / "data" / "pems"
 DEFAULT_OUT_DIR = REPO / "data" / "pems" / "calibrated"
