@@ -105,6 +105,28 @@ def test_assembly_carries_ramp_flags_through():
     assert out.iloc[1]["off_ramp"] == True
 
 
+def test_assembly_warns_when_ramp_flag_set_but_vds_missing():
+    """on_ramp/off_ramp=True with NaN ramp VDS id is a silent no-op -> warn."""
+    cells = _cells_df([
+        dict(length=0.5, lanes=3, vds_id=100, on_ramp=True,
+             on_ramp_vds_id=pd.NA),
+        dict(length=0.5, lanes=3, vds_id=100, off_ramp=True,
+             off_ramp_vds_id=pd.NA),
+    ])
+    cal = _calibrated_df([dict(**{
+        "Station ID": 100,
+        "capacity": 1800.0, "free_flow_speed": 60.0,
+        "congestion_wave_speed": 15.0,
+        "jam_density": 150.0, "critical_density": 30.0,
+    })])
+    with pytest.warns(UserWarning, match="on_ramp=True but no on_ramp_vds_id"):
+        out = assemble_freeway_table(cells, cal)
+    # The flag still passes through; capacity falls back to NaN -> +inf.
+    assert out.iloc[0]["on_ramp"] == True  # noqa: E712
+    assert np.isnan(out.iloc[0]["on_ramp_capacity"])
+    assert np.isnan(out.iloc[1]["off_ramp_capacity"])
+
+
 def test_ramp_capacity_lookup_uses_ramp_calibrated_table():
     """An on-ramp cell with a matched ramp VDS gets the calibrated capacity."""
     cells = _cells_df([

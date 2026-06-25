@@ -102,6 +102,40 @@ def parse_ramp_vds_ids(value) -> list[int]:
     )]
 
 
+def warn_presence_without_vds(
+    cells_df: pd.DataFrame, *, presence_col: str, vds_col: str,
+) -> None:
+    """Warn about cells flagged ``presence_col=True`` but carrying no ramp VDS.
+
+    A cell with ``on_ramp``/``off_ramp`` set to True but a NaN/empty
+    ``on_ramp_vds_id``/``off_ramp_vds_id`` (or a missing column entirely)
+    is silently modeled as having no ramp: assembly leaves its ramp
+    capacity NaN -> +inf, and the scenario derivation produces no
+    demand/split-ratio column so the cell defaults to demand = 0 /
+    beta = 0. That makes the presence flag a no-op, which is almost
+    always a cells.csv misconfiguration. Emit a :class:`UserWarning`
+    listing the affected cell indices so it doesn't pass unnoticed.
+    """
+    presence = cells_df[presence_col].to_numpy(dtype=bool)
+    raw = (
+        cells_df[vds_col] if vds_col in cells_df.columns
+        else [None] * len(cells_df)
+    )
+    unmatched = [
+        i for i, (has_ramp, value) in enumerate(zip(presence, raw))
+        if has_ramp and not parse_ramp_vds_ids(value)
+    ]
+    if unmatched:
+        warnings.warn(
+            f"{len(unmatched)} cell(s) have {presence_col}=True but no "
+            f"{vds_col} (NaN/empty/absent); they are modeled as having no "
+            "ramp (capacity unconstrained, demand/split-ratio 0), so the "
+            "flag has no effect. Affected cell indices (first 10): "
+            f"{unmatched[:10]}" + (" ..." if len(unmatched) > 10 else ""),
+            UserWarning, stacklevel=3,
+        )
+
+
 def assemble_freeway_table(
     cells_df: pd.DataFrame,
     calibrated_df: pd.DataFrame,
@@ -209,7 +243,14 @@ def assemble_freeway_table(
     out["lanes"] = lanes.astype(int)
 
     # Ramp-capacity lookup. NaN ramp capacities pass through and become
-    # +inf in freeway_from_dataframe via the Cell default.
+    # +inf in freeway_from_dataframe via the Cell default. Flag any cell
+    # whose ramp flag is set but carries no VDS id -- a silent no-op.
+    warn_presence_without_vds(
+        cells_df, presence_col="on_ramp", vds_col="on_ramp_vds_id",
+    )
+    warn_presence_without_vds(
+        cells_df, presence_col="off_ramp", vds_col="off_ramp_vds_id",
+    )
     out["on_ramp_capacity"] = _ramp_capacity_column(
         cells_df, ramp_calibrated_df, vds_col="on_ramp_vds_id", presence_col="on_ramp",
     )

@@ -25,7 +25,7 @@ from typing import Callable, Optional, Union
 import numpy as np
 import pandas as pd
 
-from .assembly import parse_ramp_vds_ids
+from .assembly import parse_ramp_vds_ids, warn_presence_without_vds
 
 FillStrategy = Callable[[pd.DataFrame], pd.DataFrame]
 
@@ -283,6 +283,9 @@ def demand_from_ramp_vds(
     """
     start, end = _validate_window(dt, start, end)
     timeseries_dir = Path(timeseries_dir)
+    warn_presence_without_vds(
+        cells_df, presence_col="on_ramp", vds_col="on_ramp_vds_id",
+    )
 
     columns: dict[int, np.ndarray] = {}
     for cell_idx, row in enumerate(cells_df.itertuples(index=False)):
@@ -353,6 +356,9 @@ def beta_from_off_ramp_vds(
     """
     start, end = _validate_window(dt, start, end)
     timeseries_dir = Path(timeseries_dir)
+    warn_presence_without_vds(
+        cells_df, presence_col="off_ramp", vds_col="off_ramp_vds_id",
+    )
     last_cell_idx = len(cells_df) - 1
 
     raw_columns: dict[int, np.ndarray] = {}

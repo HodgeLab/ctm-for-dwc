@@ -402,11 +402,13 @@ def test_demand_emits_columns_only_for_on_ramp_cells_with_a_vds(tmp_path):
         tmp_path / "900.csv", start=pd.Timestamp("2022-01-01 12:00"),
         n_rows=2, flows_5min=np.array([10.0, 20.0]),
     )
-    demand = demand_from_ramp_vds(
-        cells, tmp_path, dt=5.0 / 60.0,
-        start=pd.Timestamp("2022-01-01 12:00"),
-        end=pd.Timestamp("2022-01-01 12:10"),
-    )
+    # Cell 2 (on_ramp=True, NaN on_ramp_vds_id) is a silent no-op -> warn.
+    with pytest.warns(UserWarning, match="on_ramp=True but no on_ramp_vds_id"):
+        demand = demand_from_ramp_vds(
+            cells, tmp_path, dt=5.0 / 60.0,
+            start=pd.Timestamp("2022-01-01 12:00"),
+            end=pd.Timestamp("2022-01-01 12:10"),
+        )
     # Only cell 1 has on_ramp=True + a matched VDS.
     assert list(demand.columns) == [1]
     # 10 * 12 = 120 veh/h; 20 * 12 = 240 veh/h.
@@ -543,6 +545,27 @@ def test_beta_no_off_ramps_returns_empty_columns(tmp_path):
         start=pd.Timestamp("2022-01-01 12:00"),
         end=pd.Timestamp("2022-01-01 12:10"),
     )
+    assert beta.shape == (2, 0)
+
+
+def test_beta_warns_on_off_ramp_without_vds(tmp_path):
+    """off_ramp=True but NaN off_ramp_vds_id is a silent no-op -> warn.
+
+    Cell 0 is the off-ramp (not the tail, so the warning is the missing-VDS
+    one, not the last-cell one); cell 1 is a plain mainline cell.
+    """
+    cells = _ramp_cells([
+        dict(off_ramp=True, off_ramp_vds_id=pd.NA, vds_id=100),
+        dict(off_ramp=False, vds_id=101),
+    ])
+    with pytest.warns(
+        UserWarning, match="off_ramp=True but no off_ramp_vds_id"
+    ):
+        beta = beta_from_off_ramp_vds(
+            cells, tmp_path, dt=5.0 / 60.0,
+            start=pd.Timestamp("2022-01-01 12:00"),
+            end=pd.Timestamp("2022-01-01 12:10"),
+        )
     assert beta.shape == (2, 0)
 
 
