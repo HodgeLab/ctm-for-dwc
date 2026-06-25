@@ -20,7 +20,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from transportation_models.utils.data_processing import PeMSDataProcessor
+from transportation_models.utils.data_processing import (
+    CalibrationCode,
+    PeMSDataProcessor,
+    validate_fd_params,
+)
 
 
 # Same ground-truth FD as in test_fundamental_diagram.py so reading either
@@ -56,6 +60,8 @@ def _write_pems_dataset(
     station_ids: list[int],
     n_rows: int = N_ROWS,
     seed: int = 0,
+    density_min: float = 1.0,
+    density_max: float = RHO_JAM - 1.0,
 ) -> Path:
     """Write a minimal PeMS-style dataset under ``root``.
 
@@ -88,7 +94,7 @@ def _write_pems_dataset(
         # vary independently of time-of-day -- the whitening step ends up
         # with a flat per-(weekday, 5-min-block) statistic and the
         # whitened_flow used for outlier rejection stays roughly z-scored.
-        density = rng.uniform(1.0, RHO_JAM - 1.0, size=n_rows)
+        density = rng.uniform(density_min, density_max, size=n_rows)
         flow_per_lane = _triangular_fd_flow(density)
         # standardize_timeseries: flow_[veh/hr-lane] = total_flow_5min * 12 / Lanes.
         total_flow_5min = flow_per_lane * LANES / 12.0
@@ -145,6 +151,9 @@ def test_batch_calibration_recovers_fd_for_each_station(tmp_path):
         assert row["capacity"] == pytest.approx(Q_MAX, rel=1.5e-2)
         assert row["critical_density"] == pytest.approx(RHO_CRIT, rel=1.5e-2)
         assert row["jam_density"] == pytest.approx(RHO_JAM, rel=1.5e-2)
+        # A clean fit is flagged as success.
+        assert row["calibration_code"] == CalibrationCode.OK
+        assert row["calibration_status"] == "ok"
 
 
 def test_batch_calibration_skips_when_save_params_false(tmp_path):
@@ -198,9 +207,132 @@ def test_batch_calibration_skips_detectors_with_too_few_observed_rows(tmp_path):
     row_0 = out.loc[out["Station ID"] == 0].iloc[0]
     row_1 = out.loc[out["Station ID"] == 1].iloc[0]
     assert row_0["free_flow_speed"] == pytest.approx(V_F, rel=1.5e-2)
-    # Station 1 stays uncalibrated (the column either doesn't exist in the
-    # input metadata or holds NaN after the loop skipped its row).
-    assert pd.isna(row_1.get("free_flow_speed"))
+    assert row_0["calibration_code"] == CalibrationCode.OK
+    # Station 1 stays uncalibrated: NaN FD params + a no-data-after-filter code.
+    assert pd.isna(row_1["free_flow_speed"])
+    assert row_1["calibration_code"] == CalibrationCode.NO_DATA_AFTER_FILTER
+    assert row_1["calibration_status"] == "no_data_after_filter"
+
+
+# ---- calibration codes / edge cases -------------------------------------
+
+
+def test_missing_timeseries_records_missing_code(tmp_path):
+    """A detector registered in metadata but with no timeseries CSV gets
+    code 1 (missing_timeseries) and NaN FD params, without crashing."""
+    metadata_path = _write_pems_dataset(tmp_path, station_ids=[0, 5])
+    # Remove station 5's timeseries so load_data_by_id raises.
+    (tmp_path / "timeseries_data" / "5.csv").unlink()
+    proc = _make_processor(tmp_path, metadata_path)
+    proc.calibrate_fundamental_diagrams(
+        detectors=["0", "5"], save_params=True,
+    )
+    out = pd.read_csv(tmp_path / "processed" / "station_metadata_calibrated.csv")
+    row_5 = out.loc[out["Station ID"] == 5].iloc[0]
+    assert row_5["calibration_code"] == CalibrationCode.MISSING_TIMESERIES
+    assert row_5["calibration_status"] == "missing_timeseries"
+    assert pd.isna(row_5["free_flow_speed"])
+    # The other station still calibrates fine.
+    row_0 = out.loc[out["Station ID"] == 0].iloc[0]
+    assert row_0["calibration_code"] == CalibrationCode.OK
+
+
+def test_no_congestion_points_records_code_3(tmp_path):
+    """A detector that only ever observes free-flow (density <= critical)
+    has no congestion branch to fit -> code 3, NaN params."""
+    metadata_path = _write_pems_dataset(
+        tmp_path, station_ids=[0], density_min=1.0, density_max=RHO_CRIT - 1.0,
+    )
+    proc = _make_processor(tmp_path, metadata_path)
+    proc.calibrate_fundamental_diagrams(detectors=["0"], save_params=True)
+    out = pd.read_csv(tmp_path / "processed" / "station_metadata_calibrated.csv")
+    row = out.loc[out["Station ID"] == 0].iloc[0]
+    assert row["calibration_code"] == CalibrationCode.NO_CONGESTION_POINTS
+    assert row["calibration_status"] == "no_congestion_points"
+    assert pd.isna(row["capacity"])
+
+
+def test_bin_knobs_are_threaded_and_recovery_holds(tmp_path):
+    """Non-default bin_size / bin_iqr_multiplier flow through to the
+    congestion fit without error and still recover the synthetic FD."""
+    metadata_path = _write_pems_dataset(tmp_path, station_ids=[0])
+    proc = _make_processor(tmp_path, metadata_path)
+    proc.calibrate_fundamental_diagrams(
+        detectors=["0"], save_params=True, bin_size=20, bin_iqr_multiplier=2.0,
+    )
+    out = pd.read_csv(tmp_path / "processed" / "station_metadata_calibrated.csv")
+    row = out.loc[out["Station ID"] == 0].iloc[0]
+    assert row["calibration_code"] == CalibrationCode.OK
+    assert row["free_flow_speed"] == pytest.approx(V_F, rel=1.5e-2)
+    assert row["congestion_wave_speed"] == pytest.approx(W, rel=1.5e-2)
+
+
+# ---- validate_fd_params (unit) ------------------------------------------
+
+
+def _good_params() -> dict[str, float]:
+    """Params lying exactly on the pinned triangular FD (capacity = v_f*rho_crit
+    = w*(rho_jam - rho_crit))."""
+    return {
+        "capacity": Q_MAX,
+        "free_flow_speed": V_F,
+        "congestion_wave_speed": W,
+        "critical_density": RHO_CRIT,
+        "jam_density": RHO_JAM,
+    }
+
+
+def test_validate_fd_params_accepts_clean_triangle():
+    code, reason = validate_fd_params(_good_params())
+    assert code == CalibrationCode.OK
+    assert reason == "ok"
+
+
+@pytest.mark.parametrize("key, value", [
+    ("free_flow_speed", -1.0),
+    ("congestion_wave_speed", -5.0),
+    ("capacity", 0.0),
+])
+def test_validate_fd_params_rejects_non_positive(key, value):
+    params = _good_params()
+    params[key] = value
+    code, _ = validate_fd_params(params)
+    assert code == CalibrationCode.VALIDATION_FAILED
+
+
+def test_validate_fd_params_rejects_wave_faster_than_free_flow():
+    params = _good_params()
+    params["congestion_wave_speed"] = params["free_flow_speed"] + 5.0
+    code, reason = validate_fd_params(params)
+    assert code == CalibrationCode.VALIDATION_FAILED
+    assert "free_flow_speed" in reason
+
+
+def test_validate_fd_params_rejects_bad_density_ordering():
+    params = _good_params()
+    # Swap so critical >= jam.
+    params["critical_density"] = RHO_JAM
+    params["jam_density"] = RHO_CRIT
+    code, _ = validate_fd_params(params)
+    assert code == CalibrationCode.VALIDATION_FAILED
+
+
+def test_validate_fd_params_rejects_triangle_inconsistency():
+    params = _good_params()
+    # Knock capacity ~40% off while leaving the branch params alone.
+    params["capacity"] = Q_MAX * 0.6
+    code, reason = validate_fd_params(params)
+    assert code == CalibrationCode.VALIDATION_FAILED
+    assert "triangle" in reason
+
+
+def test_validate_fd_params_triangle_rtol_is_honored():
+    params = _good_params()
+    params["capacity"] = Q_MAX * 0.95  # 5% off
+    # Default 0.05 tolerance: 5% off is at the edge -> rejected.
+    assert validate_fd_params(params)[0] == CalibrationCode.VALIDATION_FAILED
+    # A looser tolerance accepts it.
+    assert validate_fd_params(params, triangle_rtol=0.1)[0] == CalibrationCode.OK
 
 
 # ---- calibrate_ramp_capacities ------------------------------------------
@@ -276,11 +408,14 @@ def test_calibrate_ramp_capacities_recovers_99th_percentile(tmp_path):
     # In-memory result has the expected schema and one row.
     assert list(ramp_df.columns) == [
         "Station ID", "ramp_capacity_[veh/hr]", "n_observations",
+        "calibration_code", "calibration_status",
     ]
     assert len(ramp_df) == 1
     assert ramp_df.iloc[0]["ramp_capacity_[veh/hr]"] == pytest.approx(
         0.99 * capacity, rel=5e-2,
     )
+    assert ramp_df.iloc[0]["calibration_code"] == CalibrationCode.OK
+    assert ramp_df.iloc[0]["calibration_status"] == "ok"
     # CSV got written to the default save directory.
     out_csv = tmp_path / "processed" / "ramp_metadata_calibrated.csv"
     assert out_csv.exists()
@@ -318,6 +453,8 @@ def test_calibrate_ramp_capacities_emits_nan_for_missing_timeseries(tmp_path):
     assert len(ramp_df) == 1
     assert pd.isna(ramp_df.iloc[0]["ramp_capacity_[veh/hr]"])
     assert ramp_df.iloc[0]["n_observations"] == 0
+    assert ramp_df.iloc[0]["calibration_code"] == CalibrationCode.MISSING_TIMESERIES
+    assert ramp_df.iloc[0]["calibration_status"] == "missing_timeseries"
 
 
 def test_calibrate_ramp_capacities_quantile_arg_is_honored(tmp_path):

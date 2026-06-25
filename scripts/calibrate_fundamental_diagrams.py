@@ -119,7 +119,23 @@ def main() -> None:
     )
     parser.add_argument(
         "--iqr-multiplier", type=float, default=1.0,
-        help="IQR-fence multiplier for the per-bin outlier rejector (default 1.0)",
+        help=("IQR-fence multiplier for the row-level outlier filter "
+              "(default 1.0, matching PeMSDataProcessor)"),
+    )
+    parser.add_argument(
+        "--bin-iqr-multiplier", type=float, default=1.0,
+        help=("IQR-fence multiplier for the per-bin congestion-branch filter "
+              "(default 1.0, matching PeMSDataProcessor)"),
+    )
+    parser.add_argument(
+        "--bin-size", type=int, default=10,
+        help=("number of points per congestion density bin (default 10, "
+              "matching PeMSDataProcessor)"),
+    )
+    parser.add_argument(
+        "--triangle-rtol", type=float, default=0.05,
+        help=("relative tolerance for the triangle-consistency validation "
+              "gate (default 0.05, matching PeMSDataProcessor)"),
     )
     parser.add_argument(
         "--make-plots", action="store_true",
@@ -168,6 +184,9 @@ def main() -> None:
     proc.calibrate_fundamental_diagrams(
         detectors=detectors,
         iqr_multiplier=args.iqr_multiplier,
+        bin_iqr_multiplier=args.bin_iqr_multiplier,
+        bin_size=args.bin_size,
+        triangle_rtol=args.triangle_rtol,
         make_plots=args.make_plots,
         saved_plot_dir=plots_dir,
         save_params=True,

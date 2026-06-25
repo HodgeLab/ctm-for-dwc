@@ -20,7 +20,7 @@ import pandas as pd
 import random
 import torch
 import typing
-from enum import Enum
+from enum import Enum, IntEnum
 from joblib import dump, load
 from pathlib import Path
 from sklearn.linear_model import LinearRegression
@@ -46,6 +46,134 @@ class TargetNormalization(str, Enum):
     # Min/max scale flow and density using min/max computed across all detectors
     # in the long_df.
     MIN_MAX = "min_max"
+
+
+class CalibrationCode(IntEnum):
+    """Outcome of a single detector's fundamental-diagram calibration.
+
+    Written to the ``calibration_code`` column of the calibrated metadata
+    (with the matching :data:`CALIBRATION_STATUS` string in
+    ``calibration_status``) so results can be triaged. ``0`` is the only
+    success; every other code marks a distinct failure path and leaves the
+    FD parameter columns NaN.
+    """
+
+    # Clean success: params computed and passed validation.
+    OK = 0
+    # load_data_by_id could not find / read the timeseries file.
+    MISSING_TIMESERIES = 1
+    # No rows survived the pct_observed threshold or the IQR row filter.
+    NO_DATA_AFTER_FILTER = 2
+    # No points in the congestion regime (all density <= the critical-density
+    # seed), so the congestion branch has nothing to fit.
+    NO_CONGESTION_POINTS = 3
+    # Fit produced physically invalid parameters (see validate_fd_params).
+    VALIDATION_FAILED = 4
+
+
+# Human-readable status string for each CalibrationCode, mirrored into the
+# calibration_status column alongside the integer calibration_code.
+CALIBRATION_STATUS: dict[int, str] = {
+    CalibrationCode.OK: "ok",
+    CalibrationCode.MISSING_TIMESERIES: "missing_timeseries",
+    CalibrationCode.NO_DATA_AFTER_FILTER: "no_data_after_filter",
+    CalibrationCode.NO_CONGESTION_POINTS: "no_congestion_points",
+    CalibrationCode.VALIDATION_FAILED: "validation_failed",
+}
+
+# FD parameter columns produced by calibration; blanked to NaN on any
+# non-OK calibration code.
+FD_PARAM_COLS: list[str] = [
+    "capacity",
+    "free_flow_speed",
+    "congestion_wave_speed",
+    "jam_density",
+    "critical_density",
+]
+
+
+def validate_fd_params(
+    params: dict[str, float], *, triangle_rtol: float = 0.05,
+) -> tuple[CalibrationCode, str]:
+    """Check that a calibrated triangular FD is physically valid.
+
+    Pure function (no I/O) so it can be unit-tested independently of the
+    calibration pipeline. Returns :attr:`CalibrationCode.OK` with an
+    ``"ok"`` reason when every gate passes, otherwise
+    :attr:`CalibrationCode.VALIDATION_FAILED` and a short human-readable
+    reason naming the first failing gate.
+
+    Gates:
+      1. Positivity -- ``free_flow_speed``, ``congestion_wave_speed`` and
+         ``capacity`` are finite and strictly positive.
+      2. ``congestion_wave_speed < free_flow_speed`` (required for a
+         backward-bending congestion branch).
+      3. Density ordering -- ``0 < critical_density < jam_density``.
+      4. Triangle consistency (defensive) -- ``capacity`` agrees with both
+         ``free_flow_speed * critical_density`` and
+         ``congestion_wave_speed * (jam_density - critical_density)`` to
+         within ``triangle_rtol`` relative error. Holds by construction in
+         the current estimator, so this guards against future regressions.
+
+    Parameters
+    ----------
+    params : dict[str, float]
+        Must contain ``capacity``, ``free_flow_speed``,
+        ``congestion_wave_speed``, ``jam_density``, ``critical_density``.
+    triangle_rtol : float, optional
+        Relative tolerance for the triangle-consistency gate, by default
+        0.05.
+
+    Returns
+    -------
+    tuple[CalibrationCode, str]
+        ``(CalibrationCode.OK, "ok")`` or
+        ``(CalibrationCode.VALIDATION_FAILED, <reason>)``.
+    """
+    v_f = params["free_flow_speed"]
+    w = params["congestion_wave_speed"]
+    capacity = params["capacity"]
+    rho_crit = params["critical_density"]
+    rho_jam = params["jam_density"]
+
+    def _fail(reason: str) -> tuple[CalibrationCode, str]:
+        return CalibrationCode.VALIDATION_FAILED, reason
+
+    # 1. Positivity (also rejects NaN/inf, since comparisons with NaN are False).
+    if not (np.isfinite(v_f) and v_f > 0):
+        return _fail(f"free_flow_speed not positive ({v_f})")
+    if not (np.isfinite(w) and w > 0):
+        return _fail(f"congestion_wave_speed not positive ({w})")
+    if not (np.isfinite(capacity) and capacity > 0):
+        return _fail(f"capacity not positive ({capacity})")
+
+    # 2. Congestion wave strictly slower than free-flow speed.
+    if not (w < v_f):
+        return _fail(f"congestion_wave_speed ({w}) >= free_flow_speed ({v_f})")
+
+    # 3. Density ordering.
+    if not (np.isfinite(rho_crit) and np.isfinite(rho_jam)):
+        return _fail(f"non-finite density (crit={rho_crit}, jam={rho_jam})")
+    if not (0 < rho_crit < rho_jam):
+        return _fail(
+            f"density ordering violated (0 < {rho_crit} < {rho_jam} is False)"
+        )
+
+    # 4. Triangle consistency.
+    free_branch_cap = v_f * rho_crit
+    cong_branch_cap = w * (rho_jam - rho_crit)
+    for label, expected in (
+        ("free_flow_speed * critical_density", free_branch_cap),
+        ("congestion_wave_speed * (jam_density - critical_density)", cong_branch_cap),
+    ):
+        if abs(capacity - expected) > triangle_rtol * abs(capacity):
+            return _fail(
+                f"triangle inconsistency: capacity ({capacity:.2f}) != "
+                f"{label} ({expected:.2f}) within rtol {triangle_rtol}"
+            )
+
+    return CalibrationCode.OK, "ok"
+
 
 # Local imports
 import transportation_models.utils.constants as constants
@@ -1202,13 +1330,20 @@ class PeMSDataProcessor:
         detector_id: str,
         make_plots: bool = False,
         save_path: typing.Optional[Path] = None,
-    ) -> dict[str, float]:
+        bin_size: int = 10,
+        bin_iqr_multiplier: float = 1.0,
+        triangle_rtol: float = 0.05,
+    ) -> tuple[dict[str, float], CalibrationCode]:
         """
         Derive the full set of FD parameters for a single detector.
 
         Seeds the critical-density estimate from the row with the highest
         observed flow, fits both regimes (free-flow and congestion), and
         recovers the capacity and critical density from their intersection.
+        The fit is then validated with :func:`validate_fd_params`. If the
+        congestion regime has too few points to fit, or the fit is
+        physically invalid, the FD parameters are returned as NaN and a
+        non-OK :class:`CalibrationCode` flags the reason.
 
         Parameters
         ----------
@@ -1217,22 +1352,50 @@ class PeMSDataProcessor:
         detector_id : str
             VDS station ID associated with the data.
         make_plots : bool, optional
-            If True, call :meth:`plot_fundamental_diagram`, by default False.
+            If True, call :meth:`plot_fundamental_diagram` (only for a valid
+            fit), by default False.
         save_path : typing.Optional[Path], optional
             Passed through to the plotter; ignored when ``make_plots`` is
             False, by default None.
+        bin_size : int, optional
+            Number of points per non-overlapping congestion density bin,
+            by default 10.
+        bin_iqr_multiplier : float, optional
+            IQR-fence multiplier applied per congestion bin, by default 1.0.
+        triangle_rtol : float, optional
+            Relative tolerance for the triangle-consistency validation gate,
+            by default 0.05.
 
         Returns
         -------
-        dict[str, float]
-            Dict with keys ``Station ID``, ``capacity``, ``free_flow_speed``,
-            ``congestion_wave_speed``, ``jam_density``, ``critical_density``.
+        tuple[dict[str, float], CalibrationCode]
+            The parameter dict (keys ``Station ID``, ``capacity``,
+            ``free_flow_speed``, ``congestion_wave_speed``, ``jam_density``,
+            ``critical_density``; FD values are NaN on failure) and the
+            outcome code.
         """
+        nan_params = {"Station ID": int(detector_id)}
+        nan_params.update({col: np.nan for col in FD_PARAM_COLS})
+
         # Estimate critical density based on peak observed flow
         capacity_idx = timeseries_df["flow_[veh/hr-lane]"].idxmax()
         critical_density_estimate = timeseries_df.loc[
             capacity_idx, "density_[veh/mi-lane]"
         ]
+
+        # Bail out if the congestion regime can't support a line fit. We need
+        # at least two non-overlapping bins of points above the seed density;
+        # otherwise estimate_congestion_wave_speed has nothing (or a single
+        # degenerate point) to regress.
+        n_congested = int(
+            (timeseries_df["density_[veh/mi-lane]"] > critical_density_estimate).sum()
+        )
+        if n_congested // bin_size < 2:
+            logger.warning(
+                f"VDS {detector_id}: only {n_congested} congestion-regime points "
+                f"(< 2 bins of {bin_size}); cannot fit congestion branch."
+            )
+            return nan_params, CalibrationCode.NO_CONGESTION_POINTS
 
         # Fit free flow speed and congestion wave speed with linear model
         free_flow_speed, free_flow_speed_model = self.estimate_free_flow_speed(
@@ -1245,6 +1408,8 @@ class PeMSDataProcessor:
                 timeseries_df=timeseries_df,
                 critical_density_estimate=critical_density_estimate,
                 test_points=[critical_density_estimate],
+                bin_size=bin_size,
+                iqr_multiplier=bin_iqr_multiplier,
             )
         )
 
@@ -1264,6 +1429,12 @@ class PeMSDataProcessor:
             "critical_density": critical_density,
         }
 
+        # Validate before accepting; reject physically invalid fits.
+        code, reason = validate_fd_params(params, triangle_rtol=triangle_rtol)
+        if code != CalibrationCode.OK:
+            logger.warning(f"VDS {detector_id}: FD validation failed: {reason}")
+            return nan_params, code
+
         if make_plots:
             self.plot_fundamental_diagram(
                 timeseries_df=timeseries_df,
@@ -1274,13 +1445,43 @@ class PeMSDataProcessor:
                 save_path=save_path,
             )
 
+        return params, code
+
+    @staticmethod
+    def _nan_fd_params(detector_id: str) -> dict[str, float]:
+        """FD parameter dict with all values NaN (used for failed detectors)."""
+        params = {"Station ID": int(detector_id)}
+        params.update({col: np.nan for col in FD_PARAM_COLS})
         return params
+
+    def _record_calibration(
+        self,
+        detector: str,
+        params: dict[str, float],
+        code: CalibrationCode,
+        save_params: bool,
+    ) -> None:
+        """Write FD params + calibration code/status for one detector.
+
+        No-op unless ``save_params`` is True, mirroring the original
+        behaviour of only mutating ``metadata_df`` when results are persisted.
+        """
+        if not save_params:
+            return
+        mask = self.metadata_df["Station ID"] == int(detector)
+        for key, value in params.items():
+            self.metadata_df.loc[mask, key] = value
+        self.metadata_df.loc[mask, "calibration_code"] = int(code)
+        self.metadata_df.loc[mask, "calibration_status"] = CALIBRATION_STATUS[code]
 
     def calibrate_fundamental_diagrams(
         self,
         detectors: typing.Optional[list[str]] = None,
         filter_colname: str = "whitened_flow",
         iqr_multiplier: float = 1.0,
+        bin_iqr_multiplier: float = 1.0,
+        bin_size: int = 10,
+        triangle_rtol: float = 0.05,
         make_plots: bool = False,
         saved_plot_dir: typing.Optional[Path] = None,
         save_params: bool = False,
@@ -1292,8 +1493,12 @@ class PeMSDataProcessor:
         For each detector, loads its timeseries, applies standardization,
         thresholds on ``pct_observed``, whitens, filters outliers, and fits
         the FD via
-        :meth:`extract_fundamental_diagram_params_from_timeseries`. If
-        ``save_params`` is True, the calibrated parameters are written back
+        :meth:`extract_fundamental_diagram_params_from_timeseries`. Every
+        detector is assigned a :class:`CalibrationCode` (and matching
+        ``calibration_status`` string); failures (missing timeseries, no rows
+        surviving the filters, no congestion-regime points, or an invalid fit)
+        leave the FD parameter columns NaN rather than aborting the run. If
+        ``save_params`` is True, the parameters and codes are written back
         into ``self.metadata_df`` and the metadata is saved to CSV.
 
         Parameters
@@ -1305,7 +1510,15 @@ class PeMSDataProcessor:
             Column passed to :meth:`filter_flow_outliers`, by default
             ``"whitened_flow"``.
         iqr_multiplier : float, optional
-            Outlier-filter IQR multiplier, by default 1.0.
+            IQR multiplier for the row-level outlier filter, by default 1.0.
+        bin_iqr_multiplier : float, optional
+            IQR multiplier for the per-bin congestion-branch filter, by
+            default 1.0.
+        bin_size : int, optional
+            Number of points per congestion density bin, by default 10.
+        triangle_rtol : float, optional
+            Relative tolerance for the triangle-consistency validation gate,
+            by default 0.05.
         make_plots : bool, optional
             If True, render and save an FD plot per detector, by default
             False.
@@ -1346,8 +1559,20 @@ class PeMSDataProcessor:
             else:
                 save_path = None
 
-            # Load the detector data
-            df = self.load_data_by_id(detector)
+            # Load the detector data. A missing/unreadable timeseries is a
+            # tracked outcome, not a crash: flag it and move on.
+            try:
+                df = self.load_data_by_id(detector)
+            except (FileNotFoundError, OSError) as e:
+                logger.warning(
+                    f"VDS {detector}: timeseries could not be loaded ({e}); "
+                    f"recording {CALIBRATION_STATUS[CalibrationCode.MISSING_TIMESERIES]}."
+                )
+                self._record_calibration(
+                    detector, self._nan_fd_params(detector),
+                    CalibrationCode.MISSING_TIMESERIES, save_params,
+                )
+                continue
 
             # Standardize the timeseries
             df_standardized = self.standardize_timeseries(df)
@@ -1369,6 +1594,10 @@ class PeMSDataProcessor:
                     f"had pct_observed >= {self.imputation_threshold}. "
                     f"Lower the imputation threshold to retain partially-observed rows."
                 )
+                self._record_calibration(
+                    detector, self._nan_fd_params(detector),
+                    CalibrationCode.NO_DATA_AFTER_FILTER, save_params,
+                )
                 continue
 
             # Whiten the timeseries
@@ -1378,21 +1607,36 @@ class PeMSDataProcessor:
             df_filtered = self.filter_flow_outliers(
                 df_whitened, flow_col=filter_colname, iqr_multiplier=iqr_multiplier
             )
+            if df_filtered.empty:
+                logger.warning(
+                    f"VDS {detector}: outlier filter dropped all rows; "
+                    f"recording {CALIBRATION_STATUS[CalibrationCode.NO_DATA_AFTER_FILTER]}."
+                )
+                self._record_calibration(
+                    detector, self._nan_fd_params(detector),
+                    CalibrationCode.NO_DATA_AFTER_FILTER, save_params,
+                )
+                continue
 
             # Extract parameters
-            params = self.extract_fundamental_diagram_params_from_timeseries(
+            params, code = self.extract_fundamental_diagram_params_from_timeseries(
                 timeseries_df=df_filtered,
                 detector_id=detector,
                 make_plots=make_plots,
                 save_path=save_path,
+                bin_size=bin_size,
+                bin_iqr_multiplier=bin_iqr_multiplier,
+                triangle_rtol=triangle_rtol,
             )
-            params_str = "\n".join(f"  {k}: {v:.3f}" for k, v in params.items())
-            logger.info(f"Calibrated parameters:\n{params_str}")
-
-            if save_params:
-                # Update metadata_df with calibrated parameters
-                for key, value in params.items():
-                    self.metadata_df.loc[self.metadata_df["Station ID"] == int(detector), key] = value
+            if code == CalibrationCode.OK:
+                params_str = "\n".join(f"  {k}: {v:.3f}" for k, v in params.items())
+                logger.info(f"Calibrated parameters:\n{params_str}")
+            else:
+                logger.info(
+                    f"VDS {detector}: calibration code {int(code)} "
+                    f"({CALIBRATION_STATUS[code]}); FD parameters left NaN."
+                )
+            self._record_calibration(detector, params, code, save_params)
 
         if save_params:
             # Resolve output path: explicit arg > self._save_dir > processed_data_directory fallback.
@@ -1407,15 +1651,12 @@ class PeMSDataProcessor:
             # that exist in the output file but were NOT processed this run;
             # detectors in this run keep their freshly-computed (or overwritten)
             # params.
-            _fd_param_cols = [
-                "capacity", "free_flow_speed", "congestion_wave_speed",
-                "jam_density", "critical_density",
-            ]
+            _preserve_cols = FD_PARAM_COLS + ["calibration_code", "calibration_status"]
             processed_ids = {int(d) for d in detectors}
             if os.path.exists(output_path):
                 prev = pd.read_csv(output_path).set_index("Station ID")
                 keep_mask = ~self.metadata_df["Station ID"].isin(processed_ids)
-                for col in _fd_param_cols:
+                for col in _preserve_cols:
                     if col in prev.columns:
                         prev_vals = self.metadata_df["Station ID"].map(prev[col])
                         self.metadata_df.loc[keep_mask, col] = prev_vals[keep_mask]
@@ -1502,6 +1743,12 @@ class PeMSDataProcessor:
             ``n_observations``           count of 5-min samples used for the
                                          quantile (after imputation + outlier
                                          filtering)
+            ``calibration_code``         :class:`CalibrationCode` int: 0 = ok,
+                                         1 = missing timeseries, 2 = no data
+                                         after filtering, 4 = non-positive
+                                         capacity
+            ``calibration_status``       human-readable status string for the
+                                         code (see :data:`CALIBRATION_STATUS`)
             ============================ ============================================
         """
         rows: list[dict] = []
@@ -1509,18 +1756,28 @@ class PeMSDataProcessor:
             logger.info(
                 f"Calibrating ramp capacity {idx + 1}/{len(detectors)}: VDS {detector}"
             )
+
+            def _ramp_row(
+                code: CalibrationCode,
+                capacity: float = np.nan,
+                n_obs: int = 0,
+            ) -> dict:
+                return {
+                    "Station ID": int(detector),
+                    "ramp_capacity_[veh/hr]": capacity,
+                    "n_observations": n_obs,
+                    "calibration_code": int(code),
+                    "calibration_status": CALIBRATION_STATUS[code],
+                }
+
             try:
                 df = self.load_data_by_id(detector)
-            except FileNotFoundError:
+            except (FileNotFoundError, OSError):
                 logger.warning(
                     f"No timeseries file for ramp VDS {detector}; "
                     f"emitting NaN capacity (CTM will default to infinity)."
                 )
-                rows.append({
-                    "Station ID": int(detector),
-                    "ramp_capacity_[veh/hr]": np.nan,
-                    "n_observations": 0,
-                })
+                rows.append(_ramp_row(CalibrationCode.MISSING_TIMESERIES))
                 continue
 
             df = df.loc[df["pct_observed"] >= self.imputation_threshold, :].reset_index(
@@ -1531,11 +1788,7 @@ class PeMSDataProcessor:
                     f"Ramp VDS {detector}: no rows survived pct_observed >= "
                     f"{self.imputation_threshold}; emitting NaN capacity."
                 )
-                rows.append({
-                    "Station ID": int(detector),
-                    "ramp_capacity_[veh/hr]": np.nan,
-                    "n_observations": 0,
-                })
+                rows.append(_ramp_row(CalibrationCode.NO_DATA_AFTER_FILTER))
                 continue
 
             # Total flow per hour (not per-lane). Ramp capacity in the CTM is
@@ -1550,22 +1803,28 @@ class PeMSDataProcessor:
                     f"Ramp VDS {detector}: outlier filter dropped all rows; "
                     f"emitting NaN capacity."
                 )
-                rows.append({
-                    "Station ID": int(detector),
-                    "ramp_capacity_[veh/hr]": np.nan,
-                    "n_observations": 0,
-                })
+                rows.append(_ramp_row(CalibrationCode.NO_DATA_AFTER_FILTER))
                 continue
 
             capacity = float(df_clean["flow_[veh/hr]"].quantile(quantile))
-            rows.append({
-                "Station ID": int(detector),
-                "ramp_capacity_[veh/hr]": capacity,
-                "n_observations": int(len(df_clean)),
-            })
+            # A ramp capacity must be a positive, finite veh/hr value.
+            if not (np.isfinite(capacity) and capacity > 0):
+                logger.warning(
+                    f"Ramp VDS {detector}: non-positive capacity estimate "
+                    f"({capacity}); recording "
+                    f"{CALIBRATION_STATUS[CalibrationCode.VALIDATION_FAILED]}."
+                )
+                rows.append(_ramp_row(
+                    CalibrationCode.VALIDATION_FAILED, n_obs=int(len(df_clean)),
+                ))
+                continue
+            rows.append(_ramp_row(
+                CalibrationCode.OK, capacity=capacity, n_obs=int(len(df_clean)),
+            ))
 
         ramp_df = pd.DataFrame(rows, columns=[
             "Station ID", "ramp_capacity_[veh/hr]", "n_observations",
+            "calibration_code", "calibration_status",
         ])
 
         if save_params:
