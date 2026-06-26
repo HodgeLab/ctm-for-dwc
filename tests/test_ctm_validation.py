@@ -9,7 +9,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from transportation_models.utils.ctm import compare_against_historical
+from transportation_models.utils.ctm import (
+    compare_against_historical, restrict_to_direct_tiebreak,
+)
 
 
 # ---- Fixture helpers -----------------------------------------------------
@@ -285,6 +287,71 @@ def test_caches_shared_vds_reads_once(tmp_path, monkeypatch):
         result, _cells_df([100, 100]), tmp_path, start=start,
     )
     assert n_calls["count"] == 1
+
+
+# ---- restrict_to_direct_tiebreak -----------------------------------------
+
+
+def test_restrict_keeps_unique_direct_and_tiebreak_blanks_others():
+    cells = pd.DataFrame({
+        "vds_id": [100, 200, 300, 400],
+        "vds_source": ["direct", "nearest_upstream", "direct_tiebreak", "missing"],
+        "lanes": [3, 3, 3, 3],
+    })
+    out = restrict_to_direct_tiebreak(cells)
+    # direct (100) and direct_tiebreak (300) kept; the rest blanked.
+    assert list(out["vds_id"].isna()) == [False, True, False, True]
+    assert out.loc[0, "vds_id"] == 100
+    assert out.loc[2, "vds_id"] == 300
+    # Other columns and row count are preserved.
+    assert list(out["lanes"]) == [3, 3, 3, 3]
+    assert len(out) == 4
+
+
+def test_restrict_dedups_repeated_vds_keeping_first():
+    cells = pd.DataFrame({
+        "vds_id": [100, 100, 200],
+        "vds_source": ["direct", "direct_tiebreak", "direct"],
+    })
+    out = restrict_to_direct_tiebreak(cells)
+    assert list(out["vds_id"].isna()) == [False, True, False]  # 2nd 100 dropped
+
+
+def test_restrict_does_not_mutate_input():
+    cells = pd.DataFrame({"vds_id": [100], "vds_source": ["nearest_upstream"]})
+    restrict_to_direct_tiebreak(cells)
+    assert cells.loc[0, "vds_id"] == 100  # original untouched
+
+
+def test_restrict_missing_vds_source_raises():
+    with pytest.raises(KeyError, match="vds_source"):
+        restrict_to_direct_tiebreak(pd.DataFrame({"vds_id": [100]}))
+
+
+def test_restricted_frame_scores_only_kept_cell(tmp_path):
+    """End-to-end: a restricted frame makes compare_against_historical score
+    only the unique direct/tiebreak cell; others become NaN rows."""
+    start = pd.Timestamp("2022-04-12 06:00")
+    n_5min = 3
+    _write_vds_csv(
+        tmp_path / "100.csv", start=start,
+        flows_5min=np.full(n_5min, 100.0), speeds_mph=np.full(n_5min, 60.0),
+    )
+    result = _result_constant(
+        n_cells=2, n_5min=n_5min, steps_per_5min=30,
+        density=20.0, flow_veh_h=1200.0,
+    )
+    cells = pd.DataFrame({
+        "vds_id": [100, 100],
+        "vds_source": ["direct", "nearest_upstream"],
+        "lanes": [3, 3], "vds_lanes": [3, 3],
+    })
+    out = compare_against_historical(
+        result, restrict_to_direct_tiebreak(cells), tmp_path, start=start,
+    )
+    assert out.iloc[0]["n_flow_samples"] == n_5min   # direct cell scored
+    assert out.iloc[1]["n_flow_samples"] == 0        # nearest_upstream skipped
+    assert np.isnan(out.iloc[1]["flow_rmse"])
 
 
 # ---- Error paths ---------------------------------------------------------

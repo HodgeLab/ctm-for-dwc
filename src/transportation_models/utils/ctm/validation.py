@@ -50,6 +50,12 @@ _FIVE_MIN_S = 300.0
 _FIVE_MIN_H = 5.0 / 60.0
 _GRID_TOL = 1e-9
 
+# VDS-assignment sources that read an observed station directly (one VDS
+# per cell), as opposed to interpolated/propagated assignments. The
+# corridor aggregates, GEH, QQ, and the corridor-validation CLI all score
+# on these only.
+_DIRECT_SOURCES = ("direct", "direct_tiebreak")
+
 
 def compare_against_historical(
     result: SimulationResult,
@@ -203,10 +209,44 @@ def compare_against_historical(
     )
 
 
+def restrict_to_direct_tiebreak(cells_df: pd.DataFrame) -> pd.DataFrame:
+    """Copy of ``cells_df`` that scores only the unique direct/tiebreak VDS.
+
+    Returns a copy in which ``vds_id`` is retained only at the *first*
+    cell whose ``vds_source`` is ``direct`` / ``direct_tiebreak`` for each
+    unique VDS; every other cell's ``vds_id`` is blanked to ``<NA>``.
+
+    Feeding the result to :func:`compare_against_historical` therefore
+    restricts its per-cell density/flow RMSE/MAPE to one cell per unique
+    direct/tiebreak VDS -- the blanked cells fall through that function's
+    "NaN ``vds_id`` -> skip" path -- matching the basis used by
+    :func:`compare_corridor_aggregates`, :func:`compute_flow_geh`, and
+    :func:`compute_qq_samples`. The shared function itself is unchanged,
+    so other callers (microsim / DWPT) keep scoring every assigned cell.
+
+    Raises
+    ------
+    KeyError
+        ``cells_df`` is missing ``vds_id`` or ``vds_source``.
+    """
+    missing = {"vds_id", "vds_source"} - set(cells_df.columns)
+    if missing:
+        raise KeyError(
+            f"cells_df is missing column(s): {sorted(missing)}. "
+            "vds_id / vds_source come from Step 2 (assign_vds_to_cells)."
+        )
+    out = cells_df.copy()
+    keep = np.zeros(len(out), dtype=bool)
+    seen: set[int] = set()
+    for pos, (vds_id, source) in enumerate(zip(out["vds_id"], out["vds_source"])):
+        if source in _DIRECT_SOURCES and pd.notna(vds_id) and int(vds_id) not in seen:
+            seen.add(int(vds_id))
+            keep[pos] = True
+    out.loc[~keep, "vds_id"] = pd.NA
+    return out
+
+
 # ---- Corridor aggregates --------------------------------------------------
-
-
-_DIRECT_SOURCES = ("direct", "direct_tiebreak")
 
 
 @dataclass

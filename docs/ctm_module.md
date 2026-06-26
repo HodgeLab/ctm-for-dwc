@@ -1028,6 +1028,16 @@ with zero sample counts and NaN stats -- they're skipped rather than
 treated as an error, so a single missing assignment doesn't block
 the rest of the validation report.
 
+**Direct/tiebreak restriction (CLI).** `compare_against_historical`
+itself scores every cell with an assigned VDS (the microsim / DWPT
+paths rely on this). The corridor-validation CLI, however, first runs
+`restrict_to_direct_tiebreak(cells_df)` so density/flow RMSE/MAPE are
+scored on **one cell per unique `direct` / `direct_tiebreak` VDS** --
+the same basis as the corridor aggregates, GEH, and QQ. That helper
+returns a copy with `vds_id` blanked everywhere except the first cell
+of each unique direct/tiebreak VDS, so the remaining cells fall through
+the NaN-`vds_id` skip path; the shared function is unchanged.
+
 ### Output
 
 One row per cell, in cell-index order:

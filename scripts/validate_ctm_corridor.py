@@ -31,6 +31,7 @@ from transportation_models.utils.ctm import (
     compare_corridor_aggregates,
     compute_flow_geh,
     compute_qq_samples,
+    restrict_to_direct_tiebreak,
 )
 from transportation_models.utils.ctm.plots import (
     plot_geh_heatmap,
@@ -91,10 +92,15 @@ def _print_summary(
     print(f"  sim dt        : {dt * 3600.0:.1f} s")
     end = start + pd.Timedelta(minutes=5 * n_5min)
     print(f"  window        : [{start}, {end})  ({n_5min} 5-min samples)")
-    print(f"  cells         : {n_cells} total, {n_with_vds} with assigned VDS")
+    print(
+        f"  cells         : {n_cells} total, {n_with_vds} scored "
+        "(unique direct/tiebreak VDS)"
+    )
 
     if valid.empty:
-        print("\n  No cells had an assigned VDS -- nothing to validate.")
+        print(
+            "\n  No direct/tiebreak VDS cells to score -- nothing to validate."
+        )
         return
 
     def _fmt(series: pd.Series, fmt: str) -> str:
@@ -105,7 +111,7 @@ def _print_summary(
         )
 
     print()
-    print("  Per-cell aggregates over cells with an assigned VDS:")
+    print("  Per-cell aggregates over scored (direct/tiebreak) cells:")
     print(f"    density RMSE  [veh/mi]: {_fmt(valid['density_rmse'], '{:.2f}')}")
     print(f"    density MAPE  [%]     : {_fmt(valid['density_mape'], '{:.1f}')}")
     print(f"    flow    RMSE  [veh/h] : {_fmt(valid['flow_rmse'], '{:.0f}')}")
@@ -214,8 +220,11 @@ def main() -> None:
     except ValueError as e:
         parser.error(str(e))
 
+    # Score density/flow RMSE/MAPE on one cell per unique direct/tiebreak
+    # VDS only -- the same basis as the corridor aggregates, GEH, and QQ.
     stats = compare_against_historical(
-        result, cells, args.timeseries_dir, start=start,
+        result, restrict_to_direct_tiebreak(cells), args.timeseries_dir,
+        start=start,
     )
     station_metadata = pd.read_csv(args.station_metadata)
     aggregates = compare_corridor_aggregates(

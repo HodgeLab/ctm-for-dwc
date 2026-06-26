@@ -74,6 +74,7 @@ from .validation import (
     compare_corridor_aggregates,
     compute_flow_geh,
     compute_qq_samples,
+    restrict_to_direct_tiebreak,
 )
 from .vds import (
     DEFAULT_PEMS_DIR,
@@ -130,6 +131,7 @@ __all__ = [
     "historical_average_fill",
     "stochastic_historical_fill",
     "compare_against_historical",
+    "restrict_to_direct_tiebreak",
     "CTMSIMValidation",
     "compare_against_ctmsim",
     "CorridorAggregates",
