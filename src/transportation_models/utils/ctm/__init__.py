@@ -67,10 +67,13 @@ from .validation import (
     CorridorAggregates,
     CTMSIMValidation,
     GEHResult,
+    QQCellSamples,
+    QQResult,
     compare_against_ctmsim,
     compare_against_historical,
     compare_corridor_aggregates,
     compute_flow_geh,
+    compute_qq_samples,
 )
 from .vds import (
     DEFAULT_PEMS_DIR,
@@ -133,6 +136,9 @@ __all__ = [
     "compare_corridor_aggregates",
     "GEHResult",
     "compute_flow_geh",
+    "QQCellSamples",
+    "QQResult",
+    "compute_qq_samples",
     "summarize_refs",
     "extract_route_number",
     "load_postmiles",

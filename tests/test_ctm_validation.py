@@ -365,6 +365,144 @@ def test_missing_vds_lanes_column_raises(tmp_path):
         )
 
 
+# ---- compute_qq_samples --------------------------------------------------
+
+
+from transportation_models.utils.ctm import (  # noqa: E402
+    QQResult, compute_qq_samples,
+)
+
+
+def _cells_df_source(rows: list[tuple[int, str]]) -> pd.DataFrame:
+    """Build a cells_df with just vds_id + vds_source from (vds_id, source) rows."""
+    return pd.DataFrame({
+        "vds_id": [r[0] for r in rows],
+        "vds_source": [r[1] for r in rows],
+    })
+
+
+def test_qq_one_entry_per_unique_direct_vds(tmp_path):
+    """Only direct/tiebreak cells contribute, and a repeated VDS is scored
+    once -- at its first occurrence."""
+    start = pd.Timestamp("2022-04-12 06:00")
+    n_5min = 6
+    for vds in (100, 200):
+        _write_vds_csv(
+            tmp_path / f"{vds}.csv", start=start,
+            flows_5min=np.full(n_5min, 100.0),
+            speeds_mph=np.full(n_5min, 60.0), station_id=vds,
+        )
+    result = _result_constant(
+        n_cells=4, n_5min=n_5min, steps_per_5min=30,
+        density=20.0, flow_veh_h=1200.0,
+    )
+    cells = _cells_df_source([
+        (100, "direct"),
+        (300, "nearest"),          # non-direct -> skipped (and never loaded)
+        (200, "direct_tiebreak"),
+        (200, "direct"),           # duplicate VDS -> skipped
+    ])
+    qq = compute_qq_samples(result, cells, tmp_path, start=start)
+    assert isinstance(qq, QQResult)
+    assert [c.vds_id for c in qq.per_cell] == [100, 200]
+    # VDS 200's first appearance is cell index 2, not the later duplicate.
+    assert [c.cell for c in qq.per_cell] == [0, 2]
+
+
+def test_qq_pairs_drop_nan_observed_windows(tmp_path):
+    """A NaN observed window drops from both sides; sim is never NaN."""
+    start = pd.Timestamp("2022-04-12 06:00")
+    n_5min = 4
+    flows = np.array([100.0, np.nan, 100.0, 100.0])  # 3 valid windows
+    _write_vds_csv(
+        tmp_path / "100.csv", start=start,
+        flows_5min=flows, speeds_mph=np.full(n_5min, 60.0),
+    )
+    # Sim +10% on both quantities: flow 1320, density 22.
+    result = _result_constant(
+        n_cells=1, n_5min=n_5min, steps_per_5min=30,
+        density=22.0, flow_veh_h=1320.0,
+    )
+    qq = compute_qq_samples(
+        result, _cells_df_source([(100, "direct")]), tmp_path, start=start,
+    )
+    c = qq.per_cell[0]
+    assert c.flow_sim.size == 3 and c.flow_obs.size == 3
+    assert c.density_sim.size == 3 and c.density_obs.size == 3
+    assert np.isfinite(c.flow_obs).all() and np.isfinite(c.density_obs).all()
+    # Observed flow 1200, sim 1320 -> residual +120 throughout.
+    assert np.allclose(c.flow_obs, 1200.0)
+    assert np.allclose(c.flow_sim, 1320.0)
+    assert np.allclose(c.flow_sim - c.flow_obs, 120.0)
+    assert np.allclose(c.density_obs, 20.0)
+    assert np.allclose(c.density_sim, 22.0)
+
+
+def test_qq_pooled_concatenates_across_cells(tmp_path):
+    """pooled() concatenates each cell's paired arrays for one quantity."""
+    start = pd.Timestamp("2022-04-12 06:00")
+    n_5min = 5
+    for vds in (100, 200):
+        _write_vds_csv(
+            tmp_path / f"{vds}.csv", start=start,
+            flows_5min=np.full(n_5min, 100.0),
+            speeds_mph=np.full(n_5min, 60.0), station_id=vds,
+        )
+    result = _result_constant(
+        n_cells=2, n_5min=n_5min, steps_per_5min=30,
+        density=20.0, flow_veh_h=1200.0,
+    )
+    cells = _cells_df_source([(100, "direct"), (200, "direct")])
+    qq = compute_qq_samples(result, cells, tmp_path, start=start)
+    sim, obs = qq.pooled("flow")
+    assert sim.size == 2 * n_5min
+    assert obs.size == 2 * n_5min
+    assert np.allclose(sim, 1200.0)
+    assert np.allclose(obs, 1200.0)
+
+
+def test_qq_pooled_empty_when_no_direct_cells(tmp_path):
+    """No direct/tiebreak cell -> empty per_cell and empty pooled arrays."""
+    start = pd.Timestamp("2022-04-12 06:00")
+    result = _result_constant(
+        n_cells=1, n_5min=3, steps_per_5min=30,
+        density=20.0, flow_veh_h=1200.0,
+    )
+    cells = _cells_df_source([(100, "nearest")])
+    qq = compute_qq_samples(result, cells, tmp_path, start=start)
+    assert qq.per_cell == []
+    sim, obs = qq.pooled("density")
+    assert sim.size == 0 and obs.size == 0
+
+
+def test_qq_pooled_rejects_unknown_quantity(tmp_path):
+    start = pd.Timestamp("2022-04-12 06:00")
+    _write_vds_csv(
+        tmp_path / "100.csv", start=start,
+        flows_5min=np.full(3, 100.0), speeds_mph=np.full(3, 60.0),
+    )
+    result = _result_constant(
+        n_cells=1, n_5min=3, steps_per_5min=30,
+        density=20.0, flow_veh_h=1200.0,
+    )
+    qq = compute_qq_samples(
+        result, _cells_df_source([(100, "direct")]), tmp_path, start=start,
+    )
+    with pytest.raises(ValueError, match="flow.*density"):
+        qq.pooled("speed")
+
+
+def test_qq_missing_vds_source_column_raises(tmp_path):
+    start = pd.Timestamp("2022-04-12 06:00")
+    result = _result_constant(
+        n_cells=1, n_5min=3, steps_per_5min=30,
+        density=20.0, flow_veh_h=1200.0,
+    )
+    cells = pd.DataFrame({"vds_id": [100]})  # no vds_source
+    with pytest.raises(KeyError, match="vds_source"):
+        compute_qq_samples(result, cells, tmp_path, start=start)
+
+
 # ---- compare_against_ctmsim ----------------------------------------------
 
 

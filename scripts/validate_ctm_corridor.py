@@ -30,8 +30,13 @@ from transportation_models.utils.ctm import (
     compare_against_historical,
     compare_corridor_aggregates,
     compute_flow_geh,
+    compute_qq_samples,
 )
-from transportation_models.utils.ctm.plots import plot_geh_heatmap
+from transportation_models.utils.ctm.plots import (
+    plot_geh_heatmap,
+    plot_qq_pooled,
+    plot_qq_percell,
+)
 from transportation_models.utils.ctm.results import SimulationResult
 from transportation_models.utils.ctm.validation import CorridorAggregates, GEHResult
 
@@ -253,6 +258,27 @@ def main() -> None:
             out_path=heatmap_path,
         )
         print(f"  Wrote {heatmap_path}")
+
+    # QQ error-distribution diagnostics: per quantity, a corridor-pooled
+    # figure (Normal residual QQ + two-sample sim-vs-obs QQ) plus per-cell
+    # faceted grids for each diagnostic.
+    qq = compute_qq_samples(result, cells, args.timeseries_dir, start=start)
+    if qq.per_cell:
+        for quantity in ("flow", "density"):
+            pooled_path = out_path.parent / f"{quantity}_qq_pooled.png"
+            plot_qq_pooled(qq, quantity=quantity, out_path=pooled_path)
+            print(f"  Wrote {pooled_path}")
+            for diagnostic, suffix in (
+                ("residual", "residual"), ("two_sample", "twosample"),
+            ):
+                percell_path = (
+                    out_path.parent / f"{quantity}_qq_percell_{suffix}.png"
+                )
+                plot_qq_percell(
+                    qq, quantity=quantity, diagnostic=diagnostic,
+                    out_path=percell_path,
+                )
+                print(f"  Wrote {percell_path}")
 
     print()
     _print_summary(

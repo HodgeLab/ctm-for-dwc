@@ -30,16 +30,22 @@ extracted one.
   metrics summed over the horizon, per cell.
 * :func:`plot_geh_heatmap`           -- direct/tiebreak cell x hour
   heatmap of the flow GEH statistic.
+* :func:`plot_qq_pooled`             -- corridor-pooled Normal residual QQ
+  and two-sample sim-vs-observed QQ for one quantity.
+* :func:`plot_qq_percell`            -- per-direct/tiebreak-cell faceted QQ
+  grid for one diagnostic.
 """
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.collections import LineCollection
+from scipy import stats
 
 from .osm import Corridor
 
@@ -342,6 +348,135 @@ def plot_geh_heatmap(
     ax.set_title(title)
     cbar = fig.colorbar(mesh, ax=ax, label="GEH", extend="max")
     cbar.ax.axhline(threshold, color="black", lw=1.0)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=120)
+    plt.close(fig)
+
+
+# ---- QQ error-distribution plots ------------------------------------------
+
+
+_QQ_UNITS = {"flow": "veh/h", "density": "veh/mi"}
+
+
+def _residual_qq(ax, residuals: np.ndarray, *, unit: str) -> None:
+    """Normal QQ of raw residuals on ``ax`` (ordered residuals vs N quantiles)."""
+    if residuals.size < 2:
+        ax.text(0.5, 0.5, "insufficient samples", ha="center", va="center",
+                transform=ax.transAxes)
+    else:
+        stats.probplot(residuals, dist="norm", plot=ax)
+    # probplot sets its own title/labels; override for our units.
+    ax.set_title("")
+    ax.set_xlabel("theoretical normal quantiles")
+    ax.set_ylabel(f"ordered residuals [{unit}]")
+    ax.grid(alpha=0.3)
+
+
+def _two_sample_qq(ax, *, sim: np.ndarray, obs: np.ndarray, unit: str) -> None:
+    """Two-sample QQ on ``ax``: sorted observed (x) vs sorted sim (y), 45-deg line."""
+    if sim.size < 2:
+        ax.text(0.5, 0.5, "insufficient samples", ha="center", va="center",
+                transform=ax.transAxes)
+    else:
+        sim_sorted = np.sort(sim)
+        obs_sorted = np.sort(obs)
+        ax.scatter(obs_sorted, sim_sorted, s=12, color="tab:blue", alpha=0.7)
+        lo = float(min(obs_sorted[0], sim_sorted[0]))
+        hi = float(max(obs_sorted[-1], sim_sorted[-1]))
+        ax.plot([lo, hi], [lo, hi], color="black", lw=1.0, ls="--")
+    ax.set_xlabel(f"observed quantiles [{unit}]")
+    ax.set_ylabel(f"sim quantiles [{unit}]")
+    ax.grid(alpha=0.3)
+
+
+def plot_qq_pooled(qq, *, quantity: str, out_path: Path) -> None:
+    """Corridor-pooled QQ diagnostics for ``quantity`` ('flow' or 'density').
+
+    Two panels:
+
+    * **left** -- Normal QQ of the raw residuals ``sim - obs`` (ordered
+      residuals vs theoretical-normal quantiles, with the least-squares
+      reference line). A straight line => Gaussian errors; an S-curve =>
+      heavy tails; a vertical offset => bias.
+    * **right** -- two-sample QQ of the simulated vs observed marginal
+      distribution (sorted observed on x, sorted sim on y, with the 45-deg
+      line). Points on the line => the model reproduces the marginal
+      distribution of the quantity.
+
+    ``qq`` is a :class:`utils.ctm.validation.QQResult`.
+    """
+    unit = _QQ_UNITS[quantity]
+    sim, obs = qq.pooled(quantity)
+    fig, (ax_res, ax_two) = plt.subplots(1, 2, figsize=(12, 5))
+
+    _residual_qq(ax_res, sim - obs, unit=unit)
+    ax_res.set_title(f"Normal QQ of {quantity} residuals (sim - obs)")
+    _two_sample_qq(ax_two, sim=sim, obs=obs, unit=unit)
+    ax_two.set_title(f"Sim vs observed {quantity} QQ")
+
+    fig.suptitle(
+        f"{quantity.capitalize()} error distribution -- corridor-pooled "
+        f"({sim.size} samples)"
+    )
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=120)
+    plt.close(fig)
+
+
+def plot_qq_percell(
+    qq, *, quantity: str, diagnostic: str, out_path: Path,
+    min_samples: int = 2,
+) -> None:
+    """Faceted per-VDS-cell QQ grid for one diagnostic.
+
+    ``diagnostic`` is ``"residual"`` (Normal QQ of ``sim - obs``) or
+    ``"two_sample"`` (sim vs observed marginal QQ). One panel per
+    direct/tiebreak VDS cell with at least ``min_samples`` paired samples;
+    cells with fewer are skipped. If no cell qualifies, a placeholder
+    figure is written so the promised path still exists.
+
+    ``qq`` is a :class:`utils.ctm.validation.QQResult`.
+    """
+    if diagnostic not in ("residual", "two_sample"):
+        raise ValueError(
+            f"diagnostic must be 'residual' or 'two_sample'; got {diagnostic!r}."
+        )
+    unit = _QQ_UNITS[quantity]
+    cells = [
+        c for c in qq.per_cell
+        if getattr(c, f"{quantity}_sim").size >= min_samples
+    ]
+    if not cells:
+        fig, ax = plt.subplots(figsize=(4, 3))
+        ax.text(0.5, 0.5, "no cells with sufficient samples",
+                ha="center", va="center", transform=ax.transAxes)
+        ax.set_axis_off()
+        fig.savefig(out_path, dpi=120)
+        plt.close(fig)
+        return
+
+    n = len(cells)
+    ncols = min(4, n)
+    nrows = math.ceil(n / ncols)
+    fig, axes = plt.subplots(
+        nrows, ncols, figsize=(3.4 * ncols, 3.1 * nrows), squeeze=False,
+    )
+    for ax, c in zip(axes.flat, cells):
+        sim = getattr(c, f"{quantity}_sim")
+        obs = getattr(c, f"{quantity}_obs")
+        if diagnostic == "residual":
+            _residual_qq(ax, sim - obs, unit=unit)
+        else:
+            _two_sample_qq(ax, sim=sim, obs=obs, unit=unit)
+        ax.set_title(f"cell {c.cell} (VDS {c.vds_id})", fontsize=9)
+    for ax in axes.flat[n:]:
+        ax.set_axis_off()
+
+    label = (
+        "residual (sim - obs)" if diagnostic == "residual" else "sim vs observed"
+    )
+    fig.suptitle(f"{quantity.capitalize()} {label} QQ by direct/tiebreak cell")
     fig.tight_layout()
     fig.savefig(out_path, dpi=120)
     plt.close(fig)

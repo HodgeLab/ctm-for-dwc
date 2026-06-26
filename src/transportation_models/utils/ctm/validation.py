@@ -557,6 +557,153 @@ def compute_flow_geh(
     )
 
 
+# ---- QQ error-distribution samples ---------------------------------------
+
+
+@dataclass
+class QQCellSamples:
+    """Paired sim/observed 5-min samples for one direct/tiebreak VDS cell.
+
+    Each pair is on paired support: a 5-min window with a NaN observed
+    value is dropped from *both* sides of that quantity (flow validity for
+    flow, density validity for density), mirroring the per-cell RMSE
+    convention. Sim values are never NaN.
+
+    Attributes
+    ----------
+    cell : int
+        Cell index in ``result.freeway.cells``.
+    vds_id : int
+        The cell's direct/tiebreak mainline VDS.
+    flow_sim, flow_obs : numpy.ndarray
+        Paired mainline flow [veh/h]; length = non-NaN observed flow
+        windows.
+    density_sim, density_obs : numpy.ndarray
+        Paired density [veh/mi]; length = non-NaN observed density windows.
+    """
+
+    cell: int
+    vds_id: int
+    flow_sim: np.ndarray
+    flow_obs: np.ndarray
+    density_sim: np.ndarray
+    density_obs: np.ndarray
+
+
+@dataclass
+class QQResult:
+    """Per-cell paired samples for QQ error-distribution analysis.
+
+    Holds one :class:`QQCellSamples` per unique direct/tiebreak VDS, in
+    cell-index order. :meth:`pooled` concatenates a quantity's paired
+    arrays across all cells for the corridor-pooled plots.
+    """
+
+    per_cell: list[QQCellSamples]
+
+    def pooled(self, quantity: str) -> tuple[np.ndarray, np.ndarray]:
+        """Corridor-pooled ``(sim, obs)`` for ``"flow"`` or ``"density"``."""
+        if quantity not in ("flow", "density"):
+            raise ValueError(
+                f"quantity must be 'flow' or 'density'; got {quantity!r}."
+            )
+        sim_parts = [getattr(c, f"{quantity}_sim") for c in self.per_cell]
+        obs_parts = [getattr(c, f"{quantity}_obs") for c in self.per_cell]
+        if not sim_parts:
+            empty = np.empty(0, dtype=float)
+            return empty, empty
+        return np.concatenate(sim_parts), np.concatenate(obs_parts)
+
+
+def compute_qq_samples(
+    result: SimulationResult,
+    cells_df: pd.DataFrame,
+    timeseries_dir: Union[Path, str],
+    *,
+    start: pd.Timestamp,
+) -> QQResult:
+    """Collect paired sim/observed 5-min samples for QQ analysis.
+
+    Like :func:`compute_flow_geh`, this restricts to the cell whose
+    ``vds_source`` is ``direct`` or ``direct_tiebreak`` and scores a VDS
+    spanning several cells once. For each such cell it pairs the sim 5-min
+    flow/density against the observed PeMS window, dropping windows whose
+    observed value is NaN (flow validity for flow, density validity for
+    density). The paired arrays feed the Normal residual QQ (``sim - obs``)
+    and two-sample sim-vs-observed QQ plots.
+
+    Sim quantities use the same definitions as
+    :func:`compare_against_historical`: flow is the per-5-min window mean
+    of ``result.mainline_flow``; density is the instantaneous state at each
+    5-min boundary.
+
+    Parameters
+    ----------
+    result, cells_df, timeseries_dir, start
+        As in :func:`compute_flow_geh`; ``cells_df`` needs ``vds_id`` and
+        ``vds_source``.
+
+    Returns
+    -------
+    QQResult
+
+    Raises
+    ------
+    ValueError
+        Row-count mismatch, bad cadence/horizon, or misaligned ``start``.
+    KeyError
+        ``cells_df`` missing ``vds_id`` / ``vds_source``.
+    """
+    n_cells = result.freeway.n_cells
+    if len(cells_df) != n_cells:
+        raise ValueError(
+            f"cells_df has {len(cells_df)} rows but result.freeway has "
+            f"{n_cells} cells; one row per cell is required."
+        )
+    missing = {"vds_id", "vds_source"} - set(cells_df.columns)
+    if missing:
+        raise KeyError(
+            f"cells_df is missing column(s): {sorted(missing)}. "
+            "vds_id / vds_source come from Step 2 (assign_vds_to_cells)."
+        )
+
+    steps_per_5min, n_5min, start, end = _resolve_window(result, start)
+    timeseries_dir = Path(timeseries_dir)
+
+    sim_density_5min = result.density[:, : n_5min * steps_per_5min : steps_per_5min]
+    sim_flow_5min = result.mainline_flow[
+        :, : n_5min * steps_per_5min
+    ].reshape(n_cells, n_5min, steps_per_5min).mean(axis=2)
+
+    per_cell: list[QQCellSamples] = []
+    seen: set[int] = set()
+    cache: dict[int, pd.DataFrame] = {}
+    for cell_idx, cell_row in enumerate(cells_df.itertuples(index=False)):
+        if cell_row.vds_source not in _DIRECT_SOURCES:
+            continue
+        vds_id = int(cell_row.vds_id)
+        if vds_id in seen:
+            continue
+        seen.add(vds_id)
+
+        observed_flow, observed_density = _load_observed_window(
+            timeseries_dir, vds_id, start=start, end=end,
+            n_5min=n_5min, cache=cache,
+        )
+        flow_valid = ~np.isnan(observed_flow)
+        density_valid = ~np.isnan(observed_density)
+        per_cell.append(QQCellSamples(
+            cell=cell_idx,
+            vds_id=vds_id,
+            flow_sim=sim_flow_5min[cell_idx][flow_valid],
+            flow_obs=observed_flow[flow_valid],
+            density_sim=sim_density_5min[cell_idx][density_valid],
+            density_obs=observed_density[density_valid],
+        ))
+
+    return QQResult(per_cell=per_cell)
+
+
 # ---- Helpers --------------------------------------------------------------
 
 
