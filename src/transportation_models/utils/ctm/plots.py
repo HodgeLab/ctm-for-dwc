@@ -34,6 +34,14 @@ extracted one.
   and two-sample sim-vs-observed QQ for one quantity.
 * :func:`plot_qq_percell`            -- per-direct/tiebreak-cell faceted QQ
   grid for one diagnostic.
+
+**Cross-study comparison** (used by
+:mod:`scripts.compare_ctm_case_studies`):
+
+* :func:`plot_metric_vs_distance`    -- one corridor metric vs corridor
+  length, a line per ramp-fill strategy.
+* :func:`plot_qq_cross_study`        -- overlaid corridor-pooled
+  sim-vs-observed QQ curves, color = distance, line style = strategy.
 """
 
 from __future__ import annotations
@@ -477,6 +485,104 @@ def plot_qq_percell(
         "residual (sim - obs)" if diagnostic == "residual" else "sim vs observed"
     )
     fig.suptitle(f"{quantity.capitalize()} {label} QQ by direct/tiebreak cell")
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=120)
+    plt.close(fig)
+
+
+# ---- Cross-study comparison plots -----------------------------------------
+
+
+def plot_metric_vs_distance(
+    summary: pd.DataFrame, *,
+    metric: str, ylabel: str, title: str, out_path: Path,
+    strategy_colors: dict[str, str],
+) -> None:
+    """One validation metric vs corridor length, a line per ramp strategy.
+
+    ``summary`` has one row per study with ``distance_mi``,
+    ``ramp_strategy`` and the metric column. Each ramp strategy becomes a
+    colored line (from ``strategy_colors``) over the studied lengths,
+    sorted by distance. NaN metric values (e.g. GEH for a sim that doesn't
+    cover whole hours) render as gaps.
+    """
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+    for strategy in sorted(summary["ramp_strategy"].unique()):
+        sub = summary[summary["ramp_strategy"] == strategy].sort_values(
+            "distance_mi"
+        )
+        ax.plot(
+            sub["distance_mi"], sub[metric],
+            marker="o", color=strategy_colors[strategy], label=strategy,
+        )
+    ax.set_xlabel("corridor length [mi]")
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    ax.grid(alpha=0.3)
+    ax.legend(title="ramp fill strategy", fontsize=8)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=120)
+    plt.close(fig)
+
+
+def plot_qq_cross_study(
+    curves: list[dict], *,
+    quantity: str, out_path: Path,
+    distance_colors: dict[float, str], strategy_styles: dict[str, str],
+) -> None:
+    """Overlaid corridor-pooled sim-vs-observed QQ curves across studies.
+
+    Each entry in ``curves`` is a dict with ``distance`` (miles),
+    ``strategy`` and the pooled paired ``sim`` / ``obs`` arrays for
+    ``quantity``. Each study is drawn as a two-sample QQ curve (sorted
+    observed on x, sorted sim on y) with its color set by distance and its
+    line style by ramp strategy, over a shared y=x reference. Two legends
+    decode the color (distance) and style (strategy) channels.
+    """
+    unit = _QQ_UNITS[quantity]
+    fig, ax = plt.subplots(figsize=(6.5, 6.5))
+
+    bounds: list[float] = []
+    for c in curves:
+        sim = np.sort(c["sim"])
+        obs = np.sort(c["obs"])
+        if sim.size < 2:
+            continue
+        ax.plot(
+            obs, sim,
+            color=distance_colors[c["distance"]],
+            ls=strategy_styles[c["strategy"]], lw=1.6, alpha=0.85,
+        )
+        bounds += [float(obs[0]), float(obs[-1]), float(sim[0]), float(sim[-1])]
+
+    if bounds:
+        lo, hi = min(bounds), max(bounds)
+        ax.plot([lo, hi], [lo, hi], color="black", lw=1.0, ls=":", zorder=0)
+
+    ax.set_xlabel(f"observed quantiles [{unit}]")
+    ax.set_ylabel(f"sim quantiles [{unit}]")
+    ax.set_title(f"Sim vs observed {quantity} QQ -- corridor-pooled")
+    ax.grid(alpha=0.3)
+
+    # Two legends: color decodes distance, line style decodes strategy.
+    color_handles = [
+        plt.Line2D([], [], color=col, lw=2.0, label=f"{dist:g} mi")
+        for dist, col in sorted(distance_colors.items())
+    ]
+    style_handles = [
+        plt.Line2D([], [], color="black", ls=style, lw=1.6, label=strategy)
+        for strategy, style in strategy_styles.items()
+    ]
+    leg1 = ax.legend(
+        handles=color_handles, title="distance", fontsize=8,
+        loc="upper left",
+    )
+    ax.add_artist(leg1)
+    ax.legend(
+        handles=style_handles, title="ramp fill strategy", fontsize=8,
+        loc="lower right",
+    )
+
     fig.tight_layout()
     fig.savefig(out_path, dpi=120)
     plt.close(fig)
