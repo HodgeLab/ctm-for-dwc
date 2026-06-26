@@ -64,9 +64,11 @@ from .scenario import (
     initial_state_from_vds,
 )
 from .validation import (
+    CorridorAggregates,
     CTMSIMValidation,
     compare_against_ctmsim,
     compare_against_historical,
+    compare_corridor_aggregates,
 )
 from .vds import (
     DEFAULT_PEMS_DIR,
@@ -125,6 +127,8 @@ __all__ = [
     "compare_against_historical",
     "CTMSIMValidation",
     "compare_against_ctmsim",
+    "CorridorAggregates",
+    "compare_corridor_aggregates",
     "summarize_refs",
     "extract_route_number",
     "load_postmiles",

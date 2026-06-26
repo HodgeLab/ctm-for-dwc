@@ -1048,6 +1048,43 @@ Users can sort by RMSE/MAPE to spot the worst-fitting cells, group
 by ramp presence to compare ramp vs no-ramp behavior, or pool across
 cells (`df.mean()`) to get corridor-wide aggregates.
 
+### Corridor aggregates: VMT and VHT
+
+`compare_corridor_aggregates(result, cells_df, timeseries_dir,
+station_metadata, *, start) -> CorridorAggregates` rolls the per-cell
+fit up to two corridor scalars — total **VMT** [veh·mi] and **VHT**
+[veh·h], sim vs observed — to answer "does the model reproduce
+aggregate corridor productivity?" rather than point fits.
+
+It is deliberately **not** the corridor-long VMT/VHT from
+`utils/ctm/metrics.py` (which sums *every* cell with its own cell
+length and on-ramp queues). Instead:
+
+* **One term per unique mainline VDS.** Only the cell whose
+  `vds_source` is `direct` or `direct_tiebreak` contributes; a VDS
+  spanning several cells is counted once, so observed flow/speed
+  aren't double-counted.
+* **Length from `station_metadata.csv`** (`Length`, keyed by `ID`),
+  used identically on both sides, so the comparison reflects
+  flow/density accuracy rather than geometry. A contributing VDS
+  absent from `station_metadata` is a hard error.
+
+Both sides share the same definitions:
+
+* `VMT = Σ ρ·v·L·dt` — the sim integrates `ρ·v` at native `dt` (the
+  eq. 4.12 VMT definition); the observed side uses `flow·L·dt₅`, which
+  is identical because observed `ρ·v ≡ flow` (observed density is
+  `flow / speed`).
+* `VHT = Σ ρ·L·dt` — sim density integrated at native `dt`; observed
+  `ρ = flow / speed`.
+
+For each VDS, a 5-min window with a NaN observed value is dropped from
+**both** sides of that metric (paired support), mirroring how the
+per-cell RMSE only scores against non-NaN observed samples. VMT uses
+flow validity, VHT uses density validity. `CorridorAggregates` carries
+`sim_vmt`, `obs_vmt`, `sim_vht`, `obs_vht`, `n_vds`, plus
+`vmt_pct_diff` / `vht_pct_diff` properties (`100·(sim−obs)/obs`).
+
 ### CLI
 
 `scripts/validate_ctm_corridor.py` consumes the per-quantity output
@@ -1061,13 +1098,16 @@ python scripts/validate_ctm_corridor.py \
     --sim-dir scripts/output/ctm_corridor/I_210_W/sim \
     --cells   scripts/output/ctm_corridor/I_210_W/cells.csv \
     --timeseries-dir data/pems/csv_files \
+    --station-metadata data/pems/station_metadata.csv \
     --start "2022-04-12 06:00"
 ```
 
 The script also prints a stdout summary: window, cell counts (total
-vs assigned VDS), corridor aggregates (median / mean / max of RMSE
-and MAPE for both density and flow), and the top-K worst-fitting
-cells by density RMSE (`--top-k`, default 5).
+vs assigned VDS), per-cell aggregates (median / mean / max of RMSE
+and MAPE for both density and flow), the top-K worst-fitting cells by
+density RMSE (`--top-k`, default 5), and the corridor VMT/VHT
+aggregates (sim vs observed + percent diff) over the direct/tiebreak
+VDS. `--station-metadata` defaults to `data/pems/station_metadata.csv`.
 
 ### CTMSIM ground-truth comparison
 

@@ -26,8 +26,12 @@ from pathlib import Path
 
 import pandas as pd
 
-from transportation_models.utils.ctm import compare_against_historical
+from transportation_models.utils.ctm import (
+    compare_against_historical,
+    compare_corridor_aggregates,
+)
 from transportation_models.utils.ctm.results import SimulationResult
+from transportation_models.utils.ctm.validation import CorridorAggregates
 
 
 def resolve_start(
@@ -60,6 +64,7 @@ def _print_summary(
     sim_dir: Path, cells_path: Path, ts_dir: Path,
     start: pd.Timestamp, dt: float, n_5min: int,
     out_path: Path, top_k: int,
+    aggregates: CorridorAggregates,
 ) -> None:
     """Tabular stdout summary: window, corridor aggregates, worst cells."""
     n_cells = len(stats)
@@ -111,6 +116,21 @@ def _print_summary(
         print(display.to_string(index=False))
 
     print()
+    print(
+        f"  Corridor aggregates (direct + tiebreak VDS, n={aggregates.n_vds}):"
+    )
+    print(
+        f"    VMT [veh*mi]: sim {aggregates.sim_vmt:,.0f}, "
+        f"observed {aggregates.obs_vmt:,.0f}, "
+        f"diff {aggregates.vmt_pct_diff:+.1f}%"
+    )
+    print(
+        f"    VHT [veh*h] : sim {aggregates.sim_vht:,.0f}, "
+        f"observed {aggregates.obs_vht:,.0f}, "
+        f"diff {aggregates.vht_pct_diff:+.1f}%"
+    )
+
+    print()
     print(f"  Wrote {out_path}")
 
 
@@ -139,6 +159,13 @@ def main() -> None:
               "PeMS 5-min grid."),
     )
     parser.add_argument(
+        "--station-metadata", default=Path("data/pems/station_metadata.csv"),
+        type=Path,
+        help=("PeMS station_metadata.csv (needs ID and Length columns); "
+              "supplies each direct VDS's segment length for the corridor "
+              "VMT/VHT aggregates. Defaults to data/pems/station_metadata.csv."),
+    )
+    parser.add_argument(
         "--out", default=None, type=Path,
         help=("Destination for the per-cell validation CSV. "
               "Defaults to <sim-dir>/validation.csv."),
@@ -161,6 +188,10 @@ def main() -> None:
     stats = compare_against_historical(
         result, cells, args.timeseries_dir, start=start,
     )
+    station_metadata = pd.read_csv(args.station_metadata)
+    aggregates = compare_corridor_aggregates(
+        result, cells, args.timeseries_dir, station_metadata, start=start,
+    )
     n_5min = (
         stats.loc[stats["n_flow_samples"] > 0, "n_flow_samples"].max()
         if (stats["n_flow_samples"] > 0).any() else 0
@@ -177,6 +208,7 @@ def main() -> None:
         ts_dir=args.timeseries_dir, start=start,
         dt=result.freeway.dt, n_5min=int(n_5min),
         out_path=out_path, top_k=args.top_k,
+        aggregates=aggregates,
     )
 
 
