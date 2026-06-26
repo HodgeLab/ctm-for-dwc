@@ -26,6 +26,11 @@ sim vs observed -- computed once per *unique* mainline VDS (at its
 ``station_metadata`` length) rather than per cell. It answers "does the
 model reproduce aggregate corridor productivity?" as opposed to the
 per-cell point fits.
+
+A fourth, :func:`compute_flow_geh`, reports the **GEH** flow statistic
+(``sqrt(2*(M-C)^2/(M+C))`` on hourly volumes) at the same
+``direct`` / ``direct_tiebreak`` cells -- per-cell median + share with
+GEH < 5, plus the per-cell-per-hour matrix used for the heatmap.
 """
 
 from __future__ import annotations
@@ -376,7 +381,197 @@ def compare_corridor_aggregates(
     )
 
 
+# ---- GEH statistic --------------------------------------------------------
+
+
+_GEH_THRESHOLD = 5.0
+_FIVE_MIN_PER_HOUR = 12
+
+
+@dataclass
+class GEHResult:
+    """Per-cell flow GEH plus the hourly matrix for the heatmap.
+
+    GEH = ``sqrt(2*(M-C)^2 / (M+C))`` on *hourly volumes* (M = sim, C =
+    observed), computed once per unique ``direct`` / ``direct_tiebreak``
+    VDS, at each clock-hour bin in the window.
+
+    Attributes
+    ----------
+    per_cell : pandas.DataFrame
+        One row per direct/tiebreak cell (in cell-index order): ``cell``,
+        ``vds_id``, ``n_geh_hours`` (hours with a non-NaN observed
+        volume), ``flow_geh_median``, ``flow_geh_pct_under5`` (share of
+        those hours with GEH < 5).
+    hourly_geh : numpy.ndarray
+        ``(n_direct_cells, n_hours)`` GEH per cell per hour, NaN where the
+        observed hourly volume was incomplete. Rows align with
+        ``per_cell``; columns with ``hour_starts``.
+    hour_starts : pandas.DatetimeIndex
+        Start wallclock time of each hourly bin (heatmap x-axis).
+    corridor_pct_under5 : float
+        Share [%] of all non-NaN ``(cell, hour)`` GEH samples with
+        GEH < 5 (NaN if there were none).
+    n_geh_samples : int
+        Number of non-NaN ``(cell, hour)`` GEH samples pooled into
+        ``corridor_pct_under5``.
+    """
+
+    per_cell: pd.DataFrame
+    hourly_geh: np.ndarray
+    hour_starts: pd.DatetimeIndex
+    corridor_pct_under5: float
+    n_geh_samples: int
+
+
+def compute_flow_geh(
+    result: SimulationResult,
+    cells_df: pd.DataFrame,
+    timeseries_dir: Union[Path, str],
+    *,
+    start: pd.Timestamp,
+) -> GEHResult:
+    """Per-cell flow GEH on hourly volumes, at direct/tiebreak cells.
+
+    GEH is a volume-comparison statistic; it is applied to **flow only**
+    (not density) and to **hourly volumes** -- the twelve 5-min samples in
+    each clock-hour bin are summed into an hourly volume on both sides
+    before computing ``GEH = sqrt(2*(M-C)^2/(M+C))``. This matches the
+    magnitude the conventional ``GEH < 5`` acceptance criterion is
+    defined for.
+
+    As with :func:`compare_corridor_aggregates`, only the cell whose
+    ``vds_source`` is ``direct`` or ``direct_tiebreak`` contributes, and a
+    VDS spanning several cells is scored once.
+
+    An hour with any NaN observed 5-min sample yields a NaN hourly volume
+    (incomplete count) and is dropped from that cell's GEH.
+
+    Parameters
+    ----------
+    result, cells_df, timeseries_dir, start
+        As in :func:`compare_corridor_aggregates`, except ``cells_df``
+        needs only ``vds_id`` and ``vds_source``.
+
+    Returns
+    -------
+    GEHResult
+
+    Raises
+    ------
+    ValueError
+        Row-count mismatch, bad cadence, misaligned ``start``, or a window
+        that is not a whole number of hours (GEH needs whole-hour bins).
+    KeyError
+        ``cells_df`` missing ``vds_id`` / ``vds_source``.
+    """
+    n_cells = result.freeway.n_cells
+    if len(cells_df) != n_cells:
+        raise ValueError(
+            f"cells_df has {len(cells_df)} rows but result.freeway has "
+            f"{n_cells} cells; one row per cell is required."
+        )
+    missing = {"vds_id", "vds_source"} - set(cells_df.columns)
+    if missing:
+        raise KeyError(
+            f"cells_df is missing column(s): {sorted(missing)}. "
+            "vds_id / vds_source come from Step 2 (assign_vds_to_cells)."
+        )
+
+    steps_per_5min, n_5min, start, end = _resolve_window(result, start)
+    if n_5min % _FIVE_MIN_PER_HOUR != 0:
+        raise ValueError(
+            f"GEH needs a whole-hour window: the sim covers {n_5min} 5-min "
+            "sample(s), which is not a multiple of 12 (60 min)."
+        )
+    n_hours = n_5min // _FIVE_MIN_PER_HOUR
+    hour_starts = pd.DatetimeIndex(
+        [start + pd.Timedelta(hours=h) for h in range(n_hours)]
+    )
+    timeseries_dir = Path(timeseries_dir)
+
+    # Sim mainline flow averaged per 5-min window (veh/h), then per hour.
+    sim_flow_5min = result.mainline_flow[
+        :, : n_5min * steps_per_5min
+    ].reshape(n_cells, n_5min, steps_per_5min).mean(axis=2)
+
+    rows: list[dict] = []
+    hourly: list[np.ndarray] = []
+    seen: set[int] = set()
+    cache: dict[int, pd.DataFrame] = {}
+    for cell_idx, cell_row in enumerate(cells_df.itertuples(index=False)):
+        if cell_row.vds_source not in _DIRECT_SOURCES:
+            continue
+        vds_id = int(cell_row.vds_id)
+        if vds_id in seen:
+            continue
+        seen.add(vds_id)
+
+        observed_flow, _ = _load_observed_window(
+            timeseries_dir, vds_id, start=start, end=end,
+            n_5min=n_5min, cache=cache,
+        )
+        # Hourly volume [veh] = mean of the twelve 5-min veh/h rates in the
+        # bin. NaN propagates -> an incomplete hour is excluded.
+        sim_hourly = sim_flow_5min[cell_idx].reshape(n_hours, _FIVE_MIN_PER_HOUR).mean(axis=1)
+        obs_hourly = observed_flow.reshape(n_hours, _FIVE_MIN_PER_HOUR).mean(axis=1)
+
+        geh = _geh(sim_hourly, obs_hourly)
+        hourly.append(geh)
+        valid = ~np.isnan(geh)
+        n_valid = int(valid.sum())
+        rows.append({
+            "cell": cell_idx,
+            "vds_id": vds_id,
+            "n_geh_hours": n_valid,
+            "flow_geh_median": (
+                float(np.median(geh[valid])) if n_valid else float("nan")
+            ),
+            "flow_geh_pct_under5": (
+                100.0 * float(np.mean(geh[valid] < _GEH_THRESHOLD))
+                if n_valid else float("nan")
+            ),
+        })
+
+    per_cell = pd.DataFrame(
+        rows, columns=[
+            "cell", "vds_id", "n_geh_hours",
+            "flow_geh_median", "flow_geh_pct_under5",
+        ],
+    )
+    hourly_geh = (
+        np.vstack(hourly) if hourly else np.empty((0, n_hours), dtype=float)
+    )
+    pooled = hourly_geh[~np.isnan(hourly_geh)]
+    n_geh_samples = int(pooled.size)
+    corridor_pct_under5 = (
+        100.0 * float(np.mean(pooled < _GEH_THRESHOLD))
+        if n_geh_samples else float("nan")
+    )
+    return GEHResult(
+        per_cell=per_cell,
+        hourly_geh=hourly_geh,
+        hour_starts=hour_starts,
+        corridor_pct_under5=corridor_pct_under5,
+        n_geh_samples=n_geh_samples,
+    )
+
+
 # ---- Helpers --------------------------------------------------------------
+
+
+def _geh(modeled: np.ndarray, counted: np.ndarray) -> np.ndarray:
+    """Elementwise GEH = sqrt(2*(M-C)^2/(M+C)); 0 where M+C==0, NaN where NaN."""
+    m = np.asarray(modeled, dtype=float)
+    c = np.asarray(counted, dtype=float)
+    denom = m + c
+    with np.errstate(divide="ignore", invalid="ignore"):
+        geh = np.sqrt(2.0 * (m - c) ** 2 / denom)
+    return np.where(denom == 0.0, 0.0, geh)
+
+
+def _pct_diff(sim: float, obs: float) -> float:
+    return float("nan") if obs == 0.0 else 100.0 * (sim - obs) / obs
 
 
 def _pct_diff(sim: float, obs: float) -> float:

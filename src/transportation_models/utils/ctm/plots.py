@@ -28,6 +28,8 @@ extracted one.
   per plotting period.
 * :func:`plot_per_cell_metrics`      -- 2x2 bar chart of the same four
   metrics summed over the horizon, per cell.
+* :func:`plot_geh_heatmap`           -- direct/tiebreak cell x hour
+  heatmap of the flow GEH statistic.
 """
 
 from __future__ import annotations
@@ -303,6 +305,43 @@ def plot_per_cell_metrics(metrics, *, title: str, out_path: Path) -> None:
     for ax in axes[-1, :]:
         ax.set_xlabel("cell index")
     fig.suptitle(title)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=120)
+    plt.close(fig)
+
+
+def plot_geh_heatmap(
+    hourly_geh: np.ndarray, *,
+    row_labels: list[str], hour_starts: pd.DatetimeIndex,
+    title: str, out_path: Path,
+    threshold: float = 5.0, vmax: float = 10.0,
+) -> None:
+    """Heatmap of flow GEH per direct/tiebreak cell (rows) x hour (cols).
+
+    ``hourly_geh`` is ``(n_rows, n_hours)``; NaN cells (incomplete observed
+    hour) render blank. Colors run green (good, GEH <= ``threshold``) to
+    red (poor), clipped at ``vmax``. ``row_labels`` annotate each cell;
+    ``hour_starts`` labels the x-axis at the start of each hourly bin.
+    """
+    n_rows, n_hours = hourly_geh.shape
+    fig, ax = plt.subplots(figsize=(min(14, 2 + 0.5 * n_hours), 1.5 + 0.4 * n_rows))
+    cmap = plt.get_cmap("RdYlGn_r").copy()
+    cmap.set_bad("lightgrey")
+    masked = np.ma.masked_invalid(hourly_geh)
+    mesh = ax.imshow(
+        masked, aspect="auto", cmap=cmap, vmin=0.0, vmax=vmax,
+        interpolation="nearest",
+    )
+    ax.set_yticks(range(n_rows))
+    ax.set_yticklabels(row_labels)
+    ax.set_xticks(range(n_hours))
+    ax.set_xticklabels(
+        [t.strftime("%H:%M") for t in hour_starts], rotation=90, fontsize=8,
+    )
+    ax.set_xlabel("hour start")
+    ax.set_title(title)
+    cbar = fig.colorbar(mesh, ax=ax, label="GEH", extend="max")
+    cbar.ax.axhline(threshold, color="black", lw=1.0)
     fig.tight_layout()
     fig.savefig(out_path, dpi=120)
     plt.close(fig)

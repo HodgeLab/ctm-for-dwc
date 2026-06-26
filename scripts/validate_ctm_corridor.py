@@ -29,9 +29,11 @@ import pandas as pd
 from transportation_models.utils.ctm import (
     compare_against_historical,
     compare_corridor_aggregates,
+    compute_flow_geh,
 )
+from transportation_models.utils.ctm.plots import plot_geh_heatmap
 from transportation_models.utils.ctm.results import SimulationResult
-from transportation_models.utils.ctm.validation import CorridorAggregates
+from transportation_models.utils.ctm.validation import CorridorAggregates, GEHResult
 
 
 def resolve_start(
@@ -59,12 +61,18 @@ def resolve_start(
     return cli_start if cli_start is not None else baked_start
 
 
+def _fmt_nan(v: float) -> str:
+    """Format a float to 1 decimal, or ``-`` when NaN (non-direct cells)."""
+    return "-" if pd.isna(v) else f"{v:.1f}"
+
+
 def _print_summary(
     stats: pd.DataFrame, *,
     sim_dir: Path, cells_path: Path, ts_dir: Path,
     start: pd.Timestamp, dt: float, n_5min: int,
     out_path: Path, top_k: int,
     aggregates: CorridorAggregates,
+    geh: GEHResult | None,
 ) -> None:
     """Tabular stdout summary: window, corridor aggregates, worst cells."""
     n_cells = len(stats)
@@ -104,15 +112,23 @@ def _print_summary(
         print(f"  Top {k} worst-fitting cells (by density RMSE):")
         worst = valid.nlargest(k, "density_rmse").reset_index(drop=True)
         # Compact column layout for readability.
-        display = worst[[
+        cols = [
             "cell", "vds_id",
             "density_rmse", "density_mape",
             "flow_rmse", "flow_mape",
-        ]].copy()
+        ]
+        if geh is not None:
+            cols += ["flow_geh_median", "flow_geh_pct_under5"]
+        display = worst[cols].copy()
         display["density_rmse"] = display["density_rmse"].map("{:.2f}".format)
         display["density_mape"] = display["density_mape"].map("{:.1f}".format)
         display["flow_rmse"] = display["flow_rmse"].map("{:.0f}".format)
         display["flow_mape"] = display["flow_mape"].map("{:.1f}".format)
+        if geh is not None:
+            display["flow_geh_median"] = display["flow_geh_median"].map(_fmt_nan)
+            display["flow_geh_pct_under5"] = (
+                display["flow_geh_pct_under5"].map(_fmt_nan)
+            )
         print(display.to_string(index=False))
 
     print()
@@ -129,6 +145,14 @@ def _print_summary(
         f"observed {aggregates.obs_vht:,.0f}, "
         f"diff {aggregates.vht_pct_diff:+.1f}%"
     )
+
+    if geh is not None and geh.n_geh_samples > 0:
+        print()
+        print(
+            f"    flow GEH<5  : {geh.corridor_pct_under5:.0f}% of "
+            f"{geh.n_geh_samples} cell-hour samples "
+            "(hourly volumes, direct + tiebreak VDS)"
+        )
 
     print()
     print(f"  Wrote {out_path}")
@@ -192,6 +216,20 @@ def main() -> None:
     aggregates = compare_corridor_aggregates(
         result, cells, args.timeseries_dir, station_metadata, start=start,
     )
+
+    # GEH needs whole-hour windows; skip it (rather than fail the whole
+    # report) for sims that don't cover an integer number of hours.
+    try:
+        geh = compute_flow_geh(result, cells, args.timeseries_dir, start=start)
+    except ValueError as e:
+        print(f"  skipping GEH: {e}", file=sys.stderr)
+        geh = None
+    if geh is not None:
+        stats = stats.merge(
+            geh.per_cell[["cell", "flow_geh_median", "flow_geh_pct_under5"]],
+            on="cell", how="left",
+        )
+
     n_5min = (
         stats.loc[stats["n_flow_samples"] > 0, "n_flow_samples"].max()
         if (stats["n_flow_samples"] > 0).any() else 0
@@ -202,13 +240,27 @@ def main() -> None:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     stats.to_csv(out_path, index=False)
 
+    if geh is not None and geh.hourly_geh.shape[0] > 0:
+        heatmap_path = out_path.parent / "geh_heatmap.png"
+        plot_geh_heatmap(
+            geh.hourly_geh,
+            row_labels=[
+                f"cell {int(c)} (VDS {int(v)})"
+                for c, v in zip(geh.per_cell["cell"], geh.per_cell["vds_id"])
+            ],
+            hour_starts=geh.hour_starts,
+            title="Flow GEH by direct/tiebreak cell and hour",
+            out_path=heatmap_path,
+        )
+        print(f"  Wrote {heatmap_path}")
+
     print()
     _print_summary(
         stats, sim_dir=args.sim_dir, cells_path=args.cells,
         ts_dir=args.timeseries_dir, start=start,
         dt=result.freeway.dt, n_5min=int(n_5min),
         out_path=out_path, top_k=args.top_k,
-        aggregates=aggregates,
+        aggregates=aggregates, geh=geh,
     )
 
 

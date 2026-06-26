@@ -1085,6 +1085,44 @@ flow validity, VHT uses density validity. `CorridorAggregates` carries
 `sim_vmt`, `obs_vmt`, `sim_vht`, `obs_vht`, `n_vds`, plus
 `vmt_pct_diff` / `vht_pct_diff` properties (`100·(sim−obs)/obs`).
 
+### GEH statistic
+
+`compute_flow_geh(result, cells_df, timeseries_dir, *, start) ->
+GEHResult` reports the GEH volume statistic for **flow** (GEH is a
+volume measure — it does not apply to density):
+
+```
+GEH = sqrt( 2·(M − C)² / (M + C) )
+```
+
+with `M` = sim and `C` = observed. GEH is computed on **hourly
+volumes**: the twelve 5-min samples in each clock-hour bin are summed
+into an hourly volume on both sides before the formula is applied,
+matching the magnitude the conventional `GEH < 5` acceptance rule is
+defined for. The window must therefore be a whole number of hours; the
+CLI skips GEH (with a warning) for sims that aren't.
+
+Like the corridor aggregates, only the **`direct` / `direct_tiebreak`**
+cell of each unique VDS contributes. An hour with any NaN observed
+5-min sample becomes a NaN hourly volume (incomplete count) and drops
+out of that cell's GEH.
+
+`GEHResult` carries:
+
+* `per_cell` — one row per direct/tiebreak cell: `cell`, `vds_id`,
+  `n_geh_hours`, `flow_geh_median`, `flow_geh_pct_under5` (share of that
+  cell's hours with GEH < 5).
+* `hourly_geh` — `(n_direct_cells, n_hours)` GEH matrix (NaN where the
+  observed hour was incomplete), rendered by `plot_geh_heatmap` as a
+  cell × hour heatmap (green ≤ 5, red above).
+* `corridor_pct_under5` / `n_geh_samples` — pooled share of all
+  `(cell, hour)` samples meeting GEH < 5.
+
+The CLI merges `flow_geh_median` / `flow_geh_pct_under5` into
+`validation.csv` (NaN for non-direct cells), adds them to the top-K
+worst-cell table, writes `geh_heatmap.png`, and prints the corridor
+pass-rate line.
+
 ### CLI
 
 `scripts/validate_ctm_corridor.py` consumes the per-quantity output
@@ -1105,9 +1143,11 @@ python scripts/validate_ctm_corridor.py \
 The script also prints a stdout summary: window, cell counts (total
 vs assigned VDS), per-cell aggregates (median / mean / max of RMSE
 and MAPE for both density and flow), the top-K worst-fitting cells by
-density RMSE (`--top-k`, default 5), and the corridor VMT/VHT
-aggregates (sim vs observed + percent diff) over the direct/tiebreak
-VDS. `--station-metadata` defaults to `data/pems/station_metadata.csv`.
+density RMSE (`--top-k`, default 5; with the two GEH columns
+appended), the corridor VMT/VHT aggregates (sim vs observed + percent
+diff) over the direct/tiebreak VDS, and the corridor GEH<5 pass-rate.
+It writes `geh_heatmap.png` alongside `validation.csv`.
+`--station-metadata` defaults to `data/pems/station_metadata.csv`.
 
 ### CTMSIM ground-truth comparison
 
