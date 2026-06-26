@@ -4,11 +4,14 @@ Loads the self-contained ``result.npz`` that
 ``scripts/simulate_ctm_corridor.py`` writes (which carries the density
 and flow arrays, ``dt``, and the sim's wallclock ``start``), computes
 per-cell RMSE and MAPE against the historical 5-min PeMS samples over
-the same wallclock window, and writes a ``validation.csv`` with the
-per-cell stats.
+the same wallclock window, plus the corridor VMT/VHT aggregates, the
+GEH statistic, and QQ error-distribution diagnostics.
 
-Stats are summarized to stdout: corridor-wide median / mean / max of
-each metric and the top-K worst-fitting cells by density RMSE.
+All artifacts are written to a ``validation/`` subdirectory of the sim
+dir (override with ``--out-dir``): ``validation.csv`` (per-cell stats),
+``geh_heatmap.png``, and the QQ plots. Stats are also summarized to
+stdout: corridor-wide median / mean / max of each metric and the top-K
+worst-fitting cells by density RMSE.
 
 Run from the repo root::
 
@@ -76,7 +79,7 @@ def _print_summary(
     stats: pd.DataFrame, *,
     sim_dir: Path, cells_path: Path, ts_dir: Path,
     start: pd.Timestamp, dt: float, n_5min: int,
-    out_path: Path, top_k: int,
+    out_dir: Path, top_k: int,
     aggregates: CorridorAggregates,
     geh: GEHResult | None,
 ) -> None:
@@ -166,7 +169,7 @@ def _print_summary(
         )
 
     print()
-    print(f"  Wrote {out_path}")
+    print(f"  Wrote validation artifacts to {out_dir}")
 
 
 def main() -> None:
@@ -201,9 +204,10 @@ def main() -> None:
               "VMT/VHT aggregates. Defaults to data/pems/station_metadata.csv."),
     )
     parser.add_argument(
-        "--out", default=None, type=Path,
-        help=("Destination for the per-cell validation CSV. "
-              "Defaults to <sim-dir>/validation.csv."),
+        "--out-dir", default=None, type=Path,
+        help=("Directory for all validation artifacts (validation.csv, "
+              "geh_heatmap.png, the QQ plots). "
+              "Defaults to <sim-dir>/validation."),
     )
     parser.add_argument(
         "--top-k", default=5, type=int,
@@ -249,13 +253,16 @@ def main() -> None:
         if (stats["n_flow_samples"] > 0).any() else 0
     )
 
-    out_path = args.out if args.out is not None else args.sim_dir / "validation.csv"
-    out_path = out_path.resolve()
-    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_dir = (
+        args.out_dir if args.out_dir is not None else args.sim_dir / "validation"
+    )
+    out_dir = out_dir.resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / "validation.csv"
     stats.to_csv(out_path, index=False)
 
     if geh is not None and geh.hourly_geh.shape[0] > 0:
-        heatmap_path = out_path.parent / "geh_heatmap.png"
+        heatmap_path = out_dir / "geh_heatmap.png"
         plot_geh_heatmap(
             geh.hourly_geh,
             row_labels=[
@@ -266,7 +273,6 @@ def main() -> None:
             title="Flow GEH by direct/tiebreak cell and hour",
             out_path=heatmap_path,
         )
-        print(f"  Wrote {heatmap_path}")
 
     # QQ error-distribution diagnostics: per quantity, a corridor-pooled
     # figure (Normal residual QQ + two-sample sim-vs-obs QQ) plus per-cell
@@ -274,27 +280,23 @@ def main() -> None:
     qq = compute_qq_samples(result, cells, args.timeseries_dir, start=start)
     if qq.per_cell:
         for quantity in ("flow", "density"):
-            pooled_path = out_path.parent / f"{quantity}_qq_pooled.png"
+            pooled_path = out_dir / f"{quantity}_qq_pooled.png"
             plot_qq_pooled(qq, quantity=quantity, out_path=pooled_path)
-            print(f"  Wrote {pooled_path}")
             for diagnostic, suffix in (
                 ("residual", "residual"), ("two_sample", "twosample"),
             ):
-                percell_path = (
-                    out_path.parent / f"{quantity}_qq_percell_{suffix}.png"
-                )
+                percell_path = out_dir / f"{quantity}_qq_percell_{suffix}.png"
                 plot_qq_percell(
                     qq, quantity=quantity, diagnostic=diagnostic,
                     out_path=percell_path,
                 )
-                print(f"  Wrote {percell_path}")
 
     print()
     _print_summary(
         stats, sim_dir=args.sim_dir, cells_path=args.cells,
         ts_dir=args.timeseries_dir, start=start,
         dt=result.freeway.dt, n_5min=int(n_5min),
-        out_path=out_path, top_k=args.top_k,
+        out_dir=out_dir, top_k=args.top_k,
         aggregates=aggregates, geh=geh,
     )
 

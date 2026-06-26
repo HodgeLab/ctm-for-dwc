@@ -1135,11 +1135,11 @@ pass-rate line.
 
 ### CLI
 
-`scripts/validate_ctm_corridor.py` consumes the per-quantity output
-CSVs that `simulate_ctm_corridor.py` writes (`density.csv` +
-`mainline_flow.csv`), reconstructs the sim density and flow arrays,
-runs `compare_against_historical`, and writes `validation.csv`
-alongside the sim outputs:
+`scripts/validate_ctm_corridor.py` loads the sim's `result.npz`, runs
+`compare_against_historical` (restricted to direct/tiebreak VDS, see
+above), the corridor aggregates, GEH, and QQ diagnostics, and writes
+**all artifacts to a `validation/` subdirectory of the sim dir**
+(override with `--out-dir`):
 
 ```
 python scripts/validate_ctm_corridor.py \
@@ -1150,13 +1150,17 @@ python scripts/validate_ctm_corridor.py \
     --start "2022-04-12 06:00"
 ```
 
+The `validation/` directory holds `validation.csv` (per-cell stats +
+the two GEH columns), `geh_heatmap.png`, and the QQ plots
+(`{flow,density}_qq_pooled.png` and the per-cell `_residual` /
+`_twosample` grids).
+
 The script also prints a stdout summary: window, cell counts (total
-vs assigned VDS), per-cell aggregates (median / mean / max of RMSE
-and MAPE for both density and flow), the top-K worst-fitting cells by
-density RMSE (`--top-k`, default 5; with the two GEH columns
-appended), the corridor VMT/VHT aggregates (sim vs observed + percent
-diff) over the direct/tiebreak VDS, and the corridor GEH<5 pass-rate.
-It writes `geh_heatmap.png` alongside `validation.csv`.
+vs scored), per-cell aggregates (median / mean / max of RMSE and MAPE
+for both density and flow), the top-K worst-fitting cells by density
+RMSE (`--top-k`, default 5; with the two GEH columns appended), the
+corridor VMT/VHT aggregates (sim vs observed + percent diff) over the
+direct/tiebreak VDS, and the corridor GEH<5 pass-rate.
 `--station-metadata` defaults to `data/pems/station_metadata.csv`.
 
 ### CTMSIM ground-truth comparison
