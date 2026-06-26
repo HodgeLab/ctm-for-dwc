@@ -34,6 +34,7 @@ from transportation_models.utils.ctm import (
     compare_corridor_aggregates,
     compute_flow_geh,
     compute_qq_samples,
+    corridor_rmse_mape,
     restrict_to_direct_tiebreak,
 )
 from transportation_models.utils.ctm.plots import (
@@ -82,6 +83,7 @@ def _print_summary(
     out_dir: Path, top_k: int,
     aggregates: CorridorAggregates,
     geh: GEHResult | None,
+    corridor_errors: dict[str, tuple[int, float, float]],
 ) -> None:
     """Tabular stdout summary: window, corridor aggregates, worst cells."""
     n_cells = len(stats)
@@ -106,19 +108,12 @@ def _print_summary(
         )
         return
 
-    def _fmt(series: pd.Series, fmt: str) -> str:
-        return (
-            f"median {fmt.format(series.median())}, "
-            f"mean {fmt.format(series.mean())}, "
-            f"max {fmt.format(series.max())}"
-        )
-
     print()
-    print("  Per-cell aggregates over scored (direct/tiebreak) cells:")
-    print(f"    density RMSE  [veh/mi]: {_fmt(valid['density_rmse'], '{:.2f}')}")
-    print(f"    density MAPE  [%]     : {_fmt(valid['density_mape'], '{:.1f}')}")
-    print(f"    flow    RMSE  [veh/h] : {_fmt(valid['flow_rmse'], '{:.0f}')}")
-    print(f"    flow    MAPE  [%]     : {_fmt(valid['flow_mape'], '{:.1f}')}")
+    fn, frmse, fmape = corridor_errors["flow"]
+    dn, drmse, dmape = corridor_errors["density"]
+    print("  Corridor-pooled error (over scored direct/tiebreak cells):")
+    print(f"    flow    RMSE {frmse:.0f} veh/h , MAPE {fmape:.1f}%  (n={fn})")
+    print(f"    density RMSE {drmse:.2f} veh/mi, MAPE {dmape:.1f}%  (n={dn})")
 
     k = min(top_k, len(valid))
     if k > 0:
@@ -278,6 +273,7 @@ def main() -> None:
     # figure (Normal residual QQ + two-sample sim-vs-obs QQ) plus per-cell
     # faceted grids for each diagnostic.
     qq = compute_qq_samples(result, cells, args.timeseries_dir, start=start)
+    corridor_errors = corridor_rmse_mape(qq)
     if qq.per_cell:
         for quantity in ("flow", "density"):
             pooled_path = out_dir / f"{quantity}_qq_pooled.png"
@@ -298,6 +294,7 @@ def main() -> None:
         dt=result.freeway.dt, n_5min=int(n_5min),
         out_dir=out_dir, top_k=args.top_k,
         aggregates=aggregates, geh=geh,
+        corridor_errors=corridor_errors,
     )
 
 

@@ -744,6 +744,25 @@ def compute_qq_samples(
     return QQResult(per_cell=per_cell)
 
 
+def corridor_rmse_mape(qq: QQResult) -> dict[str, tuple[int, float, float]]:
+    """Corridor-pooled ``(n_samples, RMSE, MAPE)`` for flow and density.
+
+    Pools the paired sim/observed 5-min samples across every direct/
+    tiebreak cell (:meth:`QQResult.pooled`) and applies the same
+    definitions as the per-cell :func:`compare_against_historical`: RMSE
+    over all (non-NaN-observed) pooled samples, MAPE additionally
+    excluding zero-observed samples. This is the true corridor error --
+    one RMSE/MAPE over the pooled residuals, not an average of per-cell
+    RMSEs.
+
+    Returns a dict keyed by ``"flow"`` / ``"density"``; each value is
+    ``(n_samples, rmse, mape)`` with RMSE in the quantity's native unit
+    (flow veh/h, density veh/mi) and MAPE in %. Empty pools give
+    ``(0, nan, nan)``.
+    """
+    return {q: _rmse_mape(*qq.pooled(q)) for q in ("flow", "density")}
+
+
 # ---- Helpers --------------------------------------------------------------
 
 

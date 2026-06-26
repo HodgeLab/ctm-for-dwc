@@ -74,6 +74,7 @@ from .validation import (
     compare_corridor_aggregates,
     compute_flow_geh,
     compute_qq_samples,
+    corridor_rmse_mape,
     restrict_to_direct_tiebreak,
 )
 from .vds import (
@@ -141,6 +142,7 @@ __all__ = [
     "QQCellSamples",
     "QQResult",
     "compute_qq_samples",
+    "corridor_rmse_mape",
     "summarize_refs",
     "extract_route_number",
     "load_postmiles",

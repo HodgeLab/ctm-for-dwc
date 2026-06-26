@@ -10,7 +10,8 @@ import pandas as pd
 import pytest
 
 from transportation_models.utils.ctm import (
-    compare_against_historical, restrict_to_direct_tiebreak,
+    QQCellSamples, QQResult, compare_against_historical, corridor_rmse_mape,
+    restrict_to_direct_tiebreak,
 )
 
 
@@ -352,6 +353,41 @@ def test_restricted_frame_scores_only_kept_cell(tmp_path):
     assert out.iloc[0]["n_flow_samples"] == n_5min   # direct cell scored
     assert out.iloc[1]["n_flow_samples"] == 0        # nearest_upstream skipped
     assert np.isnan(out.iloc[1]["flow_rmse"])
+
+
+# ---- corridor_rmse_mape --------------------------------------------------
+
+
+def _qq_cell(cell, vds_id, flow_sim, flow_obs, density_sim, density_obs):
+    return QQCellSamples(
+        cell=cell, vds_id=vds_id,
+        flow_sim=np.array(flow_sim, float), flow_obs=np.array(flow_obs, float),
+        density_sim=np.array(density_sim, float),
+        density_obs=np.array(density_obs, float),
+    )
+
+
+def test_corridor_rmse_mape_pools_residuals_across_cells():
+    """Pooled flow residuals [120,120,0] over obs 1200; density [2,2,0]/20."""
+    qq = QQResult(per_cell=[
+        _qq_cell(0, 100, [1320, 1320], [1200, 1200], [22, 22], [20, 20]),
+        _qq_cell(2, 200, [1200], [1200], [20], [20]),
+    ])
+    errs = corridor_rmse_mape(qq)
+    fn, frmse, fmape = errs["flow"]
+    dn, drmse, dmape = errs["density"]
+    assert fn == 3 and dn == 3
+    assert frmse == pytest.approx((28800.0 / 3.0) ** 0.5)   # ~97.98
+    assert frmse == pytest.approx(97.9796, abs=1e-3)
+    assert fmape == pytest.approx(100.0 * 0.2 / 3.0)        # (0.1+0.1+0)/3
+    assert drmse == pytest.approx((8.0 / 3.0) ** 0.5)       # ~1.633
+    assert dmape == pytest.approx(100.0 * 0.2 / 3.0)
+
+
+def test_corridor_rmse_mape_empty_pool_is_nan():
+    errs = corridor_rmse_mape(QQResult(per_cell=[]))
+    assert errs["flow"][0] == 0
+    assert np.isnan(errs["flow"][1]) and np.isnan(errs["flow"][2])
 
 
 # ---- Error paths ---------------------------------------------------------

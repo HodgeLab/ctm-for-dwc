@@ -1028,6 +1028,14 @@ with zero sample counts and NaN stats -- they're skipped rather than
 treated as an error, so a single missing assignment doesn't block
 the rest of the validation report.
 
+**Corridor-pooled error.** `corridor_rmse_mape(qq)` rolls the per-cell
+fit up to one RMSE and MAPE per quantity for the whole corridor by
+*pooling the residuals* across every direct/tiebreak cell (via
+`QQResult.pooled`) and applying the same definitions above -- not by
+averaging per-cell RMSEs, which would understate the true error. The
+CLI prints these two lines (flow and density) instead of per-cell
+median/mean/max.
+
 **Direct/tiebreak restriction (CLI).** `compare_against_historical`
 itself scores every cell with an assigned VDS (the microsim / DWPT
 paths rely on this). The corridor-validation CLI, however, first runs
@@ -1156,11 +1164,11 @@ the two GEH columns), `geh_heatmap.png`, and the QQ plots
 `_twosample` grids).
 
 The script also prints a stdout summary: window, cell counts (total
-vs scored), per-cell aggregates (median / mean / max of RMSE and MAPE
-for both density and flow), the top-K worst-fitting cells by density
-RMSE (`--top-k`, default 5; with the two GEH columns appended), the
-corridor VMT/VHT aggregates (sim vs observed + percent diff) over the
-direct/tiebreak VDS, and the corridor GEH<5 pass-rate.
+vs scored), the corridor-pooled RMSE and MAPE for density and flow,
+the top-K worst-fitting cells by density RMSE (`--top-k`, default 5;
+with the two GEH columns appended), the corridor VMT/VHT aggregates
+(sim vs observed + percent diff) over the direct/tiebreak VDS, and the
+corridor GEH<5 pass-rate.
 `--station-metadata` defaults to `data/pems/station_metadata.csv`.
 
 ### CTMSIM ground-truth comparison
