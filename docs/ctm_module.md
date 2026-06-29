@@ -718,6 +718,15 @@ history when estimating statistics.
   `seed=0` default makes runs reproducible; pass a different int for
   a different reproducible sequence.
 
+**Level 3 – `model_based_optimization`** is structurally different from the
+three per-VDS fillers above: instead of reconstructing one ramp's series in
+isolation, it solves a single corridor-wide inverse problem that uses the CTM
+dynamics to infer *all* ramp flows from observed mainline density, discarding
+the ramp measurements from the fit entirely. It is a one-off offline process
+producing `--demand` / `--beta` CSVs. See the dedicated subsection
+[Model-based ramp imputation (Level 3)](#model-based-ramp-imputation-level-3)
+below.
+
 **Deferred — outage-duration-aware composition.** Pick filler by
 outage length (e.g. Level 1 for outages < 30 min, Level 2 for
 longer). This is a higher-order strategy that wraps the existing
@@ -783,6 +792,140 @@ python scripts/simulate_ctm_corridor.py \
     --start "2022-04-12 06:00" --end "2022-04-12 09:00" \
     --ramp-fill-strategy historical_average
 ```
+
+### Model-based ramp imputation (Level 3)
+
+Implemented across three pieces: `scripts/build_ctm_qp_inputs.py` (Python prep),
+`julia/ramp_qp/solve_ramp_qp.jl` (the solver), and `scripts/verify_ramp_qp.py`
+(round-trip verification). Unlike the Level 1/2 fillers, this is a one-off
+offline pipeline, not a `fill_strategy`.
+
+**Idea.** Rather than reconstruct each ramp series on its own, fit the *whole
+corridor* at once: find the ramp flows that make the CTM's mainline density
+trajectory match observed PeMS density, with the CTM update equations enforced
+as constraints. Observed ramp data is deliberately **excluded** from the fit,
+so the held-out ramp measurements become an honest test set for "can mainline
+density + CTM dynamics alone reconstruct ramp flow?"
+
+**Formulation (a convex QP).** Solved with JuMP + Gurobi:
+
+* **Decision variables** — on-ramp *admitted flow* $r_i(k)$ and off-ramp *flow*
+  $s_i(k)$, both $\ge 0$, piecewise-constant over 5-min blocks (PeMS cadence).
+* **State variables** — density $\rho_i(k)$ and mainline flow $f_i(k)$, pinned by
+  the CTM update as equality/inequality constraints (simultaneous transcription).
+* **Objective** — $\sum (\rho_i(k_m) - \hat\rho_i(m))^2$ over the **direct /
+  tiebreak** cells (genuine observations) at the 5-min sample grid, with
+  $\hat\rho = \text{total\_flow}\cdot 12 / \text{avg\_speed}$.
+* **Key linearizations** that keep it a *convex* QP:
+  * The off-ramp **split** $\beta$ is not a variable — using it would make
+    $\beta\rho$, $\beta f$, $1/\beta$ nonconvex. We solve for the off-ramp
+    **flow** $s_i$ instead and recover $\beta_i = s_i/(f_i+s_i)$ afterward.
+  * **$\gamma = 1$** (the engine/CTMSIM default). Under the $s$-form $\gamma$
+    enters only linearly ($\rho_i + \gamma r_i\,\Delta T/l_i$), so matching the
+    forward simulator costs nothing in convexity.
+  * **No on-ramp queue** ($q\equiv 0$): demand is unidentifiable from mainline
+    density (only the *admitted* flow $r_i$ appears in conservation), and the
+    held-out target is observed ramp *flow*. So $r_i$ is the variable and is
+    output as `--demand`; this also round-trips the on-ramp exactly.
+  * The CTM `min` operators are **relaxed to $\le$** (Ziliaskopoulos-style), so
+    no binaries. The relaxation is exact only where the bound is active; the
+    round-trip check below measures this.
+* **Boundary/initial conditions fixed from PeMS** — $\rho_i(0)$ from
+  `initial_state_from_vds` and upstream inflow $f_0(k)$ from `inflow_from_vds`
+  enter as parameters, not variables, so the QP is fed exactly what the forward
+  simulator is fed (keeping the round-trip honest).
+* **No regularization** beyond $r,s\ge 0$ — pure least squares. The inverse is
+  generally **non-unique**, so the recovered flows are one of many
+  density-equivalent solutions. (Deferred: a small temporal-smoothness /
+  minimal-norm penalty to select a physical minimizer; and a big-M **MIQP**
+  escalation to make the `min` exact where the relaxation is loose.)
+
+**Pipeline.**
+
+```
+# 1. Prep the QP bundle (reuses initial_state_from_vds / inflow_from_vds /
+#    the Step-9 observed-density extraction):
+python scripts/build_ctm_qp_inputs.py \
+    --freeway scripts/output/ctm_corridor/<case>/freeway.csv \
+    --cells   scripts/output/ctm_corridor/<case>/cells.csv \
+    --timeseries-dir data/pems/csv_files \
+    --start "2022-04-12 06:00" --end "2022-04-12 09:00"
+# -> writes freeway.csv, rho0.csv, inflow.csv, observed_density.csv, meta.json
+#    into <case>/qp_inputs/. dt defaults to the largest CFL-stable 5-min divisor.
+
+# 2. Solve (Julia). Default optimizer is Gurobi; set RAMP_QP_OPTIMIZER=clarabel
+#    for a license-free convex-QP solver (used by the test suite):
+julia --project=julia/ramp_qp julia/ramp_qp/solve_ramp_qp.jl <case>/qp_inputs
+# -> demand.csv, beta.csv (the --demand / --beta inputs), plus *_fitted.csv and
+#    solve_report.json.
+
+# 3. Verify the round-trip + relaxation tightness:
+python scripts/verify_ramp_qp.py --bundle <case>/qp_inputs
+```
+
+**Round-trip = the tightness diagnostic.** Because the `min` constraints are
+relaxed, the QP's fitted trajectory only equals a real CTM run where those
+relaxations are tight. `verify_ramp_qp.py` feeds the solver's `demand`/`beta`
+back through the **exact** forward simulator (with `gamma=1`, matching the QP)
+and reports (a) the density gap between the forward run and the QP's fitted
+density, and (b) a per-cell/step map of how much slack sits on each mainline
+flow's binding bound. A large gap with many loose operators means the recovered
+ramp flows, while density-matching, are **not** a physical CTM solution — the
+expected symptom of the unregularized, relaxed inverse, and the signal to add
+regularization or escalate those operators to a big-M MIQP.
+
+**Status.** Prep, solver, and verification are implemented and unit-tested
+(`tests/test_build_ctm_qp_inputs.py`, `tests/test_verify_ramp_qp.py`); the Julia
+solver is exercised manually (Gurobi license / cross-language, so it is not in
+CI). A synthetic identifiability check (known freeway $\to$ forward-sim density
+$\to$ QP) confirms the QP reproduces the observed density to ~$10^{-8}$.
+
+**Finding — density transfers, flow does not, and the gap grows with length.**
+On the I-880 N case studies (`~/projects/ctm_case_studies/I880N_{1,5,10}mi`,
+2023-06-01, 24 h, dt 5 s) the QP matches observed density essentially exactly
+(objective $\approx 0$). Run through the **exact** forward simulator and scored
+with `validate_ctm_corridor.py` against historical PeMS (vs the
+historical-average ramp fill), the result is corridor-length-dependent:
+
+| case | metric | Level 3 | histAve |
+|---|---|---|---|
+| 1mi (2 cells)  | density RMSE / flow RMSE | **19.9** / 638 | 24.6 / **342** |
+| 1mi            | flow MAPE / GEH<5        | 12.3% / 62%    | 11.8% / 60%    |
+| 5mi (14 cells) | density MAPE / flow MAPE | 47% / 50%      | **27% / 17%**  |
+| 5mi            | flow RMSE / GEH<5        | 955 / 24%      | **443 / 44%**  |
+
+On the short corridor Level 3 is competitive — it even beats historical average
+on **density** (the quantity it optimizes) — but on the 5mi it is clearly worse,
+especially on **flow** and the aggregate/GEH measures. The split is diagnostic:
+the objective (density) stays competitive while flow degrades and worsens with
+length. Two coupled causes:
+
+1. **Relaxation looseness (dominant).** The QP fits density under the *relaxed*
+   CTM (`min` $\to$ `$\le$`), but `simulate`/`validate` use the *exact* `min`.
+   The optimizer exploits the slack — choosing flows below their true `min` — so
+   its trajectory is not a valid CTM run. When the exact operators "snap back,"
+   density diverges (`verify_ramp_qp` round-trip: ~190 RMS veh/mi on the 5mi,
+   100 % of mainline operators loose). This is independent of the validator, so
+   it is the relaxation, not a wiring bug.
+2. **Flow is never in the objective** — only density. Historical average feeds
+   *physically real* ramp flows that the exact simulator handles sanely, so its
+   density *and* flow validate well.
+
+Critically, regularization-for-uniqueness alone would **not** fix this: a unique
+loose solution is still loose. Making the optimum a genuine exact-CTM trajectory
+is what guarantees transfer. Two principled routes (under evaluation):
+
+* **Exact MIQP** — big-M binaries make the `min` exact, keeping the JuMP+Gurobi
+  constraint formulation; the solution round-trips by construction. Cost:
+  tens of thousands of binaries (tractability on 5mi/10mi is the open question).
+* **Differentiable forward-simulation** — optimize the ramp inputs by running
+  the *exact* forward CTM each iteration and descending the density error;
+  structurally immune to the transfer failure because it never leaves the exact
+  dynamics. (This is the "option B" set aside during design.)
+
+Baseline `validate_ctm_corridor` stats for the current relaxed-QP output are
+saved under each case study's `qp_ramps/validation/` for comparison against
+whichever fix lands next.
 
 ## Step 8: Running a CTM Simulation
 End-to-end demo: `scripts/simulate_ctm_corridor.py`.
