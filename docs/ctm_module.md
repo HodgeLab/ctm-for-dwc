@@ -53,6 +53,7 @@ against historical PeMS observations to validate the fit.
   - [RMSE and MAPE](#rmse-and-mape)
   - [Output](#output)
   - [CLI](#cli-2)
+  - [Ramp gap-fill accuracy](#ramp-gap-fill-accuracy)
   - [CTMSIM ground-truth comparison](#ctmsim-ground-truth-comparison)
   - [Roadmap](#roadmap)
 - [CTM State Update Equations](#ctm-state-update-equations)
@@ -1170,6 +1171,73 @@ with the two GEH columns appended), the corridor VMT/VHT aggregates
 (sim vs observed + percent diff) over the direct/tiebreak VDS, and the
 corridor GEH<5 pass-rate.
 `--station-metadata` defaults to `data/pems/station_metadata.csv`.
+
+### Ramp gap-fill accuracy
+
+The Step-7 fillers reconstruct on-ramp demand and off-ramp flow from
+ramp detectors that suffer frequent outages, and those reconstructed
+values feed the scenario directly -- yet the *real* gaps they fill have
+no ground truth to score against. `utils/ctm/ramp_validation.py`
+measures fill accuracy by **synthetic hold-out**: take the *known*
+(non-NaN) stretches of a ramp VDS series, blank fixed-length blocks of
+them, fill with each strategy, and compare the fill to the held-out
+truth. Errors are reported **stratified by gap length** -- the evidence
+needed to pick a filler per outage duration (and to settle the deferred
+outage-duration-aware composition in Step 7).
+
+The masking is a **fixed gap-length sweep**: for each length in
+`gap_lengths_min` (default 5/15/30/60/120 min), non-overlapping blocks
+of that length are laid down on a regular schedule (`gap_spacing_min`
+apart, starting one spacing in so persistence always has prior context)
+over fully-observed stretches. Each block is masked **in isolation** --
+one synthetic outage at a time on an otherwise-intact copy of the
+series -- so the historical-average fillers compute their
+per-(weekday, time-of-day) bin statistics from the series *minus only
+that one gap*, exactly the masked-stats regime production filling sees.
+
+Two entry points, both returning a `RampFillAccuracy` (a `per_vds` and a
+corridor-`pooled` DataFrame; pooled rolls residuals up across every ramp
+VDS per `(gap_length_min, strategy)`):
+
+* **`onramp_fill_accuracy(cells_df, timeseries_dir, ...)`** scores the
+  on-ramp flow series directly (the $d_i$ driver). A VDS set spanning
+  several cells is scored once.
+* **`offramp_split_accuracy(cells_df, timeseries_dir, ...)`** masks +
+  fills the off-ramp flow $s_i$, then reconstructs the split
+  $\beta_i = s_i / (f_i + s_i)$ against the *unmasked* downstream
+  mainline $f_i$ (cell $i{+}1$'s `vds_id`), exactly as
+  `beta_from_off_ramp_vds` forms it at sim time. The off-ramp and
+  mainline series are inner-joined on timestamp, so $\beta$ is scored
+  only where both detectors report. Error is reported in **both** flow
+  units (`flow_*` = the off-ramp $s$) and split units (`beta_*`).
+  Off-ramp cells at the corridor's downstream end (no $i{+}1$) are
+  skipped with a `UserWarning`.
+
+Each metrics row carries `<prefix>_n` (scored samples),
+`<prefix>_n_unfilled` (masked samples the filler left NaN -- e.g.
+persistence with no prior value, or a historical bin with no other
+history), and `<prefix>_rmse` / `<prefix>_mape` / `<prefix>_bias`
+(MAPE in %, skipping zero-truth samples; bias is mean signed
+$\text{fill} - \text{truth}$).
+
+**CLI.** `scripts/validate_ramp_flow.py` runs both surfaces off a
+`cells.csv` + the Step-3 timeseries directory, writes the per-VDS and
+pooled CSVs plus RMSE-vs-gap-length plots to
+`<cells parent>/ramp_validation/`, and prints the pooled tables:
+
+```
+python scripts/validate_ramp_flow.py \
+    --cells scripts/output/ctm_corridor/I_210_W/cells.csv \
+    --timeseries-dir data/pems/csv_files \
+    --gap-lengths 5,15,30,60,120
+```
+
+The headline read is the **crossover**: persistence typically wins at
+short gaps and degrades as the gap grows, while the historical-average
+fillers stay roughly flat with gap length -- so the pooled RMSE columns
+show persistence overtaking historical somewhere in the 30-120 min
+range, which is exactly the threshold the duration-aware composition
+would switch on.
 
 ### CTMSIM ground-truth comparison
 
