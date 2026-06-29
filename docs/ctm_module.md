@@ -538,7 +538,12 @@ Specific aspects to consider:
   the rest of the pipeline (initial-state extraction, off-ramp
   split-ratio computation) continues to use `vds_id` so the cell's
   observed traffic data still comes from the physically nearest
-  detector.
+  detector. As of the `calibration_code` integration, Step 6 already
+  **auto-seeds** this redirect for cells whose detector outright
+  *failed* calibration (see Step 6, Stage 1) — so this manual step is
+  now mostly for cells whose detector calibrated "successfully" but to
+  a visibly poor FD, which the code can't catch. A manual `fd_vds_id`
+  always overrides the auto choice.
 * Ramp VDS assignments. A single cell can carry **multiple** ramp VDS
   ids if more than one physical ramp falls inside it (e.g. when two
   short on-ramps were merged into one cell). Put the ids in the
@@ -598,11 +603,32 @@ out entirely (or NaN) and the FD lookup uses `vds_id` for every cell
 just as before. Set it to the FD-source VDS only for the cells where
 the user wants to redirect the FD parameters.
 
+**Automatic FD redirect on calibration failure.** When the calibrated
+metadata carries a `calibration_code` column (Step 4 always writes
+one), assembly auto-seeds the `fd_vds_id` redirect that a Step-5
+reviewer used to do by hand. For any cell *without* a manual
+`fd_vds_id` whose `vds_id` failed calibration (`calibration_code != 0`,
+so its FD parameters are NaN), the FD lookup is redirected to the
+nearest **upstream** cleanly-calibrated detector (`calibration_code ==
+0`) — the same Dervisoglu upstream-inherit idea Step 2 applies to
+*missing* detectors, here applied to FD *quality*. The substitution
+never touches `vds_id` (so initial-state and split-ratio derivations
+still use the physically-nearest detector), a manually-set `fd_vds_id`
+always wins, and each redirect is reported via a `logging` warning
+(`cell idx: vds <bad> (code N) -> vds <substitute>`). This only
+*seeds* the override — Step 5's manual review still applies and can
+correct any auto-choice. A calibration table that predates the
+`calibration_code` column disables the redirect entirely, so the
+behavior is backward compatible.
+
 Cells whose effective FD-lookup id is NaN (both `vds_id` and
 `fd_vds_id` missing) raise a `ValueError` -- they need a calibrated
 FD before assembly proceeds, so the caller has to run Step 2's
 Dervisoglu upstream-inherit fallback or edit the cells table to
-point at a sensible VDS first.
+point at a sensible VDS first. A cell whose `vds_id` *failed*
+calibration and has no cleanly-calibrated detector anywhere upstream
+(and no manual `fd_vds_id`) likewise raises -- set `fd_vds_id`
+manually or extend the corridor upstream to include a good detector.
 
 ### Stage 2: Ramp capacity lookup
 

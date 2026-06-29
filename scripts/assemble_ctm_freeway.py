@@ -42,6 +42,7 @@ Run from the repo root::
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 from pathlib import Path
 
@@ -76,6 +77,9 @@ def main() -> None:
         help="Destination freeway.csv path.",
     )
     args = parser.parse_args()
+
+    # Surface assembly's FD-redirect warning (and any other library logging).
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
     cells_df = pd.read_csv(args.cells)
     calibrated_df = pd.read_csv(args.calibrated)
