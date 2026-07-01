@@ -26,6 +26,17 @@ demand and off-ramp split-ratio inputs the scenario needs; Step 8
 runs the simulation end-to-end; and Step 9 compares the result
 against historical PeMS observations to validate the fit.
 
+**Where assembled corridors live.** Running this pipeline produces
+per-corridor *case studies*, tracked in the repo under
+[`case_studies/`](../case_studies) (not `scripts/output/`) so that
+manual edits to `cells.csv` are version-controlled. Each case study is
+one corridor stretch named `{route}{dir}_{length}` (e.g. `I880N_10mi`)
+and holds the common corridor files (`cells.csv`, `freeway.csv`,
+`corridor.json`, plus GIS artifacts) alongside one subdirectory per
+simulation scenario (e.g. `no_ramps`, `histAve_ramps`, `persist_ramps`,
+`qp_ramps`), each carrying that run's outputs. Treat that directory as
+the source of assembled corridors for any downstream analysis.
+
 ## Table of Contents
 
 - [Step 1: Roadway --> Cell Mapping](#step-1-roadway----cell-mapping)
@@ -881,7 +892,7 @@ CI). A synthetic identifiability check (known freeway $\to$ forward-sim density
 $\to$ QP) confirms the QP reproduces the observed density to ~$10^{-8}$.
 
 **Finding — density transfers, flow does not, and the gap grows with length.**
-On the I-880 N case studies (`~/projects/ctm_case_studies/I880N_{1,5,10}mi`,
+On the I-880 N case studies (`case_studies/I880N_{1,5,10}mi`,
 2023-06-01, 24 h, dt 5 s) the QP matches observed density essentially exactly
 (objective $\approx 0$). Run through the **exact** forward simulator and scored
 with `validate_ctm_corridor.py` against historical PeMS (vs the
