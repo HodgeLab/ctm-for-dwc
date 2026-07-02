@@ -47,6 +47,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--window-size", type=int, default=3)
     ap.add_argument("--model", choices=["rf", "gbm"], default="rf")
     ap.add_argument("--n-estimators", type=int, default=500)
+    ap.add_argument("--n-jobs", type=int, default=None,
+                    help="Parallel jobs for the random forest (-1 = all cores).")
     ap.add_argument("--ks", type=int, nargs="+", default=[1, 2, 3, 4],
                     help="Held-out stretch counts (Kan Scenarios 1-4).")
     ap.add_argument("--max-combos", type=int, default=None,
@@ -82,6 +84,9 @@ def main(argv: list[str] | None = None) -> int:
     print(f"corpus: {n_samples} samples across {n_stretch} type-(c) stretches")
     print(f"  alpha quantiles (min/25/50/75/max): "
           f"{', '.join(f'{q:.3f}' for q in qs)}")
+    print(f"  alpha clipped: {100 * np.mean(data.alpha == 0.0):.1f}% at 0, "
+          f"{100 * np.mean(data.alpha == 1.0):.1f}% at 1  "
+          f"(high clipping => mainline<->ramp conservation error dominates the band)")
     print(f"  samples per stretch: min {np.bincount(np.searchsorted(stretch_ids, data.stretch_id)).min()}, "
           f"max {np.bincount(np.searchsorted(stretch_ids, data.stretch_id)).max()}")
 
@@ -93,8 +98,12 @@ def main(argv: list[str] | None = None) -> int:
         print("No usable k (need at least 2 stretches). Nothing to evaluate.")
         return 1
 
-    factory = lambda: KanEstimator(
-        model=args.model, n_estimators=args.n_estimators, random_state=args.random_state)
+    def factory():
+        if args.model == "rf":
+            return KanEstimator("rf", n_estimators=args.n_estimators,
+                                random_state=args.random_state, n_jobs=args.n_jobs)
+        return KanEstimator("gbm", n_estimators=args.n_estimators,
+                            random_state=args.random_state)
     report = run_scenarios(
         data, ks=tuple(ks), estimator_factory=factory,
         max_combos=args.max_combos, random_state=args.random_state)
