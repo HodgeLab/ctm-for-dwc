@@ -39,8 +39,9 @@ def _build_case(tmp_path):
         rows.append(dict(stretch_id=stid, up_ml_id=up, down_ml_id=down,
                          on_ids=str(on), off_ids=str(off), review_ids="",
                          n_on=1, n_off=1, config_type="c"))
-        _station(ts, up, 1000); _station(ts, down, 1200)
-        _station(ts, on, 500); _station(ts, off, 300)
+        # veh/5-min (x12 -> veh/hr, under C_w); conservation 100 + 50 - 30 = 120
+        _station(ts, up, 100); _station(ts, down, 120)
+        _station(ts, on, 50); _station(ts, off, 30)
         meta_rows.append({"Station ID": up, "capacity": 2000.0, "Lanes": 3})
     pd.DataFrame(rows).to_csv(sd / "880_N.csv", index=False)
     meta = tmp_path / "meta.csv"; pd.DataFrame(meta_rows).to_csv(meta, index=False)

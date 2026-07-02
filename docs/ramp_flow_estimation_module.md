@@ -106,6 +106,8 @@ $$q^{up} > q^{down}:\quad \hat s = \alpha\, s_{max} + (1-\alpha)\, s_{min},\quad
 
 ### Estimator + features
 
+* **Units**: PeMS `total_flow` is veh/5-min; the assembler scales flows to **veh/hr**
+  on load so that `q_up`, `q_down`, `r`, `s`, and the bounds match the veh/hr `C_w`.
 * **Features `Z`** (Kan Table III): upstream and downstream mainline `total_flow`,
   `avg_speed`, `avg_occupancy` at `t, t-1, t-2`.
 * **Target**: $\alpha = (y - y_{min}) / (y_{max} - y_{min})$ of the determined-first ramp.

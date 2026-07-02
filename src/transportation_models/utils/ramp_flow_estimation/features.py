@@ -41,6 +41,9 @@ _FLOW = "total_flow_[veh/5-min]"
 _SPEED = "avg_speed_[mph]"
 _OCC = "avg_occupancy_[%]"
 _PCT = "pct_observed"
+# PeMS reports flow per 5-min bin; Kan's bounds and the calibrated capacity C_w
+# are in veh/hr, so flows are scaled to veh/hr on load to keep units consistent.
+_SAMPLES_PER_HOUR = 12
 
 
 @dataclass
@@ -194,11 +197,13 @@ def build_training_data(
 ) -> TrainingData:
     """Assemble Kan training samples from every type-(c) stretch.
 
+    PeMS ``total_flow`` (veh/5-min) is scaled to **veh/hr** on load so that
+    flows, ``r``/``s``, and the bounds share units with ``C_w`` (veh/hr).
     ``station_meta`` is the calibrated station metadata (``Station ID``,
     per-lane ``capacity``, ``Lanes``); ``C_w = capacity * Lanes`` of the
     stretch's ``up_ml_id``. ``r_demand``/``s_qmax`` are each ramp's historical
-    peak *total* observed flow. Stretches whose upstream ML lacks a calibrated
-    capacity, or whose mainline detectors are absent, are skipped.
+    peak *total* observed flow (veh/hr). Stretches whose upstream ML lacks a
+    calibrated capacity, or whose mainline detectors are absent, are skipped.
     """
     timeseries_dir = Path(timeseries_dir)
     cfg = stretches[stretches["config_type"] == "c"]
@@ -235,7 +240,7 @@ def build_training_data(
     data: dict[int, dict] = {}
     for sid, df in raw.items():
         a = df.reindex(grid)
-        flow = a[_FLOW].to_numpy(dtype=float)
+        flow = a[_FLOW].to_numpy(dtype=float) * _SAMPLES_PER_HOUR   # veh/5-min -> veh/hr
         pct = a[_PCT].to_numpy(dtype=float)
         obs_flow = ~np.isnan(flow) & (np.nan_to_num(pct, nan=-1.0) > pct_floor)
         data[sid] = {"flow": flow, "speed": a[_SPEED].to_numpy(dtype=float),

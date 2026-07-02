@@ -2,6 +2,8 @@
 
 Uses tiny temp per-station CSVs + an in-memory station-metadata frame; no real
 timeseries. One type-(c) stretch: up ML 100, down ML 200, on-ramp 10, off-ramp 20.
+PeMS ``total_flow`` is veh/5-min; the assembler converts it to veh/hr (x12) to
+match the veh/hr ``C_w`` from the calibrated station capacity.
 """
 from __future__ import annotations
 
@@ -36,40 +38,50 @@ def _meta(capacity=2000.0, lanes=3):
                          "Lanes": [lanes, lanes]})
 
 
-def test_assembles_samples_with_scaled_c_w_and_stretch_labels(tmp_path):
-    _write_station(tmp_path, 100, 1000)     # q_up
-    _write_station(tmp_path, 200, 1200)     # q_down
-    _write_station(tmp_path, 10, 500)       # on
-    _write_station(tmp_path, 20, 300)       # off (1000 + 500 - 300 = 1200)
+def _measured_case(tmp):
+    # veh/5-min flows; conservation holds (100 + 50 - 30 = 120), and x12 in veh/hr.
+    _write_station(tmp, 100, 100)      # q_up  -> 1200 veh/hr
+    _write_station(tmp, 200, 120)      # q_down -> 1440 veh/hr
+    _write_station(tmp, 10, 50)        # on    -> 600 veh/hr
+    _write_station(tmp, 20, 30)        # off   -> 360 veh/hr
 
+
+def test_flow_is_converted_to_vehicles_per_hour(tmp_path):
+    _measured_case(tmp_path)
+    td = build_training_data(_stretches(), tmp_path, _meta())
+    np.testing.assert_allclose(td.q_up, 1200.0)      # 100 veh/5-min * 12
+    np.testing.assert_allclose(td.q_down, 1440.0)
+    np.testing.assert_allclose(td.r_true, 600.0)
+    np.testing.assert_allclose(td.s_true, 360.0)
+
+
+def test_assembles_samples_with_scaled_c_w_and_stretch_labels(tmp_path):
+    _measured_case(tmp_path)
     td = build_training_data(_stretches(), tmp_path, _meta(capacity=2000.0, lanes=3))
 
     assert td.X.shape == (4, 18)
     np.testing.assert_array_equal(td.stretch_id, np.zeros(4, dtype=int))
     np.testing.assert_allclose(td.c_w, 6000.0)          # 2000 veh/h/lane * 3 lanes
-    # alpha must be consistent with the bounds the assembler actually used
-    # (C_w plus each ramp's historical-peak r_demand/s_qmax).
-    b = bounds.compute_bounds(1000.0, 1200.0, 6000.0,
+    # alpha consistent with the bounds the assembler used (veh/hr throughout).
+    b = bounds.compute_bounds(1200.0, 1440.0, 6000.0,
                               r_demand=td.r_demand_used[0], s_qmax=td.s_qmax_used[0])
-    expected, _ = bounds.alpha_target(b, 1000.0, 1200.0, 500.0, 300.0)
+    expected, _ = bounds.alpha_target(b, 1200.0, 1440.0, 600.0, 360.0)
     np.testing.assert_allclose(td.alpha, expected)
 
 
 def test_stretch_skipped_when_upstream_capacity_missing(tmp_path):
-    for sid, f in [(100, 1000), (200, 1200), (10, 500), (20, 300)]:
-        _write_station(tmp_path, sid, f)
+    _measured_case(tmp_path)
     meta = pd.DataFrame({"Station ID": [999], "capacity": [2000.0], "Lanes": [3]})  # no 100
     td = build_training_data(_stretches(), tmp_path, meta)
     assert td.X.shape[0] == 0
 
 
 def test_r_demand_set_from_historical_peak_on_ramp_flow(tmp_path):
-    _write_station(tmp_path, 100, 1000)
-    _write_station(tmp_path, 200, 1200)
-    on = np.array([500, 500, 500, 500, 500, 900.0])     # peak 900
+    _write_station(tmp_path, 100, 100)
+    _write_station(tmp_path, 200, 120)
+    on = np.array([50, 50, 50, 50, 50, 90.0])          # peak 90 veh/5-min
     _write_station(tmp_path, 10, on)
-    _write_station(tmp_path, 20, 300)
+    _write_station(tmp_path, 20, 30)
 
     td = build_training_data(_stretches(), tmp_path, _meta())
-    # r_demand caps R_max at the historical peak 900 -> tighter than C_w - q_up.
-    assert np.isclose(td.r_demand_used, 900.0).all()
+    assert np.isclose(td.r_demand_used, 90.0 * 12).all()   # 1080 veh/hr
