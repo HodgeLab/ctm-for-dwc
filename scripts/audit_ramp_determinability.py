@@ -35,6 +35,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from transportation_models.utils.ramp_flow_estimation.observations import sliding_all
+
 _FLOW_COL = "total_flow_[veh/5-min]"
 _PCT_COL = "pct_observed"
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -75,22 +77,6 @@ def parse_ids(value) -> list:
     if not s or s.lower() == "nan":
         return []
     return [sid for tok in s.split(";") if (sid := station_id(tok)) is not None]
-
-
-def sliding_all(observed: np.ndarray, window: int) -> np.ndarray:
-    """Window-granular AND: element ``t`` is True iff ``observed[t:t+window]``
-    are all True. Returns length ``len(observed) - window + 1`` (empty if the
-    record is shorter than the window)."""
-    observed = np.asarray(observed, dtype=bool)
-    n = observed.shape[0]
-    if window <= 0:
-        raise ValueError("window must be positive")
-    if n < window:
-        return np.zeros(0, dtype=bool)
-    out = observed[: n - window + 1].copy()
-    for k in range(1, window):
-        out &= observed[k : n - window + 1 + k]
-    return out
 
 
 def count_determinable_windows(row: dict, win, n_windows_total: int, min_windows: int) -> dict:
