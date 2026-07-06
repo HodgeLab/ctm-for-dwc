@@ -72,6 +72,23 @@ def test_two_unobserved_ramps_are_not_determinable():
     assert not rec["training_corpus"]
 
 
+def test_fully_determined_excludes_conservation_windows():
+    # off-ramp never observed: conservation-resolvable (default) but not fully measured.
+    win = _win({100: _all(), 200: _all(), 10: _all(), 20: _all(False)})
+    default = count_determinable_windows(_type_c_row(), win, _M, min_windows=1)
+    strict = count_determinable_windows(_type_c_row(), win, _M, min_windows=1,
+                                        fully_determined=True)
+    assert default["n_windows"] == _M and default["training_corpus"]
+    assert strict["n_windows"] == 0 and not strict["training_corpus"]
+
+
+def test_fully_determined_keeps_both_measured_windows():
+    win = _win({100: _all(), 200: _all(), 10: _all(), 20: _all()})
+    rec = count_determinable_windows(_type_c_row(), win, _M, min_windows=1,
+                                     fully_determined=True)
+    assert rec["n_windows"] == _M and rec["training_corpus"]
+
+
 def test_mainline_gaps_reduce_window_count():
     down = np.array([True, True, True, False, False])
     win = _win({100: _all(), 200: down, 10: _all(), 20: _all()})

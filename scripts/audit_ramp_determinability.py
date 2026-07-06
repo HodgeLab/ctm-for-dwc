@@ -79,11 +79,16 @@ def parse_ids(value) -> list:
     return [sid for tok in s.split(";") if (sid := station_id(tok)) is not None]
 
 
-def count_determinable_windows(row: dict, win, n_windows_total: int, min_windows: int) -> dict:
+def count_determinable_windows(row: dict, win, n_windows_total: int, min_windows: int,
+                               fully_determined: bool = False) -> dict:
     """Count sliding windows in which the stretch is determinable.
 
     ``win(station_id) -> np.ndarray[bool]`` gives each station's window-granular
     observation mask (all-False for virtual / not-downloaded / missing ids).
+
+    By default a window is determinable with <= 1 unmeasured ramp (conservation
+    recovers one). With ``fully_determined=True`` every ramp must be measured
+    (0 unmeasured) -- the stricter corpus of directly-measured on/off pairs.
     """
     up, down = station_id(row.get("up_ml_id")), station_id(row.get("down_ml_id"))
     on_ids, off_ids = parse_ids(row.get("on_ids")), parse_ids(row.get("off_ids"))
@@ -94,7 +99,8 @@ def count_determinable_windows(row: dict, win, n_windows_total: int, min_windows
     for r in on_ids + off_ids:
         unobserved += ~win(r)
     unobserved += len(review_ids)          # unresolved FF: unknown side -> unknown flow
-    determinable = mainline & (unobserved <= 1)
+    max_unobserved = 0 if fully_determined else 1
+    determinable = mainline & (unobserved <= max_unobserved)
     n_windows = int(determinable.sum())
 
     config_type = row.get("config_type")
@@ -194,6 +200,9 @@ def main(argv: list[str] | None = None) -> int:
                     help="A sample counts as observed iff pct_observed > floor (default 0).")
     ap.add_argument("--window-size", type=int, default=3,
                     help="Consecutive 5-min samples per window (Kan uses 3).")
+    ap.add_argument("--fully-determined", action="store_true",
+                    help="Corpus requires every ramp measured (no conservation-recovered "
+                         "ramp); default admits <=1 unmeasured ramp.")
     ap.add_argument("--min-windows", type=int, default=1,
                     help="Determinable windows a stretch needs to enter the corpus.")
     ap.add_argument("--record-start", type=pd.Timestamp, default=None,
@@ -224,7 +233,8 @@ def main(argv: list[str] | None = None) -> int:
     rows = []
     for source, df in frames.items():
         for row in df.to_dict("records"):
-            rec = count_determinable_windows(row, win, n_windows_total, args.min_windows)
+            rec = count_determinable_windows(row, win, n_windows_total, args.min_windows,
+                                             fully_determined=args.fully_determined)
             rec.update(source=source, stretch_id=row.get("stretch_id"),
                        pm_up=row.get("pm_up"), pm_down=row.get("pm_down"),
                        config_type=row.get("config_type"),
