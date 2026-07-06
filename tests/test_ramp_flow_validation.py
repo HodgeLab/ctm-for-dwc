@@ -8,10 +8,13 @@ from __future__ import annotations
 import numpy as np
 
 from transportation_models.utils.ramp_flow_estimation.features import TrainingData
+import pytest
+
 from transportation_models.utils.ramp_flow_estimation.validation import (
     flow_metrics,
     leave_k_out,
     run_scenarios,
+    train_val_test_split,
 )
 
 
@@ -86,6 +89,41 @@ def test_run_scenarios_one_row_per_k():
     df = run_scenarios(_data(4), ks=(1, 2), estimator_factory=_fake_factory())
     assert list(df["k"]) == [1, 2]
     assert "nrmse_mean" in df.columns and "nrmse_std" in df.columns
+
+
+def test_split_partitions_rows_by_stretch():
+    data = _data(4)
+    sp = train_val_test_split(data, seed=0)
+    assert (sp["train"] | sp["val"] | sp["test"]).all()
+    assert not (sp["train"] & sp["val"]).any()
+    assert not (sp["train"] & sp["test"]).any()
+    assert not (sp["val"] & sp["test"]).any()
+    # each held-out stretch's rows land entirely in its split
+    assert set(data.stretch_id[sp["val"]]) == {sp["val_stretch"]}
+    assert set(data.stretch_id[sp["test"]]) == {sp["test_stretch"]}
+    assert sp["val_stretch"] != sp["test_stretch"]
+
+
+def test_split_is_deterministic_per_seed():
+    data = _data(5)
+    a = train_val_test_split(data, seed=7)
+    b = train_val_test_split(data, seed=7)
+    assert (a["val_stretch"], a["test_stretch"]) == (b["val_stretch"], b["test_stretch"])
+
+
+def test_split_honors_explicit_ids():
+    sp = train_val_test_split(_data(4), val_stretch=1, test_stretch=3)
+    assert sp["val_stretch"] == 1 and sp["test_stretch"] == 3
+
+
+def test_split_rejects_bad_ids():
+    data = _data(3)
+    with pytest.raises(ValueError):
+        train_val_test_split(data, val_stretch=99)
+    with pytest.raises(ValueError):
+        train_val_test_split(data, val_stretch=1, test_stretch=1)
+    with pytest.raises(ValueError):
+        train_val_test_split(_data(2))
 
 
 def _constant_data(n_stretch=3, per=6, seed=0):

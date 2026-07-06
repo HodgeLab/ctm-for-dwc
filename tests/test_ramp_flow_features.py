@@ -104,6 +104,35 @@ def test_degenerate_band_windows_dropped():
     assert len(s.alpha) == 0
 
 
+def test_feasible_and_clipped_flags_on_clean_data():
+    s = _call()
+    assert s.feasible.all()
+    assert not s.alpha_clipped.any()
+
+
+def test_degenerate_band_windows_kept_when_opted_in():
+    # q_up above total capacity -> degenerate band; keep_infeasible retains the
+    # rows with NaN alpha and valid (r, s) targets.
+    s = stretch_samples(
+        up_id=100, down_id=200, on_ids=[10], off_ids=[20],
+        c_w=800.0, window_size=3, keep_infeasible=True, **_inputs(),
+    )
+    assert len(s.alpha) == 4
+    assert np.isnan(s.alpha).all()
+    assert not s.feasible.any()
+    np.testing.assert_allclose(s.r_true, 500.0)
+    np.testing.assert_allclose(s.s_true, 300.0)
+
+
+def test_out_of_band_targets_flagged_as_clipped():
+    # r below its conservation floor: q_down - q_up = 200 but r_true = 100
+    # (flow not conserved at the gore) -> alpha clipped to 0 and flagged.
+    s = _call(**{"10": np.full(6, 100.0)})
+    assert s.feasible.all()
+    assert s.alpha_clipped.all()
+    np.testing.assert_allclose(s.alpha, 0.0)
+
+
 def test_r_demand_tightens_alpha_target():
     tight = stretch_samples(
         up_id=100, down_id=200, on_ids=[10], off_ids=[20],

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from .bounds import (
     Bounds,
+    alpha_out_of_band,
     alpha_target,
     compute_bounds,
     feasible_band,
@@ -21,6 +22,7 @@ from .features import Samples, TrainingData, build_training_data, stretch_sample
 
 __all__ = [
     "Bounds",
+    "alpha_out_of_band",
     "alpha_target",
     "compute_bounds",
     "feasible_band",

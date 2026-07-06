@@ -49,6 +49,36 @@ def flow_metrics(r_true, s_true, r_hat, s_hat) -> dict:
     }
 
 
+def train_val_test_split(data, *, val_stretch=None, test_stretch=None, seed=0) -> dict:
+    """Stretch-level train/val/test split: one stretch's rows to val, one to
+    test, the rest to train. Held-out stretches are drawn with ``seed`` unless
+    given explicitly by ID. Returns row masks plus the resolved IDs:
+    ``{"train", "val", "test", "val_stretch", "test_stretch"}``."""
+    ids = sorted(int(i) for i in np.unique(data.stretch_id))
+    if len(ids) < 3:
+        raise ValueError(f"need >= 3 stretches for a train/val/test split, got {len(ids)}")
+    for name, sid in (("val_stretch", val_stretch), ("test_stretch", test_stretch)):
+        if sid is not None and int(sid) not in ids:
+            raise ValueError(f"{name}={sid} not in corpus stretch ids")
+    if val_stretch is not None and test_stretch is not None \
+            and int(val_stretch) == int(test_stretch):
+        raise ValueError("val_stretch and test_stretch must differ")
+
+    rng = np.random.default_rng(seed)
+    taken = {int(s) for s in (val_stretch, test_stretch) if s is not None}
+    free = [i for i in ids if i not in taken]
+    if val_stretch is None:
+        val_stretch = int(rng.choice(free))
+        free.remove(val_stretch)
+    if test_stretch is None:
+        test_stretch = int(rng.choice(free))
+
+    val = data.stretch_id == int(val_stretch)
+    test = data.stretch_id == int(test_stretch)
+    return {"train": ~val & ~test, "val": val, "test": test,
+            "val_stretch": int(val_stretch), "test_stretch": int(test_stretch)}
+
+
 def _holdout_combos(ids, k, max_combos, random_state):
     """All k-subsets of ``ids`` (enumerated), or ``max_combos`` distinct random
     ones when the full count exceeds the cap."""

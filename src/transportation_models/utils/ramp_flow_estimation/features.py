@@ -17,6 +17,10 @@ samples that is *determinable* yields one training sample:
 
 A window is used only if the mainline is observed across *all* its samples (the
 features need every lag) and the determined-first ramp has a non-degenerate band.
+With ``keep_infeasible=True`` degenerate-band windows are kept too (``alpha`` is
+NaN there) -- they carry valid ``r, s`` targets for direct-flow estimators (GRU).
+Per-row ``feasible`` and ``alpha_clipped`` flags record band degeneracy and
+out-of-band (conservation-violating) targets whose ``alpha`` was clipped.
 
 The pure extractor takes already-aligned per-station arrays; loading/aligning the
 timeseries is the caller's job (kept separate so this stays unit-testable).
@@ -51,19 +55,22 @@ class Samples:
     """Training samples for one stretch (row-aligned arrays)."""
 
     X: np.ndarray          # (n, 6 * window_size) features
-    alpha: np.ndarray      # (n,) regression target in [0, 1]
+    alpha: np.ndarray      # (n,) regression target in [0, 1]; NaN where infeasible
     r_true: np.ndarray     # (n,) on-ramp flow at t
     s_true: np.ndarray     # (n,) off-ramp flow at t
     q_up: np.ndarray       # (n,)
     q_down: np.ndarray     # (n,)
     c_w: np.ndarray        # (n,) total mainline capacity (constant per stretch)
     t_index: np.ndarray    # (n,) prediction sample index into the grid
+    feasible: np.ndarray = None       # (n,) band non-degenerate (alpha defined)
+    alpha_clipped: np.ndarray = None  # (n,) true flow out of band -> alpha clipped
 
 
 def stretch_samples(
     up_id, down_id, on_ids, off_ids, *,
     flow, speed, occ, observed, c_w, window_size=3,
     r_demand=np.inf, s_qmax=np.inf, require_both_measured=True,
+    keep_infeasible=False,
 ) -> Samples:
     n = len(flow[up_id])
     absent = np.zeros(n, dtype=bool)   # mask for a ramp id missing from ``observed``
@@ -82,6 +89,7 @@ def stretch_samples(
 
     rows_X, a_list = [], []
     r_list, s_list, qu_list, qd_list, t_list = [], [], [], [], []
+    feas_list, clip_list = [], []
 
     for i in range(main_win.shape[0]):
         if not main_win[i]:
@@ -109,7 +117,11 @@ def stretch_samples(
         b = _bounds.compute_bounds(q_up, q_down, c_w, r_demand=r_demand, s_qmax=s_qmax)
         alpha, feasible = _bounds.alpha_target(b, q_up, q_down, r_true, s_true)
         if not bool(feasible):
-            continue
+            if not keep_infeasible:
+                continue
+            alpha, clipped = np.nan, False    # degenerate band: no alpha target
+        else:
+            clipped = bool(_bounds.alpha_out_of_band(b, q_up, q_down, r_true, s_true))
 
         feats = []
         for lag in range(window_size):
@@ -120,6 +132,7 @@ def stretch_samples(
         a_list.append(float(alpha))
         r_list.append(r_true); s_list.append(s_true)
         qu_list.append(q_up); qd_list.append(q_down); t_list.append(t)
+        feas_list.append(bool(feasible)); clip_list.append(clipped)
 
     ncols = FEATURES_PER_LAG * window_size
     X = np.array(rows_X, dtype=float).reshape(-1, ncols)
@@ -132,6 +145,8 @@ def stretch_samples(
         q_down=np.array(qd_list, dtype=float),
         c_w=np.full(len(a_list), float(c_w)),
         t_index=np.array(t_list, dtype=int),
+        feasible=np.array(feas_list, dtype=bool),
+        alpha_clipped=np.array(clip_list, dtype=bool),
     )
 
 
@@ -153,6 +168,8 @@ class TrainingData:
     stretch_id: np.ndarray
     r_demand_used: np.ndarray
     s_qmax_used: np.ndarray
+    feasible: np.ndarray = None       # (n,) band non-degenerate (alpha defined)
+    alpha_clipped: np.ndarray = None  # (n,) true flow out of band -> alpha clipped
 
 
 def _parse_ids(cell) -> list:
@@ -187,13 +204,14 @@ def _empty_training_data(window_size: int) -> TrainingData:
         X=np.zeros((0, FEATURES_PER_LAG * window_size), dtype=float),
         alpha=z(), r_true=z(), s_true=z(), q_up=z(), q_down=z(), c_w=z(),
         stretch_id=np.zeros(0, dtype=int), r_demand_used=z(), s_qmax_used=z(),
+        feasible=np.zeros(0, dtype=bool), alpha_clipped=np.zeros(0, dtype=bool),
     )
 
 
 def build_training_data(
     stretches: "pd.DataFrame", timeseries_dir, station_meta: "pd.DataFrame", *,
     pct_floor: float = 0.0, window_size: int = 3, require_both_measured: bool = True,
-    record_start=None, record_end=None,
+    keep_infeasible: bool = False, record_start=None, record_end=None,
 ) -> TrainingData:
     """Assemble Kan training samples from every type-(c) stretch.
 
@@ -287,7 +305,7 @@ def build_training_data(
         s = stretch_samples(
             up, down, on, off, flow=flow, speed=speed, occ=occ, observed=observed,
             c_w=c_w, window_size=window_size, r_demand=r_demand, s_qmax=s_qmax,
-            require_both_measured=require_both_measured,
+            require_both_measured=require_both_measured, keep_infeasible=keep_infeasible,
         )
         n = len(s.alpha)
         if n == 0:
@@ -298,6 +316,7 @@ def build_training_data(
             stretch_id=np.full(n, int(getattr(row, "stretch_id")), dtype=int),
             r_demand_used=np.full(n, r_demand, dtype=float),
             s_qmax_used=np.full(n, s_qmax, dtype=float),
+            feasible=s.feasible, alpha_clipped=s.alpha_clipped,
         ))
 
     if not parts:
@@ -309,4 +328,5 @@ def build_training_data(
         q_up=cat("q_up"), q_down=cat("q_down"), c_w=cat("c_w"),
         stretch_id=cat("stretch_id"),
         r_demand_used=cat("r_demand_used"), s_qmax_used=cat("s_qmax_used"),
+        feasible=cat("feasible"), alpha_clipped=cat("alpha_clipped"),
     )

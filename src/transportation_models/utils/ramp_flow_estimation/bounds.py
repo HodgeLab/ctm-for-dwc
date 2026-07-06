@@ -96,6 +96,18 @@ def alpha_target(bounds: Bounds, q_up, q_down, r_true, s_true):
     return alpha, feasible
 
 
+def alpha_out_of_band(bounds: Bounds, q_up, q_down, r_true, s_true) -> np.ndarray:
+    """True where the determined-first ramp's true flow lies outside its
+    ``[y_min, y_max]`` band -- i.e. its ``alpha_target`` was clipped. These are
+    windows where the raw data violates the conservation/capacity assumptions
+    behind the band; only meaningful where the band is non-degenerate."""
+    on = predicts_on_ramp(q_up, q_down)
+    y = np.where(on, np.asarray(r_true, dtype=float), np.asarray(s_true, dtype=float))
+    y_min = np.where(on, bounds.r_min, bounds.s_min)
+    y_max = np.where(on, bounds.r_max, bounds.s_max)
+    return (y < y_min) | (y > y_max)
+
+
 def reconstruct_pair(
     alpha, q_up, q_down, c_w, *,
     r_cap=np.inf, r_demand=np.inf, s_cap=np.inf, s_qmax=np.inf,

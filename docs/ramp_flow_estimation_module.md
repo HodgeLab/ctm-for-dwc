@@ -135,9 +135,58 @@ function of the mainline inputs, so it is opt-in.
 | `bounds.py` | Kan Appendix A bounds, determined-first rule, α↔flow, degenerate-band handling (method-agnostic) |
 | `features.py` | corridor windows → feature matrix `Z` + `α` targets (method-agnostic; reuses the audit's window logic) |
 | `kan.py` | RF/GBM α-regressor: `fit`, `predict`, reconstruct via `bounds` |
-| `validation.py` | leave-`k`-out CV, NRMSE/R²/BIAS, Scenario 1–4 aggregation (method-agnostic) |
+| `gru.py` | direct joint `(r, s)` GRU regressor: `fit`/`predict_flows`, checkpoint save/load |
+| `validation.py` | leave-`k`-out CV, stretch-level train/val/test split, NRMSE/R²/BIAS, Scenario 1–4 aggregation (method-agnostic) |
+| `manifest.py` | split manifest (corpus params + split + digest) so separate runs provably share one corpus |
 
 Run via `scripts/evaluate_ramp_flow_estimation.py` over `data/pems/stretches/*.csv`.
 
 **Out of scope for this build**: the temporal/conservation dispatch, the CTM
 `demand`/`beta` CSV export, and predicting real never-measured target stretches.
+
+## GRU estimator
+We have observed in the raw PeMS data that flow is generally not conserved at a ramp gores, i.e., 
+$$q_{up} + r_{true} \ \ != \ q_{down} + s_{true}$$
+
+This poses a challenge to Kan's method, which encodes the assumption that flow is conserved through the $r_{min}$ and $s_{min}$ calculations (A.3 and A.6, respectively).
+
+It may be possible to develop a more accurate estimator for $r$ and $s$, which captures this aspect of the data, by learning the ramp flows directly.
+
+Using the same feature vector as Kan, we train a gated recurrent unit (GRU) to estimate the ramp flows directly (`gru.py`):
+
+* **Inputs**: the same feature windows as Kan, reshaped to a `(window_size, 6)` sequence
+  of [up/down × flow/speed/occ] steps; the estimator accepts whatever window the corpus
+  carries (default 3, matching Kan for a controlled comparison).
+* **Output**: joint prediction — GRU → 2-unit linear head → softplus. Non-negativity is
+  the **only** constraint; no conservation floor or capacity ceiling is imposed, since
+  the bounds are derived from the conservation assumption under test.
+* **Targets**: directly-measured $(r, s)$ from fully-measured windows. The corpus is
+  built with `keep_infeasible=True`, retaining degenerate-band windows (no $\alpha$
+  target, but valid flows) — and per-row `feasible` / `alpha_clipped` flags mark where
+  Kan's $\alpha$ was undefined or clipped. The clipped windows are precisely the
+  conservation-violating ones motivating this estimator.
+* **Training**: Adam/MSE on scale-normalized targets, early stopping on validation loss
+  with best-weight restore.
+
+### Evaluation protocol (GRU vs. Kan)
+
+A fixed stretch-level train/val/test split (`validation.train_val_test_split`): one
+stretch's windows to validation (early stopping/tuning), one to test, the rest to
+train — seeded-random selection, overridable by stretch ID. The corpus build parameters,
+resolved split, and a corpus digest are recorded in a **split manifest** (`manifest.py`),
+so the two separately-launched entrypoints provably see identical data:
+
+* `scripts/deep_learning_model_prototyping.py` — GRU-only training driver. Logs the full
+  config and per-epoch train/val losses to Weights & Biases (project
+  `ramp-flow-estimation`; `WANDB_MODE=offline` supported for HPC), writes the manifest,
+  and checkpoints the model (checkpoint + manifest saved as W&B artifacts). The test
+  stretch is never touched here.
+* `scripts/compare_ramp_flow_estimators.py` — slurm-friendly CLI. Rebuilds the corpus
+  from the manifest (hard failure if the digest no longer matches), re-derives the
+  identical split, trains Kan RF on the *feasible* train rows, loads the GRU checkpoint
+  (or `--retrain-gru`), and reports NRMSE/R²/BIAS on the test stretch — overall and
+  sliced by in-band / α-clipped / degenerate-band windows, so any gap is attributable
+  to the estimator and localized to the conservation-violating regime.
+
+A clean negative result (GRU no better than Kan) is a valid outcome; the protocol's job
+is attribution, not advocacy.
