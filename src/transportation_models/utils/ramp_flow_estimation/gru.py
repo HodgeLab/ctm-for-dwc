@@ -23,6 +23,7 @@ import torch
 from torch import nn
 
 from .features import FEATURES_PER_LAG, _VARS_PER_STATION
+from .validation import flow_metrics
 
 _TARGET_TRANSFORMS = ("zscore", "log1p")
 
@@ -100,9 +101,10 @@ class Normalizer:
 class _GruNet(nn.Module):
     """GRU -> linear 2-unit head, in normalized-target space."""
 
-    def __init__(self, hidden_size: int, num_layers: int):
+    def __init__(self, hidden_size: int, num_layers: int, dropout: float = 0.0):
         super().__init__()
-        self.gru = nn.GRU(FEATURES_PER_LAG, hidden_size, num_layers, batch_first=True)
+        self.gru = nn.GRU(FEATURES_PER_LAG, hidden_size, num_layers,
+                          batch_first=True, dropout=dropout)
         self.head = nn.Linear(hidden_size, 2)
 
     def forward(self, x):
@@ -114,18 +116,29 @@ class GruEstimator:
     """Joint ``(r, s)`` regressor over feature windows.
 
     ``fit`` fits a :class:`Normalizer` on the training data, trains with
-    Adam/MSE in normalized space, and -- when a validation set is given --
-    early-stops on val loss with best-weight restore.
-    ``log_fn(epoch, train_loss, val_loss)`` is an optional per-epoch callback
-    (e.g. for W&B logging).
+    AdamW/MSE in normalized space (``beta1`` is the momentum rate;
+    ``weight_decay`` is decoupled, so 0 reproduces plain Adam), and -- when a
+    validation set is given -- early-stops on val loss with best-weight restore.
+    ``dropout`` is nn.GRU's inter-layer dropout and therefore requires
+    ``num_layers >= 2``. ``log_fn(epoch, train_loss, val_loss, val_metrics)``
+    is an optional per-epoch callback (e.g. for W&B logging); ``val_metrics``
+    is the raw-space :func:`validation.flow_metrics` dict on the validation
+    set (comparable across target transforms), or None without one.
     """
 
     def __init__(self, *, hidden_size: int = 64, num_layers: int = 1,
-                 lr: float = 1e-3, batch_size: int = 256, max_epochs: int = 200,
-                 patience: int = 20, target_transform: str = "zscore",
-                 seed: int = 0, device=None):
+                 dropout: float = 0.0, lr: float = 1e-3, beta1: float = 0.9,
+                 weight_decay: float = 0.0, batch_size: int = 256,
+                 max_epochs: int = 200, patience: int = 20,
+                 target_transform: str = "zscore", seed: int = 0, device=None):
+        if dropout > 0.0 and num_layers < 2:
+            raise ValueError("dropout is inter-layer (nn.GRU) and has no effect "
+                             "with num_layers=1; use num_layers >= 2 or dropout=0")
         self.hidden_size = hidden_size
         self.num_layers = num_layers
+        self.dropout = dropout
+        self.beta1 = beta1
+        self.weight_decay = weight_decay
         self.lr = lr
         self.batch_size = batch_size
         self.max_epochs = max_epochs
@@ -166,8 +179,10 @@ class GruEstimator:
             xv = self._norm.features(self._sequences(X_val)).to(self.device)
             yv = self._norm.targets(self._flows(r_val, s_val)).to(self.device)
 
-        net = _GruNet(self.hidden_size, self.num_layers).to(self.device)
-        opt = torch.optim.Adam(net.parameters(), lr=self.lr)
+        net = _GruNet(self.hidden_size, self.num_layers, self.dropout).to(self.device)
+        opt = torch.optim.AdamW(net.parameters(), lr=self.lr,
+                                betas=(self.beta1, 0.999),
+                                weight_decay=self.weight_decay)
         loss_fn = nn.MSELoss()
         gen = torch.Generator().manual_seed(self.seed)
 
@@ -185,13 +200,19 @@ class GruEstimator:
                 total += loss.item() * len(idx)
             train_loss = total / len(xt)
 
-            val_loss = float("nan")
+            val_loss, val_metrics = float("nan"), None
             if has_val:
                 net.eval()
                 with torch.no_grad():
-                    val_loss = float(loss_fn(net(xv), yv))
+                    val_pred = net(xv)
+                    val_loss = float(loss_fn(val_pred, yv))
+                    if log_fn is not None:
+                        flows = self._norm.inverse_targets(val_pred.cpu()).numpy()
+                        val_metrics = flow_metrics(
+                            np.asarray(r_val, float), np.asarray(s_val, float),
+                            flows[:, 0], flows[:, 1])
             if log_fn is not None:
-                log_fn(epoch, train_loss, val_loss)
+                log_fn(epoch, train_loss, val_loss, val_metrics)
             if has_val:
                 if val_loss < best_loss:
                     best_loss, since_best = val_loss, 0
@@ -223,6 +244,8 @@ class GruEstimator:
             raise RuntimeError("estimator is not fitted")
         torch.save({
             "hidden_size": self.hidden_size, "num_layers": self.num_layers,
+            "dropout": self.dropout, "beta1": self.beta1,
+            "weight_decay": self.weight_decay,
             "normalizer": self._norm.state_dict(),
             "state_dict": self._net.state_dict(),
         }, path)
@@ -232,10 +255,13 @@ class GruEstimator:
         ckpt = torch.load(path, map_location="cpu", weights_only=False)
         norm = Normalizer.from_state_dict(ckpt["normalizer"])
         est = cls(hidden_size=ckpt["hidden_size"], num_layers=ckpt["num_layers"],
+                  dropout=ckpt.get("dropout", 0.0),
+                  beta1=ckpt.get("beta1", 0.9),
+                  weight_decay=ckpt.get("weight_decay", 0.0),
                   target_transform=norm.target_transform,
                   device=device if device is not None else "cpu")
         est._norm = norm
-        net = _GruNet(est.hidden_size, est.num_layers)
+        net = _GruNet(est.hidden_size, est.num_layers, est.dropout)
         net.load_state_dict(ckpt["state_dict"])
         est._net = net.to(est.device).eval()
         return est

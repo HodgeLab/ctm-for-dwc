@@ -126,11 +126,16 @@ def main(argv: list[str] | None = None) -> int:
         patience=args.patience, target_transform=args.target_transform,
         seed=args.model_seed,
     )
+    def _log_epoch(epoch, train_loss, val_loss, val_metrics):
+        row = {"epoch": epoch, "train_loss": train_loss, "val_loss": val_loss}
+        if val_metrics is not None:
+            row.update({f"val_{k}": v for k, v in val_metrics.items()})
+        wandb.log(row)
+
     est.fit(
         data.X[tr], data.r_true[tr], data.s_true[tr],
         X_val=data.X[va], r_val=data.r_true[va], s_val=data.s_true[va],
-        log_fn=lambda epoch, train_loss, val_loss: wandb.log(
-            {"epoch": epoch, "train_loss": train_loss, "val_loss": val_loss}),
+        log_fn=_log_epoch,
     )
 
     r_hat, s_hat = est.predict_flows(data.X[va])

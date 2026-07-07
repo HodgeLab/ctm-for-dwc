@@ -106,17 +106,46 @@ def test_early_stopping_on_noise_val():
     epochs = []
     _fast(max_epochs=200, patience=5).fit(
         X, r, s, X_val=Xv, r_val=rv, s_val=sv,
-        log_fn=lambda e, tl, vl: epochs.append(e))
+        log_fn=lambda e, tl, vl, vm: epochs.append(e))
     assert len(epochs) < 200
 
 
-def test_val_loss_passed_to_log_fn():
+def test_val_loss_and_metrics_passed_to_log_fn():
     X, r, s = _synthetic(n=120)
     logged = []
-    _fast(max_epochs=3).fit(X, r, s, X_val=X[:40], r_val=r[:40], s_val=s[:40],
-                            log_fn=lambda e, tl, vl: logged.append((e, tl, vl)))
+    _fast(max_epochs=3).fit(
+        X, r, s, X_val=X[:40], r_val=r[:40], s_val=s[:40],
+        log_fn=lambda e, tl, vl, vm: logged.append((e, tl, vl, vm)))
     assert len(logged) == 3
-    assert all(np.isfinite(vl) for _, _, vl in logged)
+    for _, _, vl, vm in logged:
+        assert np.isfinite(vl)
+        # raw-space per-epoch validation metrics, comparable across transforms
+        assert all(np.isfinite(vm[k]) for k in ("rmse", "nrmse", "bias", "nbias"))
+
+
+def test_no_val_metrics_without_val_set():
+    X, r, s = _synthetic(n=80)
+    logged = []
+    _fast(max_epochs=2).fit(X, r, s,
+                            log_fn=lambda e, tl, vl, vm: logged.append(vm))
+    assert logged == [None, None]
+
+
+def test_dropout_requires_stacked_layers():
+    with pytest.raises(ValueError, match="num_layers"):
+        _fast(dropout=0.25, num_layers=1)
+    _fast(dropout=0.25, num_layers=2)          # fine
+
+
+def test_optimizer_knobs_train(tmp_path):
+    X, r, s = _synthetic(n=150)
+    est = _fast(max_epochs=5, num_layers=2, dropout=0.25, beta1=0.8,
+                weight_decay=1e-4).fit(X, r, s)
+    path = tmp_path / "gru.pt"
+    est.save(path)
+    loaded = GruEstimator.load(path)
+    assert (loaded.dropout, loaded.beta1, loaded.weight_decay) == (0.25, 0.8, 1e-4)
+    np.testing.assert_allclose(est.predict_flows(X), loaded.predict_flows(X), rtol=1e-6)
 
 
 @pytest.mark.parametrize("transform", ["zscore", "log1p"])
