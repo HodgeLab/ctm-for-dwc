@@ -60,18 +60,15 @@ def _write_case_manifest(tmp_path):
     corpus_params = {
         "stretches": str(sd), "station_meta": str(meta),
         "timeseries_dir": str(ts), "pct_floor": 0.0, "window_size": 3,
-        "require_both_measured": True, "keep_infeasible": True,
+        "require_both_measured": True, "require_capacity": True,
         "record_start": None, "record_end": None,
     }
-    data = build_training_data(
-        load_stretches(sd), ts, pd.read_csv(meta),
-        keep_infeasible=True,
-    )
+    data, ctx = build_training_data(load_stretches(sd), ts, pd.read_csv(meta))
     split = train_val_test_split(data, seed=0)
     path = tmp_path / "split_manifest.json"
     write_manifest(path, corpus_params=corpus_params, split_seed=0,
                    val_stretch=split["val_stretch"],
-                   test_stretch=split["test_stretch"], data=data)
+                   test_stretch=split["test_stretch"], data=data, stretch_ctx=ctx)
     return path
 
 

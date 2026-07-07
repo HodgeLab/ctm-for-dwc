@@ -1,0 +1,153 @@
+#!/usr/bin/env python3
+"""Train the GRU ramp-flow estimator on the PeMS-native stretch corpus.
+
+GRU-only driver: assembles the method-agnostic corpus, makes the stretch-level
+train/val/test split, writes the split manifest, trains with per-epoch W&B
+logging (respects ``WANDB_MODE=offline``), and checkpoints the model to
+``--out-dir``. The test stretch is never touched here; the Kan head-to-head
+runs separately via ``scripts/compare_ramp_flow_estimators.py`` against the
+same manifest. Use a distinct ``--out-dir`` per configuration (e.g. per
+``--target-transform``) so checkpoints/manifests don't overwrite.
+"""
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import wandb
+
+from transportation_models.utils import constants
+from transportation_models.utils.ramp_flow_estimation.features import build_training_data
+from transportation_models.utils.ramp_flow_estimation.gru import GruEstimator
+from transportation_models.utils.ramp_flow_estimation.manifest import (
+    load_stretches,
+    write_manifest,
+)
+from transportation_models.utils.ramp_flow_estimation.validation import (
+    flow_metrics,
+    train_val_test_split,
+)
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_DEFAULT_STRETCHES = _REPO_ROOT / "data/pems/stretches"
+_DEFAULT_STATION_META = _REPO_ROOT / "data/pems/calibrated/station_metadata_calibrated.csv"
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    # corpus
+    ap.add_argument("--stretches", type=Path, default=_DEFAULT_STRETCHES,
+                    help="A stretches.csv or a directory of them.")
+    ap.add_argument("--timeseries-dir", type=Path,
+                    default=constants.CALTRANS_VDS_TIMESERIES_DIRECTORY_PATH)
+    ap.add_argument("--station-meta", type=Path, default=_DEFAULT_STATION_META,
+                    help="Calibrated station metadata (Station ID, capacity, Lanes).")
+    ap.add_argument("--pct-observed-floor", type=float, default=0.0)
+    ap.add_argument("--window-size", type=int, default=3)
+    ap.add_argument("--include-conservation", action="store_true",
+                    help="Also use conservation-resolvable windows (default: fully-measured only).")
+    ap.add_argument("--include-uncalibrated", action="store_true",
+                    help="Keep stretches without calibrated upstream capacity "
+                         "(GRU-only corpora; Kan cannot run on them).")
+    ap.add_argument("--record-start", type=pd.Timestamp, default=None)
+    ap.add_argument("--record-end", type=pd.Timestamp, default=None)
+    # split
+    ap.add_argument("--split-seed", type=int, default=0)
+    ap.add_argument("--val-stretch", type=int, default=None,
+                    help="Validation stretch ID (default: seeded random draw).")
+    ap.add_argument("--test-stretch", type=int, default=None,
+                    help="Test stretch ID (default: seeded random draw).")
+    # model
+    ap.add_argument("--hidden-size", type=int, default=64)
+    ap.add_argument("--num-layers", type=int, default=1)
+    ap.add_argument("--lr", type=float, default=1e-3)
+    ap.add_argument("--batch-size", type=int, default=256)
+    ap.add_argument("--max-epochs", type=int, default=200)
+    ap.add_argument("--patience", type=int, default=20)
+    ap.add_argument("--target-transform", choices=["zscore", "log1p"], default="zscore")
+    ap.add_argument("--model-seed", type=int, default=0)
+    # outputs
+    ap.add_argument("--wandb-project", default="ramp-flow-estimation")
+    ap.add_argument("--out-dir", type=Path, default=_REPO_ROOT / "scripts/output/gru")
+    args = ap.parse_args(argv)
+
+    corpus_params = {
+        "stretches": str(args.stretches), "station_meta": str(args.station_meta),
+        "timeseries_dir": str(args.timeseries_dir),
+        "pct_floor": args.pct_observed_floor, "window_size": args.window_size,
+        "require_both_measured": not args.include_conservation,
+        "require_capacity": not args.include_uncalibrated,
+        "record_start": None if args.record_start is None else str(args.record_start),
+        "record_end": None if args.record_end is None else str(args.record_end),
+    }
+    data, stretch_ctx = build_training_data(
+        load_stretches(args.stretches), args.timeseries_dir,
+        pd.read_csv(args.station_meta),
+        pct_floor=args.pct_observed_floor, window_size=args.window_size,
+        require_both_measured=not args.include_conservation,
+        require_capacity=not args.include_uncalibrated,
+        record_start=args.record_start, record_end=args.record_end,
+    )
+    n = len(data.r_true)
+    if n == 0:
+        print("No training samples assembled (no type-(c) stretch with measured "
+              "ramps over the record).")
+        return 1
+    print(f"corpus: {n} windows across {len(np.unique(data.stretch_id))} stretches")
+
+    split = train_val_test_split(data, val_stretch=args.val_stretch,
+                                 test_stretch=args.test_stretch, seed=args.split_seed)
+    manifest_path = args.out_dir / "split_manifest.json"
+    write_manifest(
+        manifest_path, corpus_params=corpus_params, split_seed=args.split_seed,
+        val_stretch=split["val_stretch"], test_stretch=split["test_stretch"],
+        data=data, stretch_ctx=stretch_ctx,
+    )
+    print(f"split: val stretch {split['val_stretch']} ({split['val'].sum()} rows), "
+          f"test stretch {split['test_stretch']} ({split['test'].sum()} rows), "
+          f"train {split['train'].sum()} rows")
+    print(f"wrote manifest -> {manifest_path}")
+
+    run = wandb.init(project=args.wandb_project, config={
+        **corpus_params, "split_seed": args.split_seed,
+        "val_stretch": split["val_stretch"], "test_stretch": split["test_stretch"],
+        "hidden_size": args.hidden_size, "num_layers": args.num_layers,
+        "lr": args.lr, "batch_size": args.batch_size, "max_epochs": args.max_epochs,
+        "patience": args.patience, "target_transform": args.target_transform,
+        "model_seed": args.model_seed,
+    })
+    tr, va = split["train"], split["val"]
+    est = GruEstimator(
+        hidden_size=args.hidden_size, num_layers=args.num_layers, lr=args.lr,
+        batch_size=args.batch_size, max_epochs=args.max_epochs,
+        patience=args.patience, target_transform=args.target_transform,
+        seed=args.model_seed,
+    )
+    est.fit(
+        data.X[tr], data.r_true[tr], data.s_true[tr],
+        X_val=data.X[va], r_val=data.r_true[va], s_val=data.s_true[va],
+        log_fn=lambda epoch, train_loss, val_loss: wandb.log(
+            {"epoch": epoch, "train_loss": train_loss, "val_loss": val_loss}),
+    )
+
+    r_hat, s_hat = est.predict_flows(data.X[va])
+    val_metrics = flow_metrics(data.r_true[va], data.s_true[va], r_hat, s_hat)
+    run.summary.update({f"val_{k}": v for k, v in val_metrics.items()})
+    print({k: round(v, 4) for k, v in val_metrics.items()})
+
+    ckpt_path = args.out_dir / "gru.pt"
+    est.save(ckpt_path)
+    artifact = wandb.Artifact("gru-ramp-flow", type="model")
+    artifact.add_file(str(ckpt_path))
+    artifact.add_file(str(manifest_path))
+    run.log_artifact(artifact)
+    run.finish()
+    print(f"checkpoint -> {ckpt_path}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

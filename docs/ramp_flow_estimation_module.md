@@ -102,7 +102,9 @@ $$q^{up} > q^{down}:\quad \hat s = \alpha\, s_{max} + (1-\alpha)\, s_{min},\quad
   is a noted follow-up.
 * A.11 as *printed* uses `C_w − q^{up}` for `S_max`; per A.9 and conservation this is an
   apparent typo, and we use `C_w − q^{down}`.
-* In congestion `C_w − q ≤ 0` yields a degenerate band; those windows are flagged and dropped.
+* In congestion `C_w − q ≤ 0` yields a degenerate band; those windows have no α target
+  and are excluded from Kan *fitting* (the corpus itself keeps them — they carry valid
+  flow targets for direct estimators).
 
 ### Estimator + features
 
@@ -110,7 +112,11 @@ $$q^{up} > q^{down}:\quad \hat s = \alpha\, s_{max} + (1-\alpha)\, s_{min},\quad
   on load so that `q_up`, `q_down`, `r`, `s`, and the bounds match the veh/hr `C_w`.
 * **Features `Z`** (Kan Table III): upstream and downstream mainline `total_flow`,
   `avg_speed`, `avg_occupancy` at `t, t-1, t-2`.
-* **Target**: $\alpha = (y - y_{min}) / (y_{max} - y_{min})$ of the determined-first ramp.
+* **Target**: $\alpha = (y - y_{min}) / (y_{max} - y_{min})$ of the determined-first ramp,
+  derived *inside the estimator* from the corpus and its bounds context (the corpus
+  itself is method-agnostic; see the module layout below). `q_up`/`q_down` are recovered
+  from the feature matrix's last-lag block; `C_w`/`r_demand`/`s_qmax` arrive as the
+  per-stretch bounds context, expanded row-aligned via `kan.row_context`.
 * **Model**: random forest (gradient boosting optional), per Kan.
 
 ### Validation
@@ -122,24 +128,29 @@ Kan Scenario 1); higher `k` reproduces Kan's Section V.C Scenarios 2–4, aggreg
 over held-out combinations (enumerated when tractable, else sampled) as mean±std.
 Metrics: **NRMSE** and **R²** (plus BIAS for Kan parity) on reconstructed flows.
 
-**Target windows**: by default training uses only **fully-measured** windows (both ramps'
-detectors report at `t`), giving clean directly-measured `α` targets. A
+**Target windows**: by default the corpus uses only **fully-measured** windows (both ramps'
+detectors report at `t`), giving clean directly-measured flow targets. A
 `require_both_measured=False` flag additionally admits `conservation_resolvable` windows
 (one ramp measured, the other recovered by conservation) — whose target is then partly a
 function of the mainline inputs, so it is opt-in.
 
 ### Module layout
 
+The corpus and validation machinery are method-agnostic; everything Kan-specific
+lives in `kan.py`/`bounds.py`. Estimators share the interface
+`fit(X, r, s, ctx=None)` / `predict_flows(X, ctx=None)`, where `ctx` is an opaque
+dict of row-aligned context arrays (Kan's bounds context; the GRU ignores it).
+
 | file | responsibility |
 |---|---|
-| `bounds.py` | Kan Appendix A bounds, determined-first rule, α↔flow, degenerate-band handling (method-agnostic) |
-| `features.py` | corridor windows → feature matrix `Z` + `α` targets (method-agnostic; reuses the audit's window logic) |
-| `kan.py` | RF/GBM α-regressor: `fit`, `predict`, reconstruct via `bounds` |
-| `gru.py` | direct joint `(r, s)` GRU regressor: `fit`/`predict_flows`, checkpoint save/load |
-| `validation.py` | leave-`k`-out CV, stretch-level train/val/test split, NRMSE/R²/BIAS, Scenario 1–4 aggregation (method-agnostic) |
-| `manifest.py` | split manifest (corpus params + split + digest) so separate runs provably share one corpus |
+| `features.py` | corridor windows → feature matrix `Z` + measured `(r, s)` targets; the IO assembler returns `(TrainingData, stretch_ctx)` — the corpus plus a per-stretch bounds-context table (`c_w`, `r_demand`, `s_qmax`). `require_capacity=False` keeps stretches without calibrated capacity (GRU-only corpora) |
+| `bounds.py` | Kan Appendix A bounds, determined-first rule, α↔flow, out-of-band detection |
+| `kan.py` | RF/GBM α-regressor behind the shared interface: derives α targets internally (`alpha_targets`), expands the ctx table (`row_context`), reconstructs via `bounds` |
+| `gru.py` | direct joint `(r, s)` GRU regressor + `Normalizer`; checkpoint save/load |
+| `validation.py` | leave-`k`-out CV, stretch-level train/val/test split, NRMSE/R²/BIAS, Scenario 1–4 aggregation |
+| `manifest.py` | split manifest (corpus params + split + digest over corpus **and** ctx) so separate runs provably share one corpus |
 
-Run via `scripts/evaluate_ramp_flow_estimation.py` over `data/pems/stretches/*.csv`.
+Run via `scripts/estimate_ramp_flows_kan.py` over `data/pems/stretches/*.csv`.
 
 **Out of scope for this build**: the temporal/conservation dispatch, the CTM
 `demand`/`beta` CSV export, and predicting real never-measured target stretches.
@@ -156,37 +167,47 @@ Using the same feature vector as Kan, we train a gated recurrent unit (GRU) to e
 
 * **Inputs**: the same feature windows as Kan, reshaped to a `(window_size, 6)` sequence
   of [up/down × flow/speed/occ] steps; the estimator accepts whatever window the corpus
-  carries (default 3, matching Kan for a controlled comparison).
-* **Output**: joint prediction — GRU → 2-unit linear head → softplus. Non-negativity is
-  the **only** constraint; no conservation floor or capacity ceiling is imposed, since
-  the bounds are derived from the conservation assumption under test.
-* **Targets**: directly-measured $(r, s)$ from fully-measured windows. The corpus is
-  built with `keep_infeasible=True`, retaining degenerate-band windows (no $\alpha$
-  target, but valid flows) — and per-row `feasible` / `alpha_clipped` flags mark where
-  Kan's $\alpha$ was undefined or clipped. The clipped windows are precisely the
-  conservation-violating ones motivating this estimator.
-* **Training**: Adam/MSE on scale-normalized targets, early stopping on validation loss
-  with best-weight restore.
+  carries (default 3, matching Kan for a controlled comparison). numpy→tensor conversion
+  happens once at the estimator boundary; everything inside is torch.
+* **Normalization** (`gru.Normalizer`, fitted on the train split): features are scaled
+  per physical **variable** — one mean/std each for flow, speed, occupancy, shared
+  across the up/downstream stations and all lags. Targets are configurable
+  (`target_transform`): `"zscore"` (center+scale) or `"log1p"` (log1p then
+  center+scale, weighting relative rather than absolute errors).
+* **Output**: joint prediction — GRU → 2-unit linear head in normalized-target space;
+  the inverse transform clamps flows at zero. No conservation floor or capacity ceiling
+  is imposed, since the bounds are derived from the conservation assumption under test.
+* **Targets**: directly-measured $(r, s)$ from fully-measured windows. The
+  method-agnostic corpus keeps *all* such windows — including degenerate-band and
+  conservation-violating (α-clipped) ones, which are precisely the windows motivating
+  this estimator; `kan.alpha_targets` recomputes those diagnostics wherever needed.
+* **Training**: Adam/MSE, early stopping on validation loss with best-weight restore.
+* **Corpora**: the benchmark corpus requires calibrated upstream capacity
+  (`require_capacity=True`) so Kan can run on identical rows; a second, GRU-only
+  configuration (`--include-uncalibrated`) additionally trains on stretches without
+  calibrated capacity for best-achievable accuracy.
 
 ### Evaluation protocol (GRU vs. Kan)
 
 A fixed stretch-level train/val/test split (`validation.train_val_test_split`): one
 stretch's windows to validation (early stopping/tuning), one to test, the rest to
 train — seeded-random selection, overridable by stretch ID. The corpus build parameters,
-resolved split, and a corpus digest are recorded in a **split manifest** (`manifest.py`),
-so the two separately-launched entrypoints provably see identical data:
+resolved split, and a digest over the corpus + bounds context are recorded in a
+**split manifest** (`manifest.py`), so the two separately-launched entrypoints provably
+see identical data:
 
-* `scripts/deep_learning_model_prototyping.py` — GRU-only training driver. Logs the full
-  config and per-epoch train/val losses to Weights & Biases (project
-  `ramp-flow-estimation`; `WANDB_MODE=offline` supported for HPC), writes the manifest,
-  and checkpoints the model (checkpoint + manifest saved as W&B artifacts). The test
-  stretch is never touched here.
+* `scripts/train_ramp_flow_gru.py` — GRU-only training driver. Logs the full config and
+  per-epoch train/val losses to Weights & Biases (project `ramp-flow-estimation`;
+  `WANDB_MODE=offline` supported for HPC), writes the manifest, and checkpoints the
+  model (checkpoint + manifest saved as W&B artifacts). The test stretch is never
+  touched here. Use a distinct `--out-dir` per configuration.
 * `scripts/compare_ramp_flow_estimators.py` — slurm-friendly CLI. Rebuilds the corpus
   from the manifest (hard failure if the digest no longer matches), re-derives the
-  identical split, trains Kan RF on the *feasible* train rows, loads the GRU checkpoint
-  (or `--retrain-gru`), and reports NRMSE/R²/BIAS on the test stretch — overall and
-  sliced by in-band / α-clipped / degenerate-band windows, so any gap is attributable
-  to the estimator and localized to the conservation-violating regime.
+  identical split, trains Kan RF on the train rows (degenerate-band rows are excluded
+  from its fit internally), loads the GRU checkpoint (or `--retrain-gru`), and reports
+  NRMSE/R²/BIAS on the test stretch — overall and sliced by in-band / α-clipped /
+  degenerate-band windows, so any gap is attributable to the estimator and localized to
+  the conservation-violating regime. Requires a `require_capacity` manifest.
 
 A clean negative result (GRU no better than Kan) is a valid outcome; the protocol's job
 is attribution, not advocacy.

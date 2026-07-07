@@ -22,7 +22,11 @@ import pandas as pd
 
 from transportation_models.utils import constants
 from transportation_models.utils.ramp_flow_estimation.features import build_training_data
-from transportation_models.utils.ramp_flow_estimation.kan import KanEstimator
+from transportation_models.utils.ramp_flow_estimation.kan import (
+    KanEstimator,
+    alpha_targets,
+    row_context,
+)
 from transportation_models.utils.ramp_flow_estimation.validation import run_scenarios
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -65,27 +69,29 @@ def main(argv: list[str] | None = None) -> int:
     stretches = _load_stretches(args.stretches)
     station_meta = pd.read_csv(args.station_meta)
 
-    data = build_training_data(
+    data, stretch_ctx = build_training_data(
         stretches, args.timeseries_dir, station_meta,
         pct_floor=args.pct_observed_floor, window_size=args.window_size,
         require_both_measured=not args.include_conservation,
         record_start=args.record_start, record_end=args.record_end,
     )
 
-    n_samples = len(data.alpha)
+    n_samples = len(data.r_true)
     if n_samples == 0:
         print("No training samples assembled (no type-(c) stretch with measured "
               "ramps + calibrated upstream capacity over the record).")
         return 1
 
+    ctx = row_context(stretch_ctx, data.stretch_id)
+    alpha, feasible, clipped = alpha_targets(data.X, data.r_true, data.s_true, ctx)
     stretch_ids = np.unique(data.stretch_id)
     n_stretch = len(stretch_ids)
-    qs = np.quantile(data.alpha, [0.0, 0.25, 0.5, 0.75, 1.0])
+    qs = np.quantile(alpha[feasible], [0.0, 0.25, 0.5, 0.75, 1.0])
     print(f"corpus: {n_samples} samples across {n_stretch} type-(c) stretches")
-    print(f"  alpha quantiles (min/25/50/75/max): "
+    print(f"  degenerate band (no alpha target): {100 * np.mean(~feasible):.1f}%")
+    print(f"  alpha quantiles over feasible rows (min/25/50/75/max): "
           f"{', '.join(f'{q:.3f}' for q in qs)}")
-    print(f"  alpha clipped: {100 * np.mean(data.alpha == 0.0):.1f}% at 0, "
-          f"{100 * np.mean(data.alpha == 1.0):.1f}% at 1  "
+    print(f"  alpha clipped (out of band): {100 * np.mean(clipped):.1f}%  "
           f"(high clipping => mainline<->ramp conservation error dominates the band)")
     print(f"  samples per stretch: min {np.bincount(np.searchsorted(stretch_ids, data.stretch_id)).min()}, "
           f"max {np.bincount(np.searchsorted(stretch_ids, data.stretch_id)).max()}")
@@ -105,7 +111,7 @@ def main(argv: list[str] | None = None) -> int:
         return KanEstimator("gbm", n_estimators=args.n_estimators,
                             random_state=args.random_state)
     report = run_scenarios(
-        data, ks=tuple(ks), estimator_factory=factory,
+        data, ks=tuple(ks), ctx=ctx, estimator_factory=factory,
         max_combos=args.max_combos, random_state=args.random_state)
 
     args.out.parent.mkdir(parents=True, exist_ok=True)

@@ -1,4 +1,4 @@
-"""Tests for utils/ramp_flow_estimation/gru.py.
+"""Tests for utils/ramp_flow_estimation/gru.py (Normalizer + GRU estimator).
 
 Small synthetic problems (window 3, 18 feature columns) so training stays in
 the sub-second range on CPU; all runs are seeded.
@@ -7,8 +7,9 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+import torch
 
-from transportation_models.utils.ramp_flow_estimation.gru import GruEstimator
+from transportation_models.utils.ramp_flow_estimation.gru import GruEstimator, Normalizer
 
 
 def _synthetic(n=400, seed=0):
@@ -27,9 +28,54 @@ def _fast(**over):
     return GruEstimator(**kw)
 
 
-def test_learns_synthetic_mapping():
+# --------------------------------------------------------------------------- #
+# Normalizer
+# --------------------------------------------------------------------------- #
+def test_normalizer_feature_stats_shared_per_variable():
+    # up_flow (ch 0) and down_flow (ch 3) have different distributions but must
+    # share one mean/std; same for speed (1, 4) and occupancy (2, 5).
+    torch.manual_seed(0)
+    x = torch.rand(50, 3, 6)
+    x[..., 0] *= 1000.0                       # up flow scale
+    x[..., 3] *= 2000.0                       # down flow scale
+    norm = Normalizer().fit(x, torch.rand(50, 2))
+    xm, xs = norm._x_mean, norm._x_std
+    assert xm[0] == xm[3] and xs[0] == xs[3]  # flow group
+    assert xm[1] == xm[4] and xs[1] == xs[4]  # speed group
+    assert xm[2] == xm[5] and xs[2] == xs[5]  # occupancy group
+    # and the group stats actually differ between variables
+    assert xm[0] != xm[1]
+
+
+@pytest.mark.parametrize("transform", ["zscore", "log1p"])
+def test_normalizer_target_roundtrip(transform):
+    y = torch.tensor([[0.0, 10.0], [500.0, 300.0], [1200.0, 40.0]])
+    norm = Normalizer(transform).fit(torch.rand(3, 2, 6), y)
+    yt = norm.targets(y)
+    assert torch.allclose(yt.mean(dim=0), torch.zeros(2), atol=1e-6)
+    torch.testing.assert_close(norm.inverse_targets(yt), y)
+
+
+def test_normalizer_inverse_clamps_negative_flows():
+    y = torch.tensor([[100.0, 200.0], [300.0, 400.0]])
+    norm = Normalizer("zscore").fit(torch.rand(2, 2, 6), y)
+    out = norm.inverse_targets(torch.full((2, 2), -100.0))
+    assert (out >= 0).all()
+
+
+def test_normalizer_unknown_transform_raises():
+    with pytest.raises(ValueError):
+        Normalizer("softplus")
+
+
+# --------------------------------------------------------------------------- #
+# GruEstimator
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("transform", ["zscore", "log1p"])
+def test_learns_synthetic_mapping(transform):
     X, r, s = _synthetic()
-    r_hat, s_hat = _fast().fit(X, r, s).predict_flows(X)
+    est = _fast(target_transform=transform).fit(X, r, s)
+    r_hat, s_hat = est.predict_flows(X)
     ss = lambda y, y_hat: 1 - np.sum((y - y_hat) ** 2) / np.sum((y - y.mean()) ** 2)
     assert ss(r, r_hat) > 0.8
     assert ss(s, s_hat) > 0.8
@@ -40,6 +86,15 @@ def test_predictions_non_negative():
     est = _fast(max_epochs=5).fit(X, np.zeros_like(r), np.zeros_like(s))
     r_hat, s_hat = est.predict_flows(X)
     assert (r_hat >= 0).all() and (s_hat >= 0).all()
+
+
+def test_ctx_is_accepted_and_ignored():
+    X, r, s = _synthetic(n=100)
+    ctx = {"c_w": np.full(100, 6000.0)}
+    est = _fast(max_epochs=2).fit(X, r, s, ctx=ctx)
+    a = est.predict_flows(X, ctx=ctx)
+    b = est.predict_flows(X)
+    np.testing.assert_allclose(a, b)
 
 
 def test_early_stopping_on_noise_val():
@@ -64,12 +119,14 @@ def test_val_loss_passed_to_log_fn():
     assert all(np.isfinite(vl) for _, _, vl in logged)
 
 
-def test_save_load_roundtrip(tmp_path):
+@pytest.mark.parametrize("transform", ["zscore", "log1p"])
+def test_save_load_roundtrip(tmp_path, transform):
     X, r, s = _synthetic(n=150)
-    est = _fast(max_epochs=10).fit(X, r, s)
+    est = _fast(max_epochs=10, target_transform=transform).fit(X, r, s)
     path = tmp_path / "gru.pt"
     est.save(path)
     loaded = GruEstimator.load(path)
+    assert loaded.target_transform == transform
     r_a, s_a = est.predict_flows(X)
     r_b, s_b = loaded.predict_flows(X)
     np.testing.assert_allclose(r_a, r_b, rtol=1e-6)

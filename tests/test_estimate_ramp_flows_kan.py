@@ -1,4 +1,4 @@
-"""Integration test for scripts/evaluate_ramp_flow_estimation.py (CLI wiring).
+"""Integration test for scripts/estimate_ramp_flows_kan.py (CLI wiring).
 
 Builds a tiny 3-stretch case (temp stretches CSV, station metadata, timeseries)
 and runs the entrypoint end-to-end with a small RF.
@@ -14,7 +14,7 @@ import pandas as pd
 _REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO / "scripts"))
 
-from evaluate_ramp_flow_estimation import main  # noqa: E402
+from estimate_ramp_flows_kan import main  # noqa: E402
 
 
 def _station(ts_dir, sid, flow, n=8):

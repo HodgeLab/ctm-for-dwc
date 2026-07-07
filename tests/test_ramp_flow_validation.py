@@ -1,4 +1,4 @@
-"""Tests for utils/ramp_flow_estimation/validation.py (leave-k-out CV, metrics).
+"""Tests for utils/ramp_flow_estimation/validation.py (CV, split, metrics).
 
 The CV plumbing is tested with a fake estimator (predicts zero flows) so the
 tests are fast and independent of any ML model.
@@ -6,25 +6,29 @@ tests are fast and independent of any ML model.
 from __future__ import annotations
 
 import numpy as np
-
-from transportation_models.utils.ramp_flow_estimation.features import TrainingData
 import pytest
 
+from transportation_models.utils.ramp_flow_estimation.features import TrainingData
 from transportation_models.utils.ramp_flow_estimation.validation import (
     flow_metrics,
     leave_k_out,
     run_scenarios,
+    slice_ctx,
     train_val_test_split,
 )
 
 
 class _FakeEstimator:
-    """Fits nothing; always predicts zero ramp flows."""
+    """Fits nothing; always predicts zero ramp flows. Records the ctx it saw."""
 
-    def fit(self, X, alpha):
+    def __init__(self):
+        self.fit_ctx = None
+
+    def fit(self, X, r, s, ctx=None):
+        self.fit_ctx = ctx
         return self
 
-    def predict_flows(self, X, q_up, q_down, c_w, r_demand=np.inf, s_qmax=np.inf):
+    def predict_flows(self, X, ctx=None):
         return np.zeros(len(X)), np.zeros(len(X))
 
 
@@ -32,22 +36,21 @@ def _fake_factory():
     return lambda: _FakeEstimator()
 
 
-def _data(n_stretch=3, per=10, seed=0):
+def _data(n_stretch=3, per=10, seed=0, r_value=None):
     rng = np.random.default_rng(seed)
     cat = lambda parts: np.concatenate(parts)
-    X, alpha, r, s, qu, qd, cw, sid, rd, sq = ([] for _ in range(10))
+    X, r, s, qu, qd, sid = ([] for _ in range(6))
     for st in range(n_stretch):
         X.append(rng.uniform(0, 1, size=(per, 6)))
-        alpha.append(rng.uniform(0, 1, per))
-        r.append(rng.uniform(100, 500, per))
-        s.append(rng.uniform(100, 500, per))
+        r.append(np.full(per, float(r_value)) if r_value is not None
+                 else rng.uniform(100, 500, per))
+        s.append(np.full(per, 300.0) if r_value is not None
+                 else rng.uniform(100, 500, per))
         qu.append(np.full(per, 1000.0)); qd.append(np.full(per, 1200.0))
-        cw.append(np.full(per, 6000.0)); sid.append(np.full(per, st))
-        rd.append(np.full(per, np.inf)); sq.append(np.full(per, np.inf))
+        sid.append(np.full(per, st))
     return TrainingData(
-        X=np.concatenate(X), alpha=cat(alpha), r_true=cat(r), s_true=cat(s),
-        q_up=cat(qu), q_down=cat(qd), c_w=cat(cw), stretch_id=cat(sid).astype(int),
-        r_demand_used=cat(rd), s_qmax_used=cat(sq),
+        X=np.concatenate(X), r_true=cat(r), s_true=cat(s),
+        q_up=cat(qu), q_down=cat(qd), stretch_id=cat(sid).astype(int),
     )
 
 
@@ -83,6 +86,24 @@ def test_leave_k_out_samples_when_capped():
     assert res["n_combos"] == 3
     assert all(len(c["holdout"]) == 2 for c in res["per_combo"])
     assert len({c["holdout"] for c in res["per_combo"]}) == 3   # distinct
+
+
+def test_ctx_sliced_with_the_same_masks():
+    data = _data(3)
+    seen = []
+
+    class _Spy(_FakeEstimator):
+        def fit(self, X, r, s, ctx=None):
+            seen.append((len(X), None if ctx is None else len(ctx["c_w"])))
+            return self
+
+    ctx = {"c_w": np.arange(len(data.r_true), dtype=float)}
+    leave_k_out(data, k=1, ctx=ctx, estimator_factory=lambda: _Spy())
+    assert all(n_rows == n_ctx for n_rows, n_ctx in seen)
+
+
+def test_slice_ctx_none_passes_through():
+    assert slice_ctx(None, np.array([True, False])) is None
 
 
 def test_run_scenarios_one_row_per_k():
@@ -126,22 +147,8 @@ def test_split_rejects_bad_ids():
         train_val_test_split(_data(2))
 
 
-def _constant_data(n_stretch=3, per=6, seed=0):
-    rng = np.random.default_rng(seed)
-    cat = lambda p: np.concatenate(p)
-    X, al, r, s, qu, qd, cw, sid, rd, sq = ([] for _ in range(10))
-    for st in range(n_stretch):
-        X.append(rng.uniform(0, 1, size=(per, 6))); al.append(np.full(per, 0.5))
-        r.append(np.full(per, 500.0)); s.append(np.full(per, 300.0))     # constant -> r2 undefined
-        qu.append(np.full(per, 1000.0)); qd.append(np.full(per, 1200.0)); cw.append(np.full(per, 6000.0))
-        sid.append(np.full(per, st)); rd.append(np.full(per, np.inf)); sq.append(np.full(per, np.inf))
-    return TrainingData(
-        X=np.concatenate(X), alpha=cat(al), r_true=cat(r), s_true=cat(s),
-        q_up=cat(qu), q_down=cat(qd), c_w=cat(cw), stretch_id=cat(sid).astype(int),
-        r_demand_used=cat(rd), s_qmax_used=cat(sq))
-
-
 def test_all_nan_metric_aggregates_to_nan_without_warning(recwarn):
-    res = leave_k_out(_constant_data(), k=1, estimator_factory=_fake_factory())
-    assert np.isnan(res["mean"]["r2_on"])          # constant on-ramp target -> undefined R^2
+    # constant on-ramp target -> undefined R^2
+    res = leave_k_out(_data(3, r_value=500.0), k=1, estimator_factory=_fake_factory())
+    assert np.isnan(res["mean"]["r2_on"])
     assert not any(issubclass(w.category, RuntimeWarning) for w in recwarn.list)

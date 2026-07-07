@@ -1,29 +1,28 @@
-"""Extract Kan training samples (feature matrix Z + alpha targets) per stretch.
+"""Extract ramp-flow training samples (feature windows + measured flows) per stretch.
 
-For a type-(c) stretch, each sliding window of ``window_size`` consecutive 5-min
-samples that is *determinable* yields one training sample:
+Method-agnostic: for a type-(c) stretch, each sliding window of ``window_size``
+consecutive 5-min samples yields one training sample:
 
 * **features Z** -- upstream and downstream mainline ``total_flow``,
-  ``avg_speed``, ``avg_occupancy`` at each lag ``t-2, t-1, t`` (Kan Table III),
-  laid out oldest-lag-first: ``[up_flow, up_speed, up_occ, down_flow, down_speed,
+  ``avg_speed``, ``avg_occupancy`` at each lag ``t-2, t-1, t``, laid out
+  oldest-lag-first: ``[up_flow, up_speed, up_occ, down_flow, down_speed,
   down_occ]`` repeated per lag -> ``6 * window_size`` columns.
-* **ground truth** ``r, s`` at the prediction step ``t`` (window's last sample).
-  By default (``require_both_measured=True``) only windows where *both* ramps'
-  detectors report are kept -- clean, directly-measured targets. With
-  ``require_both_measured=False`` a window with one unmeasured ramp is also kept,
-  recovering it by conservation ``q_up + r - s = q_down`` (the target is then
-  partly a function of the mainline inputs).
-* **target** ``alpha`` of the determined-first ramp, via :mod:`bounds`.
+* **targets** -- the ramp flows ``r, s`` at the prediction step ``t`` (window's
+  last sample). By default (``require_both_measured=True``) only windows where
+  *both* ramps' detectors report are kept -- clean, directly-measured targets.
+  With ``require_both_measured=False`` a window with one unmeasured ramp is also
+  kept, recovering it by conservation ``q_up + r - s = q_down`` (the target is
+  then partly a function of the mainline inputs).
 
 A window is used only if the mainline is observed across *all* its samples (the
-features need every lag) and the determined-first ramp has a non-degenerate band.
-With ``keep_infeasible=True`` degenerate-band windows are kept too (``alpha`` is
-NaN there) -- they carry valid ``r, s`` targets for direct-flow estimators (GRU).
-Per-row ``feasible`` and ``alpha_clipped`` flags record band degeneracy and
-out-of-band (conservation-violating) targets whose ``alpha`` was clipped.
+features need every lag). Estimator-specific quantities are *not* computed here:
+Kan's alpha targets, capacity bounds, and feasibility live in :mod:`kan` /
+:mod:`bounds`. The IO assembler additionally returns a per-stretch *bounds
+context* table (weaving capacity ``c_w``, historical ramp peaks) that only
+bounds-based methods consume.
 
-The pure extractor takes already-aligned per-station arrays; loading/aligning the
-timeseries is the caller's job (kept separate so this stays unit-testable).
+The pure extractor takes already-aligned per-station arrays; loading/aligning
+the timeseries is the caller's job (kept separate so this stays unit-testable).
 """
 from __future__ import annotations
 
@@ -33,7 +32,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from . import bounds as _bounds
 from .observations import sliding_all
 
 _VARS_PER_STATION = 3          # flow, speed, occupancy
@@ -45,8 +43,8 @@ _FLOW = "total_flow_[veh/5-min]"
 _SPEED = "avg_speed_[mph]"
 _OCC = "avg_occupancy_[%]"
 _PCT = "pct_observed"
-# PeMS reports flow per 5-min bin; Kan's bounds and the calibrated capacity C_w
-# are in veh/hr, so flows are scaled to veh/hr on load to keep units consistent.
+# PeMS reports flow per 5-min bin; downstream consumers (capacities, physical
+# interpretation) work in veh/hr, so flows are scaled to veh/hr on load.
 _SAMPLES_PER_HOUR = 12
 
 
@@ -55,22 +53,23 @@ class Samples:
     """Training samples for one stretch (row-aligned arrays)."""
 
     X: np.ndarray          # (n, 6 * window_size) features
-    alpha: np.ndarray      # (n,) regression target in [0, 1]; NaN where infeasible
     r_true: np.ndarray     # (n,) on-ramp flow at t
     s_true: np.ndarray     # (n,) off-ramp flow at t
-    q_up: np.ndarray       # (n,)
-    q_down: np.ndarray     # (n,)
-    c_w: np.ndarray        # (n,) total mainline capacity (constant per stretch)
+    q_up: np.ndarray       # (n,) upstream mainline flow at t
+    q_down: np.ndarray     # (n,) downstream mainline flow at t
     t_index: np.ndarray    # (n,) prediction sample index into the grid
-    feasible: np.ndarray = None       # (n,) band non-degenerate (alpha defined)
-    alpha_clipped: np.ndarray = None  # (n,) true flow out of band -> alpha clipped
+
+
+def mainline_flows(X) -> tuple[np.ndarray, np.ndarray]:
+    """``(q_up, q_down)`` at the prediction step ``t``, recovered from the
+    last-lag block of the (raw, unscaled) feature matrix."""
+    X = np.asarray(X, dtype=float)
+    return X[:, -FEATURES_PER_LAG], X[:, -FEATURES_PER_LAG + _VARS_PER_STATION]
 
 
 def stretch_samples(
     up_id, down_id, on_ids, off_ids, *,
-    flow, speed, occ, observed, c_w, window_size=3,
-    r_demand=np.inf, s_qmax=np.inf, require_both_measured=True,
-    keep_infeasible=False,
+    flow, speed, occ, observed, window_size=3, require_both_measured=True,
 ) -> Samples:
     n = len(flow[up_id])
     absent = np.zeros(n, dtype=bool)   # mask for a ramp id missing from ``observed``
@@ -87,9 +86,8 @@ def stretch_samples(
     main_obs = np.asarray(observed[up_id], bool) & np.asarray(observed[down_id], bool)
     main_win = sliding_all(main_obs, window_size)   # per window-start index
 
-    rows_X, a_list = [], []
+    rows_X = []
     r_list, s_list, qu_list, qd_list, t_list = [], [], [], [], []
-    feas_list, clip_list = [], []
 
     for i in range(main_win.shape[0]):
         if not main_win[i]:
@@ -114,39 +112,23 @@ def stretch_samples(
             s_true = s_val
             r_true = max(q_down + s_val - q_up, 0.0)
 
-        b = _bounds.compute_bounds(q_up, q_down, c_w, r_demand=r_demand, s_qmax=s_qmax)
-        alpha, feasible = _bounds.alpha_target(b, q_up, q_down, r_true, s_true)
-        if not bool(feasible):
-            if not keep_infeasible:
-                continue
-            alpha, clipped = np.nan, False    # degenerate band: no alpha target
-        else:
-            clipped = bool(_bounds.alpha_out_of_band(b, q_up, q_down, r_true, s_true))
-
         feats = []
         for lag in range(window_size):
             j = i + lag
             feats += [flow[up_id][j], speed[up_id][j], occ[up_id][j],
                       flow[down_id][j], speed[down_id][j], occ[down_id][j]]
         rows_X.append(feats)
-        a_list.append(float(alpha))
         r_list.append(r_true); s_list.append(s_true)
         qu_list.append(q_up); qd_list.append(q_down); t_list.append(t)
-        feas_list.append(bool(feasible)); clip_list.append(clipped)
 
     ncols = FEATURES_PER_LAG * window_size
-    X = np.array(rows_X, dtype=float).reshape(-1, ncols)
     return Samples(
-        X=X,
-        alpha=np.array(a_list, dtype=float),
+        X=np.array(rows_X, dtype=float).reshape(-1, ncols),
         r_true=np.array(r_list, dtype=float),
         s_true=np.array(s_list, dtype=float),
         q_up=np.array(qu_list, dtype=float),
         q_down=np.array(qd_list, dtype=float),
-        c_w=np.full(len(a_list), float(c_w)),
         t_index=np.array(t_list, dtype=int),
-        feasible=np.array(feas_list, dtype=bool),
-        alpha_clipped=np.array(clip_list, dtype=bool),
     )
 
 
@@ -156,20 +138,17 @@ def stretch_samples(
 @dataclass
 class TrainingData:
     """Corpus-wide training samples, row-aligned; ``stretch_id`` labels each row
-    for leave-k-stretches-out validation."""
+    for stretch-level splits and leave-k-stretches-out validation."""
 
     X: np.ndarray
-    alpha: np.ndarray
     r_true: np.ndarray
     s_true: np.ndarray
     q_up: np.ndarray
     q_down: np.ndarray
-    c_w: np.ndarray
     stretch_id: np.ndarray
-    r_demand_used: np.ndarray
-    s_qmax_used: np.ndarray
-    feasible: np.ndarray = None       # (n,) band non-degenerate (alpha defined)
-    alpha_clipped: np.ndarray = None  # (n,) true flow out of band -> alpha clipped
+
+
+_CTX_COLUMNS = ["c_w", "r_demand", "s_qmax"]
 
 
 def _parse_ids(cell) -> list:
@@ -198,30 +177,37 @@ def _as_int(value):
         return None
 
 
-def _empty_training_data(window_size: int) -> TrainingData:
+def _empty_corpus(window_size: int) -> tuple[TrainingData, pd.DataFrame]:
     z = lambda: np.zeros(0, dtype=float)
-    return TrainingData(
+    data = TrainingData(
         X=np.zeros((0, FEATURES_PER_LAG * window_size), dtype=float),
-        alpha=z(), r_true=z(), s_true=z(), q_up=z(), q_down=z(), c_w=z(),
-        stretch_id=np.zeros(0, dtype=int), r_demand_used=z(), s_qmax_used=z(),
-        feasible=np.zeros(0, dtype=bool), alpha_clipped=np.zeros(0, dtype=bool),
+        r_true=z(), s_true=z(), q_up=z(), q_down=z(),
+        stretch_id=np.zeros(0, dtype=int),
     )
+    ctx = pd.DataFrame(columns=_CTX_COLUMNS, index=pd.Index([], name="stretch_id"))
+    return data, ctx
 
 
 def build_training_data(
     stretches: "pd.DataFrame", timeseries_dir, station_meta: "pd.DataFrame", *,
     pct_floor: float = 0.0, window_size: int = 3, require_both_measured: bool = True,
-    keep_infeasible: bool = False, record_start=None, record_end=None,
-) -> TrainingData:
-    """Assemble Kan training samples from every type-(c) stretch.
+    require_capacity: bool = True, record_start=None, record_end=None,
+) -> tuple[TrainingData, pd.DataFrame]:
+    """Assemble training samples from every type-(c) stretch.
 
-    PeMS ``total_flow`` (veh/5-min) is scaled to **veh/hr** on load so that
-    flows, ``r``/``s``, and the bounds share units with ``C_w`` (veh/hr).
+    Returns ``(data, stretch_ctx)``: the method-agnostic corpus, and a
+    per-stretch bounds-context table (index ``stretch_id``; columns ``c_w``,
+    ``r_demand``, ``s_qmax``) consumed only by bounds-based methods (Kan).
+
+    PeMS ``total_flow`` (veh/5-min) is scaled to **veh/hr** on load.
     ``station_meta`` is the calibrated station metadata (``Station ID``,
-    per-lane ``capacity``, ``Lanes``); ``C_w = capacity * Lanes`` of the
+    per-lane ``capacity``, ``Lanes``); ``c_w = capacity * Lanes`` of the
     stretch's ``up_ml_id``. ``r_demand``/``s_qmax`` are each ramp's historical
-    peak *total* observed flow (veh/hr). Stretches whose upstream ML lacks a
-    calibrated capacity, or whose mainline detectors are absent, are skipped.
+    peak *total* observed flow (veh/hr). With ``require_capacity`` (default)
+    stretches whose upstream ML lacks a calibrated capacity are skipped, so
+    bounds-based and direct estimators see identical rows; with
+    ``require_capacity=False`` they are kept and their ``c_w`` is NaN.
+    Stretches whose mainline detectors are absent are always skipped.
     """
     timeseries_dir = Path(timeseries_dir)
     cfg = stretches[stretches["config_type"] == "c"]
@@ -253,7 +239,7 @@ def build_training_data(
         hi = max(df.index.max() for df in raw.values()).ceil("5min")
         grid = pd.date_range(lo, hi, freq="5min")
     else:
-        return _empty_training_data(window_size)
+        return _empty_corpus(window_size)
 
     data: dict[int, dict] = {}
     for sid, df in raw.items():
@@ -275,16 +261,18 @@ def build_training_data(
         return float(total[obs].max()) if obs.any() else np.inf
 
     parts: list[TrainingData] = []
+    ctx_rows: dict[int, list[float]] = {}
     for row in cfg.itertuples(index=False):
         up, down = _as_int(getattr(row, "up_ml_id")), _as_int(getattr(row, "down_ml_id"))
         if up is None or down is None or up not in data or down not in data:
             continue
-        if up not in meta.index:
+        c_w = np.nan
+        if up in meta.index:
+            cap, lanes = meta.at[up, "capacity"], meta.at[up, "Lanes"]
+            if not (pd.isna(cap) or pd.isna(lanes)):
+                c_w = float(cap) * float(lanes)
+        if require_capacity and np.isnan(c_w):
             continue
-        cap, lanes = meta.at[up, "capacity"], meta.at[up, "Lanes"]
-        if pd.isna(cap) or pd.isna(lanes):
-            continue
-        c_w = float(cap) * float(lanes)
 
         on = [i for i in _parse_ids(getattr(row, "on_ids", None)) if isinstance(i, int)]
         off = [i for i in _parse_ids(getattr(row, "off_ids", None)) if isinstance(i, int)]
@@ -301,32 +289,28 @@ def build_training_data(
                 flow[i] = data[i]["flow"]
                 observed[i] = data[i]["obs_flow"]
 
-        r_demand, s_qmax = hist_peak(on), hist_peak(off)
         s = stretch_samples(
             up, down, on, off, flow=flow, speed=speed, occ=occ, observed=observed,
-            c_w=c_w, window_size=window_size, r_demand=r_demand, s_qmax=s_qmax,
-            require_both_measured=require_both_measured, keep_infeasible=keep_infeasible,
+            window_size=window_size, require_both_measured=require_both_measured,
         )
-        n = len(s.alpha)
+        n = len(s.r_true)
         if n == 0:
             continue
+        sid = int(getattr(row, "stretch_id"))
         parts.append(TrainingData(
-            X=s.X, alpha=s.alpha, r_true=s.r_true, s_true=s.s_true,
-            q_up=s.q_up, q_down=s.q_down, c_w=s.c_w,
-            stretch_id=np.full(n, int(getattr(row, "stretch_id")), dtype=int),
-            r_demand_used=np.full(n, r_demand, dtype=float),
-            s_qmax_used=np.full(n, s_qmax, dtype=float),
-            feasible=s.feasible, alpha_clipped=s.alpha_clipped,
+            X=s.X, r_true=s.r_true, s_true=s.s_true, q_up=s.q_up, q_down=s.q_down,
+            stretch_id=np.full(n, sid, dtype=int),
         ))
+        ctx_rows[sid] = [c_w, hist_peak(on), hist_peak(off)]
 
     if not parts:
-        return _empty_training_data(window_size)
+        return _empty_corpus(window_size)
     cat = lambda name: np.concatenate([getattr(p, name) for p in parts])
-    return TrainingData(
+    corpus = TrainingData(
         X=np.concatenate([p.X for p in parts]),
-        alpha=cat("alpha"), r_true=cat("r_true"), s_true=cat("s_true"),
-        q_up=cat("q_up"), q_down=cat("q_down"), c_w=cat("c_w"),
-        stretch_id=cat("stretch_id"),
-        r_demand_used=cat("r_demand_used"), s_qmax_used=cat("s_qmax_used"),
-        feasible=cat("feasible"), alpha_clipped=cat("alpha_clipped"),
+        r_true=cat("r_true"), s_true=cat("s_true"),
+        q_up=cat("q_up"), q_down=cat("q_down"), stretch_id=cat("stretch_id"),
     )
+    ctx = pd.DataFrame.from_dict(ctx_rows, orient="index", columns=_CTX_COLUMNS)
+    ctx.index.name = "stretch_id"
+    return corpus, ctx.sort_index()

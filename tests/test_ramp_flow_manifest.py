@@ -48,7 +48,7 @@ def _case(tmp_path):
     return {
         "stretches": str(stretches), "station_meta": str(meta),
         "timeseries_dir": str(ts_dir), "pct_floor": 0.0, "window_size": 3,
-        "require_both_measured": True, "keep_infeasible": True,
+        "require_both_measured": True, "require_capacity": True,
         "record_start": None, "record_end": None,
     }
 
@@ -59,27 +59,31 @@ def _build(params):
         pd.read_csv(params["station_meta"]),
         pct_floor=params["pct_floor"], window_size=params["window_size"],
         require_both_measured=params["require_both_measured"],
-        keep_infeasible=params["keep_infeasible"],
+        require_capacity=params["require_capacity"],
         record_start=params["record_start"], record_end=params["record_end"],
     )
 
 
+def _write(tmp_path, params, data, ctx):
+    return write_manifest(tmp_path / "manifest.json", corpus_params=params,
+                          split_seed=0, val_stretch=0, test_stretch=0,
+                          data=data, stretch_ctx=ctx)
+
+
 def test_manifest_roundtrip_rebuilds_identical_corpus(tmp_path):
     params = _case(tmp_path)
-    data = _build(params)
-    write_manifest(tmp_path / "manifest.json", corpus_params=params,
-                   split_seed=0, val_stretch=0, test_stretch=0, data=data)
+    data, ctx = _build(params)
+    _write(tmp_path, params, data, ctx)
     m = load_manifest(tmp_path / "manifest.json")
-    rebuilt = rebuild_corpus(m)
-    assert corpus_digest(rebuilt) == corpus_digest(data)
+    rebuilt, rebuilt_ctx = rebuild_corpus(m)
+    assert corpus_digest(rebuilt, rebuilt_ctx) == corpus_digest(data, ctx)
     np.testing.assert_array_equal(rebuilt.X, data.X)
 
 
 def test_rebuild_fails_when_parameter_drifts(tmp_path):
     params = _case(tmp_path)
-    data = _build(params)
-    m = write_manifest(tmp_path / "manifest.json", corpus_params=params,
-                       split_seed=0, val_stretch=0, test_stretch=0, data=data)
+    data, ctx = _build(params)
+    m = _write(tmp_path, params, data, ctx)
     m["corpus"]["window_size"] = 2
     with pytest.raises(ValueError, match="digest"):
         rebuild_corpus(m)
@@ -87,19 +91,29 @@ def test_rebuild_fails_when_parameter_drifts(tmp_path):
 
 def test_rebuild_fails_when_data_drifts(tmp_path):
     params = _case(tmp_path)
-    data = _build(params)
-    m = write_manifest(tmp_path / "manifest.json", corpus_params=params,
-                       split_seed=0, val_stretch=0, test_stretch=0, data=data)
+    data, ctx = _build(params)
+    m = _write(tmp_path, params, data, ctx)
     _write_station(tmp_path / "timeseries", 10, 55)      # on-ramp flow changed
+    with pytest.raises(ValueError, match="digest"):
+        rebuild_corpus(m)
+
+
+def test_rebuild_fails_when_station_capacity_drifts(tmp_path):
+    # capacity only affects the ctx table, not the corpus rows -- the digest
+    # must still catch it.
+    params = _case(tmp_path)
+    data, ctx = _build(params)
+    m = _write(tmp_path, params, data, ctx)
+    pd.DataFrame({"Station ID": [100, 200], "capacity": [1800.0, 2000.0],
+                  "Lanes": [3, 3]}).to_csv(params["station_meta"], index=False)
     with pytest.raises(ValueError, match="digest"):
         rebuild_corpus(m)
 
 
 def test_rebuild_honors_path_overrides(tmp_path):
     params = _case(tmp_path)
-    data = _build(params)
-    m = write_manifest(tmp_path / "manifest.json", corpus_params=params,
-                       split_seed=0, val_stretch=0, test_stretch=0, data=data)
+    data, ctx = _build(params)
+    m = _write(tmp_path, params, data, ctx)
     m["corpus"]["timeseries_dir"] = "/nonexistent/hpc/path"
-    rebuilt = rebuild_corpus(m, timeseries_dir=params["timeseries_dir"])
-    assert corpus_digest(rebuilt) == m["digest"]
+    rebuilt, rebuilt_ctx = rebuild_corpus(m, timeseries_dir=params["timeseries_dir"])
+    assert corpus_digest(rebuilt, rebuilt_ctx) == m["digest"]

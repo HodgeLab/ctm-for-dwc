@@ -2,14 +2,15 @@
 """Head-to-head: Kan RF vs. GRU on the split recorded in a split manifest.
 
 Rebuilds the corpus from the manifest written by
-``scripts/deep_learning_model_prototyping.py`` (digest-verified: fails loudly
-if the data or parameters drifted), re-derives the identical stretch-level
-train/val/test split, trains the Kan estimator on the *feasible* train rows
-(its alpha target is undefined on degenerate bands), loads the trained GRU
-checkpoint (or retrains with ``--retrain-gru``), and scores both on the
-held-out test stretch -- overall and sliced by in-band / alpha-clipped
+``scripts/train_ramp_flow_gru.py`` (digest-verified: fails loudly if the data
+or parameters drifted), re-derives the identical stretch-level train/val/test
+split, trains the Kan estimator on the train rows (it excludes
+degenerate-band rows internally), loads the trained GRU checkpoint (or
+retrains with ``--retrain-gru``), and scores both on the held-out test
+stretch -- overall and sliced by in-band / alpha-clipped
 (conservation-violating) / degenerate-band windows.
 
+Requires a ``require_capacity`` corpus (Kan needs a finite ``c_w`` everywhere).
 Plain CLI intended for offline/slurm runs; machine-specific paths can be
 overridden without breaking the digest guarantee.
 """
@@ -23,13 +24,18 @@ import numpy as np
 import pandas as pd
 
 from transportation_models.utils.ramp_flow_estimation.gru import GruEstimator
-from transportation_models.utils.ramp_flow_estimation.kan import KanEstimator
+from transportation_models.utils.ramp_flow_estimation.kan import (
+    KanEstimator,
+    alpha_targets,
+    row_context,
+)
 from transportation_models.utils.ramp_flow_estimation.manifest import (
     load_manifest,
     rebuild_corpus,
 )
 from transportation_models.utils.ramp_flow_estimation.validation import (
     flow_metrics,
+    slice_ctx,
     train_val_test_split,
 )
 
@@ -60,15 +66,17 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--batch-size", type=int, default=256)
     ap.add_argument("--max-epochs", type=int, default=200)
     ap.add_argument("--patience", type=int, default=20)
+    ap.add_argument("--target-transform", choices=["zscore", "log1p"], default="zscore")
     ap.add_argument("--gru-seed", type=int, default=0)
     ap.add_argument("--out", type=Path,
                     default=_REPO_ROOT / "scripts/output/ramp_flow_comparison.csv")
     args = ap.parse_args(argv)
 
     manifest = load_manifest(args.manifest)
-    data = rebuild_corpus(manifest, stretches=args.stretches,
-                          timeseries_dir=args.timeseries_dir,
-                          station_meta=args.station_meta)
+    data, stretch_ctx = rebuild_corpus(manifest, stretches=args.stretches,
+                                       timeseries_dir=args.timeseries_dir,
+                                       station_meta=args.station_meta)
+    ctx = row_context(stretch_ctx, data.stretch_id)
     sp = manifest["split"]
     split = train_val_test_split(data, val_stretch=sp["val_stretch"],
                                  test_stretch=sp["test_stretch"], seed=sp["seed"])
@@ -76,24 +84,21 @@ def main(argv: list[str] | None = None) -> int:
     print(f"corpus verified against manifest ({manifest['n_rows']} rows); "
           f"test stretch {sp['test_stretch']} ({te.sum()} rows)")
 
-    # Kan: alpha targets exist only where the band is non-degenerate.
-    kan_train = tr & data.feasible
     if args.model == "rf":
         kan = KanEstimator("rf", n_estimators=args.n_estimators,
                            random_state=args.random_state, n_jobs=args.n_jobs)
     else:
         kan = KanEstimator("gbm", n_estimators=args.n_estimators,
                            random_state=args.random_state)
-    kan.fit(data.X[kan_train], data.alpha[kan_train])
-    r_kan, s_kan = kan.predict_flows(
-        data.X[te], data.q_up[te], data.q_down[te], data.c_w[te],
-        r_demand=data.r_demand_used[te], s_qmax=data.s_qmax_used[te])
+    kan.fit(data.X[tr], data.r_true[tr], data.s_true[tr], ctx=slice_ctx(ctx, tr))
+    r_kan, s_kan = kan.predict_flows(data.X[te], ctx=slice_ctx(ctx, te))
 
     if args.retrain_gru:
         gru = GruEstimator(
             hidden_size=args.hidden_size, num_layers=args.num_layers, lr=args.lr,
             batch_size=args.batch_size, max_epochs=args.max_epochs,
-            patience=args.patience, seed=args.gru_seed,
+            patience=args.patience, target_transform=args.target_transform,
+            seed=args.gru_seed,
         ).fit(data.X[tr], data.r_true[tr], data.s_true[tr],
               X_val=data.X[va], r_val=data.r_true[va], s_val=data.s_true[va])
     else:
@@ -102,11 +107,13 @@ def main(argv: list[str] | None = None) -> int:
     r_gru, s_gru = gru.predict_flows(data.X[te])
 
     # test-set slices, as masks relative to the test rows
+    _, feasible, clipped = alpha_targets(data.X[te], data.r_true[te],
+                                         data.s_true[te], slice_ctx(ctx, te))
     slices = {
         "all": np.ones(int(te.sum()), dtype=bool),
-        "in_band": (data.feasible & ~data.alpha_clipped)[te],
-        "clipped": data.alpha_clipped[te],
-        "degenerate": (~data.feasible)[te],
+        "in_band": feasible & ~clipped,
+        "clipped": clipped,
+        "degenerate": ~feasible,
     }
     rows = []
     for est_name, (r_hat, s_hat) in (("kan_" + args.model, (r_kan, s_kan)),

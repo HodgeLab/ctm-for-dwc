@@ -1,14 +1,22 @@
-"""Leave-k-stretches-out cross-validation for the ramp-flow estimator.
+"""Method-agnostic validation for ramp-flow estimators.
 
-A *stretch* is Kan's "ramp pair": we hold out all of ``k`` stretches' samples,
-train on the rest, reconstruct ``r_hat, s_hat`` for the held-out samples, and
-score against the known ``r, s``. ``k`` reproduces Kan's Section V.C scenarios
-(1 = leave-one-out); for ``k > 1`` we enumerate the held-out combinations when
-tractable, else sample ``max_combos`` of them.
+Estimators are injected via ``estimator_factory`` -- a callable returning a
+fresh model exposing the shared interface ``fit(X, r, s, ctx=None)`` and
+``predict_flows(X, ctx=None)``. ``ctx`` is an optional dict of row-aligned
+context arrays passed through opaquely (e.g. Kan's bounds context from
+:func:`kan.row_context`); it is sliced with the same masks as the data.
+The default estimator is :class:`kan.KanEstimator`.
 
-Method-agnostic: the estimator is injected via ``estimator_factory`` (a callable
-returning a fresh model exposing ``fit(X, alpha)`` and ``predict_flows(X, q_up,
-q_down, c_w, r_demand=, s_qmax=)``). The default is :class:`kan.KanEstimator`.
+Two protocols:
+
+* **Leave-k-stretches-out CV** (``leave_k_out``/``run_scenarios``): hold out
+  all of ``k`` stretches' samples, train on the rest, score ``r_hat, s_hat``
+  against the known flows. ``k`` reproduces Kan's Section V.C scenarios
+  (1 = leave-one-out); for ``k > 1`` the held-out combinations are enumerated
+  when tractable, else ``max_combos`` are sampled.
+* **Fixed stretch-level split** (``train_val_test_split``): one stretch's rows
+  to val, one to test, the rest to train -- used by the deep-learning training
+  and comparison scripts.
 """
 from __future__ import annotations
 
@@ -93,7 +101,13 @@ def _holdout_combos(ids, k, max_combos, random_state):
     return sorted(seen)
 
 
-def leave_k_out(data, k=1, *, estimator_factory=None, max_combos=None, random_state=0) -> dict:
+def slice_ctx(ctx, mask):
+    """Slice every row-aligned context array with ``mask`` (None passes through)."""
+    return None if ctx is None else {k: np.asarray(v)[mask] for k, v in ctx.items()}
+
+
+def leave_k_out(data, k=1, *, ctx=None, estimator_factory=None, max_combos=None,
+                random_state=0) -> dict:
     """Run leave-``k``-stretches-out CV. Returns per-combination metrics plus
     their mean/std across combinations."""
     if estimator_factory is None:
@@ -109,11 +123,9 @@ def leave_k_out(data, k=1, *, estimator_factory=None, max_combos=None, random_st
     for holdout in combos:
         test = np.isin(data.stretch_id, holdout)
         train = ~test
-        est = estimator_factory().fit(data.X[train], data.alpha[train])
-        r_hat, s_hat = est.predict_flows(
-            data.X[test], data.q_up[test], data.q_down[test], data.c_w[test],
-            r_demand=data.r_demand_used[test], s_qmax=data.s_qmax_used[test],
-        )
+        est = estimator_factory().fit(data.X[train], data.r_true[train],
+                                      data.s_true[train], ctx=slice_ctx(ctx, train))
+        r_hat, s_hat = est.predict_flows(data.X[test], ctx=slice_ctx(ctx, test))
         m = flow_metrics(data.r_true[test], data.s_true[test], r_hat, s_hat)
         per_combo.append({"holdout": holdout, **m})
 
@@ -128,13 +140,13 @@ def leave_k_out(data, k=1, *, estimator_factory=None, max_combos=None, random_st
             "mean": mean, "std": std}
 
 
-def run_scenarios(data, ks=(1, 2, 3, 4), *, estimator_factory=None,
+def run_scenarios(data, ks=(1, 2, 3, 4), *, ctx=None, estimator_factory=None,
                   max_combos=None, random_state=0) -> pd.DataFrame:
     """Leave-``k``-out for each ``k`` in ``ks`` (Kan Scenarios 1-4); one row per
     ``k`` with ``n_combos`` and each metric's ``_mean``/``_std``."""
     rows = []
     for k in ks:
-        res = leave_k_out(data, k, estimator_factory=estimator_factory,
+        res = leave_k_out(data, k, ctx=ctx, estimator_factory=estimator_factory,
                           max_combos=max_combos, random_state=random_state)
         row = {"k": k, "n_combos": res["n_combos"]}
         row.update({f"{key}_mean": v for key, v in res["mean"].items()})
