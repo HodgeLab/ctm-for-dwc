@@ -5,6 +5,7 @@ GRU; W&B is forced offline into the temp dir so nothing is published.
 """
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -89,7 +90,9 @@ def test_cli_trains_and_writes_manifest_and_checkpoint(tmp_path, monkeypatch):
     out_dir = tmp_path / "out"
     rc = main([
         "--stretches", str(sd), "--timeseries-dir", str(ts), "--station-meta", str(meta),
-        "--hidden-size", "8", "--max-epochs", "3", "--target-transform", "log1p",
+        "--hidden-size", "8", "--num-layers", "2", "--dropout", "0.25",
+        "--beta1", "0.8", "--weight-decay", "1e-4",
+        "--max-epochs", "3", "--target-transform", "log1p",
         "--out-dir", str(out_dir),
     ])
     assert rc == 0
@@ -100,3 +103,8 @@ def test_cli_trains_and_writes_manifest_and_checkpoint(tmp_path, monkeypatch):
     assert est.target_transform == "log1p"
     r_hat, s_hat = est.predict_flows(np.random.default_rng(0).uniform(0, 1, (5, 18)))
     assert (r_hat >= 0).all() and (s_hat >= 0).all()
+    result = json.loads((out_dir / "result.json").read_text())
+    assert result["config"]["dropout"] == 0.25
+    assert result["config"]["beta1"] == 0.8
+    assert np.isfinite(result["val_metrics"]["nrmse"])
+    assert {"rmse", "nbias"} <= set(result["val_metrics"])

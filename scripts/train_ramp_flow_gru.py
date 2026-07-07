@@ -12,6 +12,7 @@ same manifest. Use a distinct ``--out-dir`` per configuration (e.g. per
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -65,7 +66,13 @@ def main(argv: list[str] | None = None) -> int:
     # model
     ap.add_argument("--hidden-size", type=int, default=64)
     ap.add_argument("--num-layers", type=int, default=1)
+    ap.add_argument("--dropout", type=float, default=0.0,
+                    help="Inter-layer GRU dropout (needs --num-layers >= 2).")
     ap.add_argument("--lr", type=float, default=1e-3)
+    ap.add_argument("--beta1", type=float, default=0.9,
+                    help="AdamW momentum rate (gradient moving-average decay).")
+    ap.add_argument("--weight-decay", type=float, default=0.0,
+                    help="AdamW decoupled weight decay (0 = plain Adam).")
     ap.add_argument("--batch-size", type=int, default=256)
     ap.add_argument("--max-epochs", type=int, default=200)
     ap.add_argument("--patience", type=int, default=20)
@@ -143,20 +150,23 @@ def main(argv: list[str] | None = None) -> int:
           f"train {split['train'].sum()} rows")
     print(f"wrote manifest -> {manifest_path}")
 
-    run = wandb.init(project=args.wandb_project, config={
+    config = {
         **corpus_params, "split_seed": args.split_seed,
         "val_stretch": split["val_stretch"], "test_stretch": split["test_stretch"],
         "hidden_size": args.hidden_size, "num_layers": args.num_layers,
-        "lr": args.lr, "batch_size": args.batch_size, "max_epochs": args.max_epochs,
-        "patience": args.patience, "target_transform": args.target_transform,
-        "model_seed": args.model_seed,
-    })
+        "dropout": args.dropout, "lr": args.lr, "beta1": args.beta1,
+        "weight_decay": args.weight_decay, "batch_size": args.batch_size,
+        "max_epochs": args.max_epochs, "patience": args.patience,
+        "target_transform": args.target_transform, "model_seed": args.model_seed,
+    }
+    run = wandb.init(project=args.wandb_project, config=config)
     tr, va = split["train"], split["val"]
     est = GruEstimator(
-        hidden_size=args.hidden_size, num_layers=args.num_layers, lr=args.lr,
-        batch_size=args.batch_size, max_epochs=args.max_epochs,
-        patience=args.patience, target_transform=args.target_transform,
-        seed=args.model_seed,
+        hidden_size=args.hidden_size, num_layers=args.num_layers,
+        dropout=args.dropout, lr=args.lr, beta1=args.beta1,
+        weight_decay=args.weight_decay, batch_size=args.batch_size,
+        max_epochs=args.max_epochs, patience=args.patience,
+        target_transform=args.target_transform, seed=args.model_seed,
     )
     def _log_epoch(epoch, train_loss, val_loss, val_metrics):
         row = {"epoch": epoch, "train_loss": train_loss, "val_loss": val_loss}
@@ -174,6 +184,10 @@ def main(argv: list[str] | None = None) -> int:
     val_metrics = flow_metrics(data.r_true[va], data.s_true[va], r_hat, s_hat)
     run.summary.update({f"val_{k}": v for k, v in val_metrics.items()})
     print({k: round(v, 4) for k, v in val_metrics.items()})
+    result_path = args.out_dir / "result.json"
+    result_path.write_text(json.dumps(
+        {"config": config, "val_metrics": val_metrics, "wandb_run_id": run.id},
+        indent=2, default=str) + "\n")
 
     ckpt_path = args.out_dir / "gru.pt"
     est.save(ckpt_path)
