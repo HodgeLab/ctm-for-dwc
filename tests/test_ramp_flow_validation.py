@@ -68,6 +68,24 @@ def test_flow_metrics_known_nrmse_on_ramp():
     assert np.isclose(m["bias_on"], 3.5)           # mean(y - 0)
 
 
+def test_flow_metrics_known_rmse_and_nbias():
+    r = np.array([100.0, 200.0])
+    r_hat = np.array([90.0, 220.0])                # errors +10, -20
+    s = np.array([50.0, 50.0])
+    s_hat = s.copy()
+    m = flow_metrics(r, s, r_hat, s_hat)
+    assert np.isclose(m["rmse_on"], np.sqrt((100 + 400) / 2))
+    assert np.isclose(m["nbias_on"], (10 - 20) / 300)   # sum(err) / sum(true)
+    assert m["rmse_off"] == 0.0 and m["nbias_off"] == 0.0
+    assert np.isclose(m["nbias"], -10 / 400)            # combined ramps
+
+
+def test_flow_metrics_nbias_nan_when_true_flows_sum_to_zero():
+    z = np.zeros(3)
+    m = flow_metrics(z, z, z + 1.0, z)
+    assert np.isnan(m["nbias_on"])
+
+
 def test_leave_one_out_covers_each_stretch_once():
     res = leave_k_out(_data(3), k=1, estimator_factory=_fake_factory())
     assert res["n_combos"] == 3

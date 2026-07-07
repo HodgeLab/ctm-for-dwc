@@ -32,29 +32,36 @@ def _nrmse(y, y_hat) -> float:
     return float(np.sqrt(np.sum((y - y_hat) ** 2) / denom)) if denom > 0 else np.nan
 
 
+def _rmse(y, y_hat) -> float:
+    return float(np.sqrt(np.mean((y - y_hat) ** 2)))
+
+
+def _nbias(y, y_hat) -> float:
+    denom = float(np.sum(y))
+    return float(np.sum(y - y_hat) / denom) if denom > 0 else np.nan
+
+
 def _r2(y, y_hat) -> float:
     ss_tot = float(np.sum((y - np.mean(y)) ** 2))
     return 1.0 - float(np.sum((y - y_hat) ** 2)) / ss_tot if ss_tot > 0 else np.nan
 
 
 def flow_metrics(r_true, s_true, r_hat, s_hat) -> dict:
-    """NRMSE (Kan Eq. 12), R^2, and BIAS (Kan Eq. 13) for the on-ramp, off-ramp,
-    and both combined."""
+    """NRMSE (Kan Eq. 12), RMSE, R^2, BIAS (Kan Eq. 13), and NBIAS
+    (``sum(y - y_hat) / sum(y)``) for the on-ramp, off-ramp, and both combined."""
     r_true, s_true = np.asarray(r_true, float), np.asarray(s_true, float)
     r_hat, s_hat = np.asarray(r_hat, float), np.asarray(s_hat, float)
     both_true = np.concatenate([r_true, s_true])
     both_hat = np.concatenate([r_hat, s_hat])
-    return {
-        "nrmse": _nrmse(both_true, both_hat),
-        "r2": _r2(both_true, both_hat),
-        "bias": float(np.mean(both_true - both_hat)),
-        "nrmse_on": _nrmse(r_true, r_hat),
-        "r2_on": _r2(r_true, r_hat),
-        "bias_on": float(np.mean(r_true - r_hat)),
-        "nrmse_off": _nrmse(s_true, s_hat),
-        "r2_off": _r2(s_true, s_hat),
-        "bias_off": float(np.mean(s_true - s_hat)),
-    }
+    out = {}
+    for suffix, y, y_hat in (("", both_true, both_hat),
+                             ("_on", r_true, r_hat), ("_off", s_true, s_hat)):
+        out[f"nrmse{suffix}"] = _nrmse(y, y_hat)
+        out[f"rmse{suffix}"] = _rmse(y, y_hat)
+        out[f"r2{suffix}"] = _r2(y, y_hat)
+        out[f"bias{suffix}"] = float(np.mean(y - y_hat))
+        out[f"nbias{suffix}"] = _nbias(y, y_hat)
+    return out
 
 
 def train_val_test_split(data, *, val_stretch=None, test_stretch=None, seed=0) -> dict:
