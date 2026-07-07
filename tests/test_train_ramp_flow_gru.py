@@ -49,6 +49,38 @@ def _build_case(tmp_path):
     return sd, ts, meta
 
 
+def test_prepare_only_builds_cache_and_census(tmp_path, capsys):
+    sd, ts, meta = _build_case(tmp_path)
+    cache = tmp_path / "corpus.npz"
+    rc = main([
+        "--stretches", str(sd), "--timeseries-dir", str(ts), "--station-meta", str(meta),
+        "--corpus-cache", str(cache), "--prepare-only",
+    ])
+    assert rc == 0
+    assert cache.exists()
+    out = capsys.readouterr().out
+    assert "per-stretch census" in out and "880_N:0" in out
+    # a second run trains from the cache without touching the timeseries dir
+    rc = main([
+        "--stretches", str(sd), "--timeseries-dir", str(ts), "--station-meta", str(meta),
+        "--corpus-cache", str(cache), "--prepare-only",
+    ])
+    assert rc == 0
+    assert "loaded corpus cache" in capsys.readouterr().out
+
+
+def test_cache_with_mismatched_params_fails(tmp_path):
+    sd, ts, meta = _build_case(tmp_path)
+    cache = tmp_path / "corpus.npz"
+    assert main(["--stretches", str(sd), "--timeseries-dir", str(ts),
+                 "--station-meta", str(meta), "--corpus-cache", str(cache),
+                 "--prepare-only"]) == 0
+    rc = main(["--stretches", str(sd), "--timeseries-dir", str(ts),
+               "--station-meta", str(meta), "--corpus-cache", str(cache),
+               "--prepare-only", "--window-size", "4"])
+    assert rc == 1
+
+
 def test_cli_trains_and_writes_manifest_and_checkpoint(tmp_path, monkeypatch):
     monkeypatch.setenv("WANDB_MODE", "offline")
     monkeypatch.setenv("WANDB_DIR", str(tmp_path))

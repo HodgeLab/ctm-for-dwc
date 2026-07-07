@@ -21,7 +21,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from .features import TrainingData, build_training_data
+from .features import _CTX_COLUMNS, TrainingData, build_training_data
 
 
 def load_stretches(path) -> pd.DataFrame:
@@ -80,6 +80,39 @@ def write_manifest(path, *, corpus_params: dict, split_seed: int,
 
 def load_manifest(path) -> dict:
     return json.loads(Path(path).read_text())
+
+
+def save_corpus_cache(path, data: TrainingData, stretch_ctx: "pd.DataFrame",
+                      corpus_params: dict) -> None:
+    """Cache the assembled corpus (arrays + ctx + build params + digest) so
+    that e.g. sweep array tasks skip the multi-year CSV IO. The recorded
+    params let loaders verify the cache matches their own build flags."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(
+        path, X=data.X, r_true=data.r_true, s_true=data.s_true,
+        q_up=data.q_up, q_down=data.q_down,
+        stretch_id=np.asarray(data.stretch_id).astype(str),
+        ctx_index=stretch_ctx.index.to_numpy().astype(str),
+        ctx_values=stretch_ctx.to_numpy(dtype=float),
+        corpus_params=np.array(json.dumps(corpus_params)),
+        digest=np.array(corpus_digest(data, stretch_ctx)),
+    )
+
+
+def load_corpus_cache(path) -> tuple[TrainingData, "pd.DataFrame", dict]:
+    """Load ``(data, stretch_ctx, corpus_params)`` from a corpus cache,
+    verifying the stored digest against the loaded arrays."""
+    z = np.load(Path(path), allow_pickle=False)
+    data = TrainingData(X=z["X"], r_true=z["r_true"], s_true=z["s_true"],
+                        q_up=z["q_up"], q_down=z["q_down"],
+                        stretch_id=z["stretch_id"])
+    ctx = pd.DataFrame(z["ctx_values"], columns=_CTX_COLUMNS,
+                       index=pd.Index(z["ctx_index"], name="stretch_id"))
+    if corpus_digest(data, ctx) != str(z["digest"]):
+        raise ValueError(f"corpus cache {path} is corrupt: stored digest does "
+                         "not match its arrays")
+    return data, ctx, json.loads(str(z["corpus_params"]))
 
 
 def rebuild_corpus(manifest: dict, *, stretches=None, timeseries_dir=None,

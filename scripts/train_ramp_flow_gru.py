@@ -23,7 +23,9 @@ from transportation_models.utils import constants
 from transportation_models.utils.ramp_flow_estimation.features import build_training_data
 from transportation_models.utils.ramp_flow_estimation.gru import GruEstimator
 from transportation_models.utils.ramp_flow_estimation.manifest import (
+    load_corpus_cache,
     load_stretches,
+    save_corpus_cache,
     write_manifest,
 )
 from transportation_models.utils.ramp_flow_estimation.validation import (
@@ -69,6 +71,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--patience", type=int, default=20)
     ap.add_argument("--target-transform", choices=["zscore", "log1p"], default="zscore")
     ap.add_argument("--model-seed", type=int, default=0)
+    # corpus cache / sweep prep
+    ap.add_argument("--corpus-cache", type=Path, default=None,
+                    help="Corpus cache (.npz): load if present, else build the "
+                         "corpus and save it here. Lets sweep array tasks skip "
+                         "the timeseries IO.")
+    ap.add_argument("--prepare-only", action="store_true",
+                    help="Build the corpus (and cache, with --corpus-cache), "
+                         "print the per-stretch census, and exit without training.")
     # outputs
     ap.add_argument("--wandb-project", default="ramp-flow-estimation")
     ap.add_argument("--out-dir", type=Path, default=_REPO_ROOT / "scripts/output/gru")
@@ -83,20 +93,42 @@ def main(argv: list[str] | None = None) -> int:
         "record_start": None if args.record_start is None else str(args.record_start),
         "record_end": None if args.record_end is None else str(args.record_end),
     }
-    data, stretch_ctx = build_training_data(
-        load_stretches(args.stretches), args.timeseries_dir,
-        pd.read_csv(args.station_meta),
-        pct_floor=args.pct_observed_floor, window_size=args.window_size,
-        require_both_measured=not args.include_conservation,
-        require_capacity=not args.include_uncalibrated,
-        record_start=args.record_start, record_end=args.record_end,
-    )
+    if args.corpus_cache is not None and args.corpus_cache.exists():
+        data, stretch_ctx, cached_params = load_corpus_cache(args.corpus_cache)
+        if cached_params != corpus_params:
+            print(f"corpus cache {args.corpus_cache} was built with different "
+                  f"parameters:\n  cached: {cached_params}\n  args:   {corpus_params}")
+            return 1
+        print(f"loaded corpus cache -> {args.corpus_cache}")
+    else:
+        data, stretch_ctx = build_training_data(
+            load_stretches(args.stretches), args.timeseries_dir,
+            pd.read_csv(args.station_meta),
+            pct_floor=args.pct_observed_floor, window_size=args.window_size,
+            require_both_measured=not args.include_conservation,
+            require_capacity=not args.include_uncalibrated,
+            record_start=args.record_start, record_end=args.record_end,
+        )
+        if len(data.r_true) and args.corpus_cache is not None:
+            save_corpus_cache(args.corpus_cache, data, stretch_ctx, corpus_params)
+            print(f"wrote corpus cache -> {args.corpus_cache}")
     n = len(data.r_true)
     if n == 0:
         print("No training samples assembled (no type-(c) stretch with measured "
               "ramps over the record).")
         return 1
     print(f"corpus: {n} windows across {len(np.unique(data.stretch_id))} stretches")
+
+    if args.prepare_only:
+        print("\nper-stretch census (pick --val-stretch/--test-stretch from this):")
+        for sid in np.unique(data.stretch_id):
+            m = data.stretch_id == sid
+            flags = "".join([" [ZERO-ON]" if data.r_true[m].max() == 0 else "",
+                             " [ZERO-OFF]" if data.s_true[m].max() == 0 else ""])
+            print(f"  {sid}: {m.sum()} rows, "
+                  f"mean r {data.r_true[m].mean():.0f}, "
+                  f"mean s {data.s_true[m].mean():.0f} veh/hr{flags}")
+        return 0
 
     split = train_val_test_split(data, val_stretch=args.val_stretch,
                                  test_stretch=args.test_stretch, seed=args.split_seed)

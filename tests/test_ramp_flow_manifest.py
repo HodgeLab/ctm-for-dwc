@@ -12,9 +12,11 @@ import pytest
 from transportation_models.utils.ramp_flow_estimation.features import build_training_data
 from transportation_models.utils.ramp_flow_estimation.manifest import (
     corpus_digest,
+    load_corpus_cache,
     load_manifest,
     load_stretches,
     rebuild_corpus,
+    save_corpus_cache,
     write_manifest,
 )
 
@@ -138,6 +140,31 @@ def test_rebuild_fails_when_station_capacity_drifts(tmp_path):
                   "Lanes": [3, 3]}).to_csv(params["station_meta"], index=False)
     with pytest.raises(ValueError, match="digest"):
         rebuild_corpus(m)
+
+
+def test_corpus_cache_roundtrip(tmp_path):
+    params = _case(tmp_path)
+    data, ctx = _build(params)
+    cache = tmp_path / "corpus.npz"
+    save_corpus_cache(cache, data, ctx, params)
+    loaded, loaded_ctx, loaded_params = load_corpus_cache(cache)
+    np.testing.assert_array_equal(loaded.X, data.X)
+    np.testing.assert_array_equal(loaded.stretch_id.astype(str),
+                                  np.asarray(data.stretch_id).astype(str))
+    assert corpus_digest(loaded, loaded_ctx) == corpus_digest(data, ctx)
+    assert loaded_params == params
+
+
+def test_corpus_cache_detects_tampering(tmp_path):
+    params = _case(tmp_path)
+    data, ctx = _build(params)
+    cache = tmp_path / "corpus.npz"
+    save_corpus_cache(cache, data, ctx, params)
+    z = dict(np.load(cache, allow_pickle=False))
+    z["r_true"] = z["r_true"] + 1.0            # arrays changed, stored digest stale
+    np.savez_compressed(cache, **z)
+    with pytest.raises(ValueError, match="digest"):
+        load_corpus_cache(cache)
 
 
 def test_rebuild_honors_path_overrides(tmp_path):
