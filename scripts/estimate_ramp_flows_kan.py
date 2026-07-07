@@ -27,16 +27,12 @@ from transportation_models.utils.ramp_flow_estimation.kan import (
     alpha_targets,
     row_context,
 )
+from transportation_models.utils.ramp_flow_estimation.manifest import load_stretches
 from transportation_models.utils.ramp_flow_estimation.validation import run_scenarios
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _DEFAULT_STRETCHES = _REPO_ROOT / "data/pems/stretches"
 _DEFAULT_STATION_META = _REPO_ROOT / "data/pems/calibrated/station_metadata_calibrated.csv"
-
-
-def _load_stretches(path: Path) -> pd.DataFrame:
-    csvs = sorted(path.glob("*.csv")) if path.is_dir() else [path]
-    return pd.concat([pd.read_csv(c) for c in csvs], ignore_index=True)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -66,7 +62,7 @@ def main(argv: list[str] | None = None) -> int:
                     default=_REPO_ROOT / "scripts/output/ramp_flow_evaluation.csv")
     args = ap.parse_args(argv)
 
-    stretches = _load_stretches(args.stretches)
+    stretches = load_stretches(args.stretches)
     station_meta = pd.read_csv(args.station_meta)
 
     data, stretch_ctx = build_training_data(

@@ -56,10 +56,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--record-end", type=pd.Timestamp, default=None)
     # split
     ap.add_argument("--split-seed", type=int, default=0)
-    ap.add_argument("--val-stretch", type=int, default=None,
-                    help="Validation stretch ID (default: seeded random draw).")
-    ap.add_argument("--test-stretch", type=int, default=None,
-                    help="Test stretch ID (default: seeded random draw).")
+    ap.add_argument("--val-stretch", default=None,
+                    help="Validation stretch ID, e.g. '880_N:3' (default: seeded random draw).")
+    ap.add_argument("--test-stretch", default=None,
+                    help="Test stretch ID, e.g. '880_N:7' (default: seeded random draw).")
     # model
     ap.add_argument("--hidden-size", type=int, default=64)
     ap.add_argument("--num-layers", type=int, default=1)

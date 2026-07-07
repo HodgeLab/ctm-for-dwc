@@ -13,6 +13,7 @@ from transportation_models.utils.ramp_flow_estimation.features import build_trai
 from transportation_models.utils.ramp_flow_estimation.manifest import (
     corpus_digest,
     load_manifest,
+    load_stretches,
     rebuild_corpus,
     write_manifest,
 )
@@ -55,7 +56,7 @@ def _case(tmp_path):
 
 def _build(params):
     return build_training_data(
-        pd.read_csv(params["stretches"]), params["timeseries_dir"],
+        load_stretches(params["stretches"]), params["timeseries_dir"],
         pd.read_csv(params["station_meta"]),
         pct_floor=params["pct_floor"], window_size=params["window_size"],
         require_both_measured=params["require_both_measured"],
@@ -68,6 +69,35 @@ def _write(tmp_path, params, data, ctx):
     return write_manifest(tmp_path / "manifest.json", corpus_params=params,
                           split_seed=0, val_stretch=0, test_stretch=0,
                           data=data, stretch_ctx=ctx)
+
+
+def _stretch_row(sid, up, down, on, off):
+    return {"stretch_id": sid, "up_ml_id": up, "down_ml_id": down,
+            "on_ids": str(on), "off_ids": str(off), "review_ids": "",
+            "n_on": 1, "n_off": 1, "config_type": "c"}
+
+
+def test_load_stretches_namespaces_colliding_ids_across_files(tmp_path):
+    # Two stretch CSVs both numbered from 0 (the builder numbers per file).
+    # Without namespacing their rows merge into one bogus "stretch" and the
+    # later stretch's bounds context overwrites the earlier one's.
+    ts_dir = tmp_path / "timeseries"; ts_dir.mkdir()
+    for sid, flow in ((100, 100), (200, 120), (10, 50), (20, 30),
+                      (300, 100), (400, 120), (30, 50), (40, 30)):
+        _write_station(ts_dir, sid, flow)
+    sd = tmp_path / "stretches"; sd.mkdir()
+    pd.DataFrame([_stretch_row(0, 100, 200, 10, 20)]).to_csv(sd / "a.csv", index=False)
+    pd.DataFrame([_stretch_row(0, 300, 400, 30, 40)]).to_csv(sd / "b.csv", index=False)
+    meta = pd.DataFrame({"Station ID": [100, 300], "capacity": [2000.0, 1500.0],
+                         "Lanes": [3, 2]})
+
+    stretches = load_stretches(sd)
+    assert set(stretches["stretch_id"]) == {"a:0", "b:0"}
+
+    data, ctx = build_training_data(stretches, ts_dir, meta)
+    assert set(np.unique(data.stretch_id)) == {"a:0", "b:0"}
+    assert ctx.at["a:0", "c_w"] == 6000.0            # 2000 * 3
+    assert ctx.at["b:0", "c_w"] == 3000.0            # 1500 * 2 -- not clobbered
 
 
 def test_manifest_roundtrip_rebuilds_identical_corpus(tmp_path):

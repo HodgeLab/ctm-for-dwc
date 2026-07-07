@@ -25,10 +25,20 @@ from .features import TrainingData, build_training_data
 
 
 def load_stretches(path) -> pd.DataFrame:
-    """A stretches.csv, or a directory of them, concatenated."""
+    """A stretches.csv, or a directory of them, concatenated.
+
+    ``stretch_id`` is namespaced by source file (``"<stem>:<id>"``): the
+    builder numbers stretches per output CSV, so raw ids from different files
+    collide -- which would silently merge unrelated stretches in splits/CV and
+    overwrite one another's bounds context."""
     path = Path(path)
     csvs = sorted(path.glob("*.csv")) if path.is_dir() else [path]
-    return pd.concat([pd.read_csv(c) for c in csvs], ignore_index=True)
+    parts = []
+    for c in csvs:
+        df = pd.read_csv(c)
+        df["stretch_id"] = c.stem + ":" + df["stretch_id"].astype(str)
+        parts.append(df)
+    return pd.concat(parts, ignore_index=True)
 
 
 def corpus_digest(data: TrainingData, stretch_ctx: "pd.DataFrame") -> str:
@@ -36,16 +46,17 @@ def corpus_digest(data: TrainingData, stretch_ctx: "pd.DataFrame") -> str:
     context (so e.g. a station-metadata capacity drift is caught too; NaNs and
     infs hash stably)."""
     h = hashlib.sha256()
-    for arr in (data.X, data.r_true, data.s_true, data.q_up, data.q_down,
-                data.stretch_id):
+    for arr in (data.X, data.r_true, data.s_true, data.q_up, data.q_down):
         h.update(np.ascontiguousarray(arr).tobytes())
-    h.update(np.ascontiguousarray(stretch_ctx.index.to_numpy(dtype=np.int64)).tobytes())
+    # string-valued labels: hash a canonical text form, not dtype-width-dependent bytes
+    h.update("|".join(map(str, data.stretch_id)).encode())
+    h.update("|".join(map(str, stretch_ctx.index)).encode())
     h.update(np.ascontiguousarray(stretch_ctx.to_numpy(dtype=float)).tobytes())
     return h.hexdigest()
 
 
 def write_manifest(path, *, corpus_params: dict, split_seed: int,
-                   val_stretch: int, test_stretch: int, data: TrainingData,
+                   val_stretch, test_stretch, data: TrainingData,
                    stretch_ctx: "pd.DataFrame") -> dict:
     """Write the manifest JSON; returns the manifest dict.
 
@@ -56,8 +67,8 @@ def write_manifest(path, *, corpus_params: dict, split_seed: int,
     """
     manifest = {
         "corpus": dict(corpus_params),
-        "split": {"seed": int(split_seed), "val_stretch": int(val_stretch),
-                  "test_stretch": int(test_stretch)},
+        "split": {"seed": int(split_seed), "val_stretch": val_stretch,
+                  "test_stretch": test_stretch},
         "n_rows": int(len(data.r_true)),
         "digest": corpus_digest(data, stretch_ctx),
     }

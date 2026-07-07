@@ -182,7 +182,7 @@ def _empty_corpus(window_size: int) -> tuple[TrainingData, pd.DataFrame]:
     data = TrainingData(
         X=np.zeros((0, FEATURES_PER_LAG * window_size), dtype=float),
         r_true=z(), s_true=z(), q_up=z(), q_down=z(),
-        stretch_id=np.zeros(0, dtype=int),
+        stretch_id=np.zeros(0, dtype=str),
     )
     ctx = pd.DataFrame(columns=_CTX_COLUMNS, index=pd.Index([], name="stretch_id"))
     return data, ctx
@@ -296,10 +296,10 @@ def build_training_data(
         n = len(s.r_true)
         if n == 0:
             continue
-        sid = int(getattr(row, "stretch_id"))
+        sid = getattr(row, "stretch_id")    # opaque label (namespaced string or int)
         parts.append(TrainingData(
             X=s.X, r_true=s.r_true, s_true=s.s_true, q_up=s.q_up, q_down=s.q_down,
-            stretch_id=np.full(n, sid, dtype=int),
+            stretch_id=np.full(n, sid),
         ))
         ctx_rows[sid] = [c_w, hist_peak(on), hist_peak(off)]
 

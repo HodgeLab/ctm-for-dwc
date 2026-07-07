@@ -60,31 +60,29 @@ def flow_metrics(r_true, s_true, r_hat, s_hat) -> dict:
 def train_val_test_split(data, *, val_stretch=None, test_stretch=None, seed=0) -> dict:
     """Stretch-level train/val/test split: one stretch's rows to val, one to
     test, the rest to train. Held-out stretches are drawn with ``seed`` unless
-    given explicitly by ID. Returns row masks plus the resolved IDs:
+    given explicitly by ID (an opaque label, e.g. the namespaced ``"<csv>:<n>"``
+    from ``manifest.load_stretches``). Returns row masks plus the resolved IDs:
     ``{"train", "val", "test", "val_stretch", "test_stretch"}``."""
-    ids = sorted(int(i) for i in np.unique(data.stretch_id))
+    ids = sorted(np.unique(data.stretch_id).tolist())
     if len(ids) < 3:
         raise ValueError(f"need >= 3 stretches for a train/val/test split, got {len(ids)}")
     for name, sid in (("val_stretch", val_stretch), ("test_stretch", test_stretch)):
-        if sid is not None and int(sid) not in ids:
-            raise ValueError(f"{name}={sid} not in corpus stretch ids")
-    if val_stretch is not None and test_stretch is not None \
-            and int(val_stretch) == int(test_stretch):
+        if sid is not None and sid not in ids:
+            raise ValueError(f"{name}={sid!r} not in corpus stretch ids {ids}")
+    if val_stretch is not None and val_stretch == test_stretch:
         raise ValueError("val_stretch and test_stretch must differ")
 
     rng = np.random.default_rng(seed)
-    taken = {int(s) for s in (val_stretch, test_stretch) if s is not None}
-    free = [i for i in ids if i not in taken]
+    free = [i for i in ids if i not in (val_stretch, test_stretch)]
     if val_stretch is None:
-        val_stretch = int(rng.choice(free))
-        free.remove(val_stretch)
+        val_stretch = free.pop(int(rng.integers(len(free))))
     if test_stretch is None:
-        test_stretch = int(rng.choice(free))
+        test_stretch = free[int(rng.integers(len(free)))]
 
-    val = data.stretch_id == int(val_stretch)
-    test = data.stretch_id == int(test_stretch)
+    val = data.stretch_id == val_stretch
+    test = data.stretch_id == test_stretch
     return {"train": ~val & ~test, "val": val, "test": test,
-            "val_stretch": int(val_stretch), "test_stretch": int(test_stretch)}
+            "val_stretch": val_stretch, "test_stretch": test_stretch}
 
 
 def _holdout_combos(ids, k, max_combos, random_state):
@@ -114,7 +112,7 @@ def leave_k_out(data, k=1, *, ctx=None, estimator_factory=None, max_combos=None,
         from .kan import KanEstimator
         estimator_factory = lambda: KanEstimator(model="rf")
 
-    ids = sorted(int(i) for i in np.unique(data.stretch_id))
+    ids = sorted(np.unique(data.stretch_id).tolist())
     if k > len(ids):
         raise ValueError(f"k={k} exceeds number of stretches ({len(ids)})")
     combos = _holdout_combos(ids, k, max_combos, random_state)
