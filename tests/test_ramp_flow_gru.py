@@ -56,6 +56,15 @@ def test_normalizer_target_roundtrip(transform):
     torch.testing.assert_close(norm.inverse_targets(yt), y)
 
 
+def test_normalizer_maxscale_divides_each_target_by_its_train_max():
+    y = torch.tensor([[0.0, 10.0], [500.0, 300.0], [1200.0, 40.0]])
+    norm = Normalizer("maxscale").fit(torch.rand(3, 2, 6), y)
+    yt = norm.targets(y)
+    torch.testing.assert_close(yt, y / torch.tensor([1200.0, 300.0]))
+    torch.testing.assert_close(yt.max(dim=0).values, torch.ones(2))
+    torch.testing.assert_close(norm.inverse_targets(yt), y)
+
+
 def test_normalizer_inverse_clamps_negative_flows():
     y = torch.tensor([[100.0, 200.0], [300.0, 400.0]])
     norm = Normalizer("zscore").fit(torch.rand(2, 2, 6), y)
@@ -71,7 +80,7 @@ def test_normalizer_unknown_transform_raises():
 # --------------------------------------------------------------------------- #
 # GruEstimator
 # --------------------------------------------------------------------------- #
-@pytest.mark.parametrize("transform", ["zscore", "log1p"])
+@pytest.mark.parametrize("transform", ["zscore", "log1p", "maxscale"])
 def test_learns_synthetic_mapping(transform):
     X, r, s = _synthetic()
     est = _fast(target_transform=transform).fit(X, r, s)
@@ -108,6 +117,20 @@ def test_early_stopping_on_noise_val():
         X, r, s, X_val=Xv, r_val=rv, s_val=sv,
         log_fn=lambda e, tl, vl, vm: epochs.append(e))
     assert len(epochs) < 200
+
+
+def test_patience_none_disables_early_stopping():
+    # same unlearnable val targets as the early-stopping test, but with
+    # patience=None the run must go the full max_epochs (final weights kept)
+    rng = np.random.default_rng(1)
+    X, r, s = _synthetic(n=200)
+    Xv = rng.uniform(0, 1, size=(80, 18))
+    rv, sv = rng.uniform(0, 1000, 80), rng.uniform(0, 1000, 80)
+    epochs = []
+    _fast(max_epochs=15, patience=None).fit(
+        X, r, s, X_val=Xv, r_val=rv, s_val=sv,
+        log_fn=lambda e, tl, vl, vm: epochs.append(e))
+    assert len(epochs) == 15
 
 
 def test_val_loss_and_metrics_passed_to_log_fn():

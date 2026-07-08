@@ -76,7 +76,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--batch-size", type=int, default=256)
     ap.add_argument("--max-epochs", type=int, default=200)
     ap.add_argument("--patience", type=int, default=20)
-    ap.add_argument("--target-transform", choices=["zscore", "log1p"], default="zscore")
+    ap.add_argument("--no-early-stop", action="store_true",
+                    help="Train all --max-epochs and keep the final weights "
+                         "(val metrics still logged each epoch).")
+    ap.add_argument("--target-transform", choices=["zscore", "log1p", "maxscale"],
+                    default="zscore")
     ap.add_argument("--model-seed", type=int, default=0)
     # corpus cache / sweep prep
     ap.add_argument("--corpus-cache", type=Path, default=None,
@@ -150,13 +154,14 @@ def main(argv: list[str] | None = None) -> int:
           f"train {split['train'].sum()} rows")
     print(f"wrote manifest -> {manifest_path}")
 
+    patience = None if args.no_early_stop else args.patience
     config = {
         **corpus_params, "split_seed": args.split_seed,
         "val_stretch": split["val_stretch"], "test_stretch": split["test_stretch"],
         "hidden_size": args.hidden_size, "num_layers": args.num_layers,
         "dropout": args.dropout, "lr": args.lr, "beta1": args.beta1,
         "weight_decay": args.weight_decay, "batch_size": args.batch_size,
-        "max_epochs": args.max_epochs, "patience": args.patience,
+        "max_epochs": args.max_epochs, "patience": patience,
         "target_transform": args.target_transform, "model_seed": args.model_seed,
     }
     run = wandb.init(project=args.wandb_project, config=config)
@@ -165,7 +170,7 @@ def main(argv: list[str] | None = None) -> int:
         hidden_size=args.hidden_size, num_layers=args.num_layers,
         dropout=args.dropout, lr=args.lr, beta1=args.beta1,
         weight_decay=args.weight_decay, batch_size=args.batch_size,
-        max_epochs=args.max_epochs, patience=args.patience,
+        max_epochs=args.max_epochs, patience=patience,
         target_transform=args.target_transform, seed=args.model_seed,
     )
     def _log_epoch(epoch, train_loss, val_loss, val_metrics):

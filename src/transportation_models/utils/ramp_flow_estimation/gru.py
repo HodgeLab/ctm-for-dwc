@@ -25,7 +25,7 @@ from torch import nn
 from .features import FEATURES_PER_LAG, _VARS_PER_STATION
 from .validation import flow_metrics
 
-_TARGET_TRANSFORMS = ("zscore", "log1p")
+_TARGET_TRANSFORMS = ("zscore", "log1p", "maxscale")
 
 
 class Normalizer:
@@ -41,6 +41,8 @@ class Normalizer:
     * ``"zscore"`` -- center and scale; inverse clamps at zero.
     * ``"log1p"`` -- ``log1p`` then center and scale; inverse ``expm1`` (loss
       then weights relative rather than absolute errors), clamped at zero.
+    * ``"maxscale"`` -- divide each target by its training max (r and s scaled
+      independently into ``[0, ~1]``); no centering, inverse clamps at zero.
     """
 
     def __init__(self, target_transform: str = "zscore"):
@@ -68,9 +70,14 @@ class Normalizer:
         self._x_mean, self._x_std = x_mean, x_std
 
         yt = self._pre(y)
-        self._y_mean = yt.mean(dim=0)
-        y_std = yt.std(dim=0)
-        self._y_std = torch.where(y_std > 0, y_std, torch.ones_like(y_std))
+        if self.target_transform == "maxscale":
+            self._y_mean = torch.zeros(yt.shape[1], dtype=yt.dtype)
+            y_max = yt.max(dim=0).values
+            self._y_std = torch.where(y_max > 0, y_max, torch.ones_like(y_max))
+        else:
+            self._y_mean = yt.mean(dim=0)
+            y_std = yt.std(dim=0)
+            self._y_std = torch.where(y_std > 0, y_std, torch.ones_like(y_std))
         return self
 
     def features(self, x: torch.Tensor) -> torch.Tensor:
@@ -119,6 +126,9 @@ class GruEstimator:
     AdamW/MSE in normalized space (``beta1`` is the momentum rate;
     ``weight_decay`` is decoupled, so 0 reproduces plain Adam), and -- when a
     validation set is given -- early-stops on val loss with best-weight restore.
+    ``patience=None`` disables early stopping: the model trains all
+    ``max_epochs`` and keeps the *final* epoch's weights (val metrics are still
+    computed and logged each epoch).
     ``dropout`` is nn.GRU's inter-layer dropout and therefore requires
     ``num_layers >= 2``. ``log_fn(epoch, train_loss, val_loss, val_metrics)``
     is an optional per-epoch callback (e.g. for W&B logging); ``val_metrics``
@@ -129,7 +139,7 @@ class GruEstimator:
     def __init__(self, *, hidden_size: int = 64, num_layers: int = 1,
                  dropout: float = 0.0, lr: float = 1e-3, beta1: float = 0.9,
                  weight_decay: float = 0.0, batch_size: int = 256,
-                 max_epochs: int = 200, patience: int = 20,
+                 max_epochs: int = 200, patience: int | None = 20,
                  target_transform: str = "zscore", seed: int = 0, device=None):
         if dropout > 0.0 and num_layers < 2:
             raise ValueError("dropout is inter-layer (nn.GRU) and has no effect "
@@ -213,7 +223,7 @@ class GruEstimator:
                             flows[:, 0], flows[:, 1])
             if log_fn is not None:
                 log_fn(epoch, train_loss, val_loss, val_metrics)
-            if has_val:
+            if has_val and self.patience is not None:
                 if val_loss < best_loss:
                     best_loss, since_best = val_loss, 0
                     best_state = copy.deepcopy(net.state_dict())

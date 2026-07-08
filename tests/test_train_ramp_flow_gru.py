@@ -70,6 +70,25 @@ def test_prepare_only_builds_cache_and_census(tmp_path, capsys):
     assert "loaded corpus cache" in capsys.readouterr().out
 
 
+def test_maxscale_and_no_early_stop_flags(tmp_path, monkeypatch):
+    monkeypatch.setenv("WANDB_MODE", "offline")
+    monkeypatch.setenv("WANDB_DIR", str(tmp_path))
+    monkeypatch.setenv("WANDB_SILENT", "true")
+    sd, ts, meta = _build_case(tmp_path)
+    out_dir = tmp_path / "out"
+    rc = main([
+        "--stretches", str(sd), "--timeseries-dir", str(ts), "--station-meta", str(meta),
+        "--hidden-size", "8", "--max-epochs", "2",
+        "--target-transform", "maxscale", "--no-early-stop",
+        "--out-dir", str(out_dir),
+    ])
+    assert rc == 0
+    result = json.loads((out_dir / "result.json").read_text())
+    assert result["config"]["target_transform"] == "maxscale"
+    assert result["config"]["patience"] is None
+    assert GruEstimator.load(out_dir / "gru.pt").target_transform == "maxscale"
+
+
 def test_cache_with_mismatched_params_fails(tmp_path):
     sd, ts, meta = _build_case(tmp_path)
     cache = tmp_path / "corpus.npz"
