@@ -175,6 +175,13 @@ def main() -> None:
               "convention as --demand; Step 7 will produce this too."),
     )
     parser.add_argument(
+        "--stretches", type=Path, default=None,
+        help=("Path to stretches.csv (output of build_pems_stretches.py). "
+              "Required when --ramp-fill-strategy != 'none' and --beta is "
+              "not supplied, so beta_from_off_ramp_vds can look up the "
+              "downstream mainline VDS for each off-ramp cell."),
+    )
+    parser.add_argument(
         "--ramp-fill-strategy",
         choices=["none", "persistence", "historical_average",
                  "stochastic_historical"],
@@ -265,10 +272,16 @@ def main() -> None:
             print(f"  beta         : <zero> (no --beta; {n_off} off-ramp "
                   "cell(s) will pass all traffic through)", file=sys.stderr)
         else:
+            if args.stretches is None:
+                raise SystemExit(
+                    "--stretches is required when --ramp-fill-strategy != 'none' "
+                    "and --beta is not supplied."
+                )
+            stretches_df = pd.read_csv(args.stretches)
             print(f"  beta         : derived from ramp VDSs "
                   f"(fill={fill_label})", file=sys.stderr)
             beta_df = beta_from_off_ramp_vds(
-                cells, args.timeseries_dir, dt=dt_h,
+                cells, args.timeseries_dir, dt_h, stretches_df,
                 start=args.start, end=args.end,
                 fill_strategy=fill_strategy,
             )

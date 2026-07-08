@@ -306,10 +306,45 @@ def demand_from_ramp_vds(
     return pd.DataFrame(columns)
 
 
+def _build_off_vds_to_stretch(stretches_df: pd.DataFrame) -> dict[int, list[int]]:
+    """Map each off-ramp VDS id to the list of row-index positions in ``stretches_df``."""
+    mapping: dict[int, list[int]] = {}
+    for pos, (idx, row) in enumerate(stretches_df.iterrows()):
+        for vid in str(row.get("off_ids", "")).split(";"):
+            vid = vid.strip()
+            if vid.isdigit():
+                mapping.setdefault(int(vid), []).append(pos)
+    return mapping
+
+
+def _furthest_downstream_ml_id(
+    off_vds_ids: list[int],
+    stretches_df: pd.DataFrame,
+    vds_to_pos: dict[int, list[int]],
+) -> int | None:
+    """Return the ``down_ml_id`` of the furthest-downstream stretch that
+    contains any of ``off_vds_ids``, or ``None`` if none found."""
+    positions: set[int] = set()
+    for vid in off_vds_ids:
+        positions.update(vds_to_pos.get(vid, []))
+    if not positions:
+        return None
+    candidates = stretches_df.iloc[sorted(positions)].dropna(subset=["down_ml_id"])
+    if candidates.empty:
+        return None
+    direction = str(stretches_df["dir"].iloc[0])
+    if direction in ("N", "E"):
+        chosen = candidates.loc[candidates["pm_down"].idxmax()]
+    else:
+        chosen = candidates.loc[candidates["pm_down"].idxmin()]
+    return int(chosen["down_ml_id"])
+
+
 def beta_from_off_ramp_vds(
     cells_df: pd.DataFrame,
     timeseries_dir: Union[Path, str],
     dt: float,
+    stretches_df: pd.DataFrame,
     *,
     start: pd.Timestamp,
     end: pd.Timestamp,
@@ -323,31 +358,36 @@ def beta_from_off_ramp_vds(
     * :math:`s_i(k)` is the off-ramp VDS's flow (from
       ``off_ramp_vds_id``). When the cell carries a list of off-ramp
       VDS ids (Step-5 manual edit), the per-VDS flows are summed.
-    * :math:`f_i(k)` is the *downstream* mainline VDS's flow -- the
-      ``vds_id`` of cell ``i+1``. Mainline cells always have a single
-      VDS, so this stays scalar.
+    * :math:`f_i(k)` is the flow from the ``down_ml_id`` of the
+      furthest-downstream stretch (by ``pm_down``) in ``stretches_df``
+      that contains the cell's off-ramp VDS ids. This is the mainline
+      flow past all off-ramp exits in the cell.
 
     Both flows are gap-filled (via ``fill_strategy`` applied to each
     underlying CSV), then sliced + resampled by
     :func:`_resample_5min_to_sim_cadence`.
 
-    Special cases
-    -------------
-    * **Tail off-ramp.** A cell with ``off_ramp=True`` at the corridor's
-      downstream end has no ``i+1`` to provide :math:`f_i`. We set
-      ``beta = 0`` for that cell and emit a ``UserWarning`` so the user
-      knows the off-ramp is being modeled as no-op.
-    * **Clipping to [0, 1).** Numerical noise (or a mis-matched
-      mainline / off-ramp VDS pair) can produce raw ratios outside
-      ``[0, 1)``. We clip and emit aggregate stats (count of clipped
-      samples, mean pre-clip value on each side) via a
-      ``UserWarning`` so the user can spot pathological VDS pairings.
+    **Clipping to [0, 1).** Numerical noise (or a mis-matched
+    mainline / off-ramp VDS pair) can produce raw ratios outside
+    ``[0, 1)``. We clip and emit aggregate stats (count of clipped
+    samples, mean pre-clip value on each side) via a
+    ``UserWarning`` so the user can spot pathological VDS pairings.
 
     Parameters
     ----------
-    cells_df, timeseries_dir, dt, start, end, fill_strategy
-        Same conventions as :func:`demand_from_ramp_vds`. ``cells_df``
-        must carry ``off_ramp``, ``off_ramp_vds_id``, and ``vds_id``.
+    cells_df : pd.DataFrame
+        Step-1+2 ``cells.csv``. Must carry ``off_ramp`` and
+        ``off_ramp_vds_id``.
+    timeseries_dir : path-like
+        Directory of per-VDS 5-min CSVs (Step 3 output).
+    dt : float
+        Sim timestep in hours.
+    stretches_df : pd.DataFrame
+        Output of ``build_pems_stretches.py``. Must carry ``off_ids``
+        (semicolon-separated VDS ids), ``down_ml_id``, ``pm_down``,
+        and ``dir``.
+    start, end, fill_strategy
+        Same conventions as :func:`demand_from_ramp_vds`.
 
     Returns
     -------
@@ -359,7 +399,7 @@ def beta_from_off_ramp_vds(
     warn_presence_without_vds(
         cells_df, presence_col="off_ramp", vds_col="off_ramp_vds_id",
     )
-    last_cell_idx = len(cells_df) - 1
+    vds_to_pos = _build_off_vds_to_stretch(stretches_df)
 
     raw_columns: dict[int, np.ndarray] = {}
     for cell_idx, row in enumerate(cells_df.itertuples(index=False)):
@@ -369,23 +409,12 @@ def beta_from_off_ramp_vds(
         if not off_ids:
             continue
 
-        if cell_idx == last_cell_idx:
+        ml_id = _furthest_downstream_ml_id(off_ids, stretches_df, vds_to_pos)
+        if ml_id is None:
             warnings.warn(
-                f"Cell {cell_idx} is the corridor's last cell with "
-                "off_ramp=True; no downstream mainline VDS available "
-                "to compute beta = s/(f+s). Setting beta = 0 (off-ramp "
-                "modeled as no-op).",
-                UserWarning, stacklevel=2,
-            )
-            raw_columns[cell_idx] = np.zeros(_sim_step_count(dt, start, end))
-            continue
-
-        downstream_vds_raw = cells_df.iloc[cell_idx + 1]["vds_id"]
-        if pd.isna(downstream_vds_raw):
-            warnings.warn(
-                f"Cell {cell_idx + 1} (the downstream neighbor of "
-                f"off-ramp cell {cell_idx}) has no vds_id; setting "
-                f"beta = 0 for cell {cell_idx}.",
+                f"Cell {cell_idx}: no downstream mainline VDS found in "
+                "stretches_df for off-ramp VDS id(s) "
+                f"{off_ids}. Setting beta = 0 (off-ramp modeled as no-op).",
                 UserWarning, stacklevel=2,
             )
             raw_columns[cell_idx] = np.zeros(_sim_step_count(dt, start, end))
@@ -398,7 +427,7 @@ def beta_from_off_ramp_vds(
             dt=dt, start=start, end=end,
         )
         f_i = _resample_5min_to_sim_cadence(
-            _load_ramp_vds(int(downstream_vds_raw), timeseries_dir, fill_strategy),
+            _load_ramp_vds(ml_id, timeseries_dir, fill_strategy),
             dt=dt, start=start, end=end,
         )
         denom = f_i + s_i

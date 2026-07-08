@@ -468,6 +468,16 @@ def test_demand_no_on_ramps_returns_empty_columns(tmp_path):
 # ---- beta_from_off_ramp_vds ----------------------------------------------
 
 
+def _stretches(off_vds_id, down_ml_id, *, pm_down: float = 1.0, dir: str = "N") -> pd.DataFrame:
+    """Minimal stretches_df with one stretch mapping off_vds_id to down_ml_id."""
+    return pd.DataFrame([{
+        "off_ids": str(off_vds_id),
+        "down_ml_id": down_ml_id,
+        "pm_down": pm_down,
+        "dir": dir,
+    }])
+
+
 def test_beta_computes_ratio_from_off_ramp_and_downstream_vds(tmp_path):
     """beta_i = s_i / (f_i + s_i) using off_ramp_vds_id and the i+1 cell's
     mainline vds_id."""
@@ -486,7 +496,7 @@ def test_beta_computes_ratio_from_off_ramp_and_downstream_vds(tmp_path):
         n_rows=2, flows_5min=np.array([90.0, 90.0]),
     )
     beta = beta_from_off_ramp_vds(
-        cells, tmp_path, dt=5.0 / 60.0,
+        cells, tmp_path, 5.0 / 60.0, _stretches(900, 200),
         start=pd.Timestamp("2022-01-01 12:00"),
         end=pd.Timestamp("2022-01-01 12:10"),
     )
@@ -503,9 +513,9 @@ def test_beta_tail_cell_emits_zero_with_warning(tmp_path):
         tmp_path / "900.csv", start=pd.Timestamp("2022-01-01 12:00"),
         n_rows=2, flows_5min=np.array([50.0, 50.0]),
     )
-    with pytest.warns(UserWarning, match="last cell"):
+    with pytest.warns(UserWarning, match="no downstream mainline"):
         beta = beta_from_off_ramp_vds(
-            cells, tmp_path, dt=5.0 / 60.0,
+            cells, tmp_path, 5.0 / 60.0, _stretches(900, pd.NA, pm_down=float("nan")),
             start=pd.Timestamp("2022-01-01 12:00"),
             end=pd.Timestamp("2022-01-01 12:10"),
         )
@@ -530,7 +540,7 @@ def test_beta_clips_to_unit_interval_with_warning(tmp_path):
     )
     with pytest.warns(UserWarning, match="clipping"):
         beta = beta_from_off_ramp_vds(
-            cells, tmp_path, dt=5.0 / 60.0,
+            cells, tmp_path, 5.0 / 60.0, _stretches(900, 200),
             start=pd.Timestamp("2022-01-01 12:00"),
             end=pd.Timestamp("2022-01-01 12:10"),
         )
@@ -541,7 +551,7 @@ def test_beta_clips_to_unit_interval_with_warning(tmp_path):
 def test_beta_no_off_ramps_returns_empty_columns(tmp_path):
     cells = _ramp_cells([dict(off_ramp=False, vds_id=100)])
     beta = beta_from_off_ramp_vds(
-        cells, tmp_path, dt=5.0 / 60.0,
+        cells, tmp_path, 5.0 / 60.0, pd.DataFrame(),
         start=pd.Timestamp("2022-01-01 12:00"),
         end=pd.Timestamp("2022-01-01 12:10"),
     )
@@ -562,7 +572,7 @@ def test_beta_warns_on_off_ramp_without_vds(tmp_path):
         UserWarning, match="off_ramp=True but no off_ramp_vds_id"
     ):
         beta = beta_from_off_ramp_vds(
-            cells, tmp_path, dt=5.0 / 60.0,
+            cells, tmp_path, 5.0 / 60.0, pd.DataFrame(),
             start=pd.Timestamp("2022-01-01 12:00"),
             end=pd.Timestamp("2022-01-01 12:10"),
         )
@@ -636,7 +646,7 @@ def test_beta_sums_off_ramp_flows_then_takes_ratio(tmp_path):
         n_rows=2, flows_5min=np.array([90.0, 90.0]),
     )
     beta = beta_from_off_ramp_vds(
-        cells, tmp_path, dt=5.0 / 60.0,
+        cells, tmp_path, 5.0 / 60.0, _stretches("900;901", 200),
         start=pd.Timestamp("2022-01-01 12:00"),
         end=pd.Timestamp("2022-01-01 12:10"),
     )
