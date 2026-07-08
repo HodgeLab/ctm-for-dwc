@@ -306,8 +306,10 @@ def main() -> None:
         ),
     )
     parser.add_argument(
-        "--vds-tiebreaker", choices=["midpoint", "lowest_id"], default="midpoint",
-        help="strategy when multiple VDSs land in one cell (default: midpoint)",
+        "--vds-tiebreaker",
+        choices=["furthest_downstream", "midpoint", "lowest_id"],
+        default="furthest_downstream",
+        help="strategy when multiple VDSs land in one cell (default: furthest_downstream)",
     )
     parser.add_argument("--out-dir", type=Path, default=None,
                         help=f"output directory (default: {DEFAULT_OUT}/<ref>_<dir>)")
