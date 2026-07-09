@@ -1,16 +1,27 @@
 """Step 7: build demand.csv and beta.csv for a CTM simulation window.
 
-Dispatch per ramp VDS:
-  1. VDS has any historical data -> load + historical-average fill for gaps
-  2. VDS completely absent + type-(a) or -(b) stretch -> conservation
-  3. VDS completely absent + type-(c) stretch -> GRU
+This is the **only** home of ramp-fill logic: ``simulate_ctm_corridor.py``
+consumes the ``demand.csv`` / ``beta.csv`` written here (or simulates with
+zero demand / zero splits when none are supplied).
+
+Dispatch per ramp VDS, by ``--strategy``:
+
+* ``historical_average`` -- measured detectors are loaded with
+  historical-average gap fill; completely-absent detectors get **zero**
+  flow with a warning (no estimator involved). The no-ML mode for
+  corridors where every ramp is measured.
+* ``gru`` / ``kan`` -- measured detectors as above; completely-absent
+  detectors on a type-(a)/(b) stretch use mainline **conservation**, and
+  on a type-(c) stretch the chosen **estimator** (GRU torch checkpoint /
+  Kan joblib checkpoint from ``compare_ramp_flow_estimators.py
+  --save-kan``). Kan additionally needs ``--station-meta`` (calibrated) to
+  rebuild its weaving capacity ``C_w`` per stretch.
 
 Virtual VDS ids (e.g. ``'v400001'`` -- ramps that physically exist but are
-absent from PeMS) are "completely absent" by construction and take path 2
-or 3 via the stretch listed for them in the stretches CSV. Conservation and
-GRU estimates cover a stretch side's *total* ramp flow, so when an absent
-ramp shares its stretch side with measured detectors, their (gap-filled)
-flows are subtracted from the estimate before it is assigned.
+absent from PeMS) are "completely absent" by construction. Conservation and
+estimator predictions cover a stretch side's *total* ramp flow, so when an
+absent ramp shares its stretch side with measured detectors, their
+(gap-filled) flows are subtracted from the estimate before it is assigned.
 
 Aggregates per CTM cell and writes demand.csv + beta.csv at sim cadence,
 ready for ``simulate_ctm_corridor.py --demand --beta``.
@@ -21,6 +32,7 @@ Run from the repo root::
         --cells     case_studies/I880N_10mi/cells.csv \\
         --stretches data/pems/stretches/880N_stretches.csv \\
         --timeseries-dir data/pems/csv_files \\
+        --strategy gru \\
         --gru-checkpoint models/gru/best.pt \\
         --manifest   models/gru/manifest.json \\
         --start "2023-06-01 06:00" --end "2023-06-01 10:00" \\
@@ -40,6 +52,7 @@ import pandas as pd
 from transportation_models.utils.ctm import historical_average_fill
 from transportation_models.utils.ctm.assembly import parse_ramp_vds_ids
 from transportation_models.utils.ramp_flow_estimation.gru import GruEstimator
+from transportation_models.utils.ramp_flow_estimation.kan import KanEstimator
 
 _FLOW = "total_flow_[veh/5-min]"
 _SPEED = "avg_speed_[mph]"
@@ -210,82 +223,126 @@ def _resample_to_sim(arr_5min: np.ndarray, dt_h: float) -> np.ndarray:
 
 # ---- Main -------------------------------------------------------------------
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--cells", required=True, type=Path)
     parser.add_argument("--stretches", required=True, type=Path)
     parser.add_argument("--timeseries-dir", required=True, type=Path)
-    parser.add_argument("--gru-checkpoint", required=True, type=Path)
-    parser.add_argument("--manifest", required=True, type=Path)
+    parser.add_argument("--strategy", required=True,
+                        choices=["historical_average", "gru", "kan"],
+                        help="Ramp-fill strategy: historical_average = gap-fill "
+                             "measured detectors only (absent ramps get 0); "
+                             "gru/kan = full dispatch with the chosen estimator "
+                             "for absent type-(c) ramps.")
+    parser.add_argument("--gru-checkpoint", type=Path, default=None,
+                        help="GruEstimator checkpoint (required with --strategy gru).")
+    parser.add_argument("--manifest", type=Path, default=None,
+                        help="Split manifest of the GRU's training corpus; supplies "
+                             "the feature window size (required with --strategy gru).")
+    parser.add_argument("--kan-checkpoint", type=Path, default=None,
+                        help="KanEstimator joblib checkpoint from "
+                             "compare_ramp_flow_estimators.py --save-kan "
+                             "(required with --strategy kan).")
+    parser.add_argument("--station-meta", type=Path, default=None,
+                        help="Calibrated station metadata (Station ID, capacity, "
+                             "Lanes) for Kan's weaving capacity C_w "
+                             "(required with --strategy kan).")
     parser.add_argument("--start", required=True, type=pd.Timestamp)
     parser.add_argument("--end", required=True, type=pd.Timestamp)
     parser.add_argument("--dt-seconds", required=True, type=float,
                         help="Sim timestep in seconds (must match simulate_ctm_corridor.py).")
     parser.add_argument("--out-dir", type=Path, default=None)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
+
+    if args.strategy == "gru" and (args.gru_checkpoint is None or args.manifest is None):
+        parser.error("--strategy gru requires --gru-checkpoint and --manifest")
+    if args.strategy == "kan" and (args.kan_checkpoint is None or args.station_meta is None):
+        parser.error("--strategy kan requires --kan-checkpoint and --station-meta")
 
     cells_df = pd.read_csv(args.cells)
     stretches_df = pd.read_csv(args.stretches)
-    manifest = json.loads(Path(args.manifest).read_text())
-    window_size = int(manifest.get("corpus", {}).get("window_size", 3))
     dt_h = args.dt_seconds / 3600.0
     start, end = pd.Timestamp(args.start), pd.Timestamp(args.end)
     ts_dir = args.timeseries_dir
     out_dir = (args.out_dir or args.cells.parent).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
+    T5 = int((end - start) / _FIVE_MIN)
 
     print("=== build_ctm_ramp_scenario ===", file=sys.stderr)
-    print(f"  window : [{start}, {end})", file=sys.stderr)
-    print(f"  dt     : {args.dt_seconds} s", file=sys.stderr)
+    print(f"  window   : [{start}, {end})", file=sys.stderr)
+    print(f"  dt       : {args.dt_seconds} s", file=sys.stderr)
+    print(f"  strategy : {args.strategy}", file=sys.stderr)
 
-    gru = GruEstimator.load(args.gru_checkpoint)
+    if args.strategy == "gru":
+        estimator = GruEstimator.load(args.gru_checkpoint)
+        manifest = json.loads(Path(args.manifest).read_text())
+        window_size = int(manifest.get("corpus", {}).get("window_size", 3))
+        c_w_by_ml = None
+    elif args.strategy == "kan":
+        estimator = KanEstimator.load(args.kan_checkpoint)
+        window_size = estimator.n_feature_lags
+        meta = pd.read_csv(args.station_meta).set_index("Station ID")
+        c_w_by_ml = (meta["capacity"] * meta["Lanes"]).to_dict()
+    else:
+        estimator, window_size, c_w_by_ml = None, None, None
 
     on_to_stretch = _vds_to_stretch_map(stretches_df, "on_ids")
     off_to_stretch = _vds_to_stretch_map(stretches_df, "off_ids")
 
-    # Cache GRU predictions per (up_ml_id, down_ml_id) — avoid re-running the
-    # model for stretches that contribute both an on- and off-ramp to a cell.
-    gru_cache: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]] = {}
+    # Cache estimator predictions per (up_ml_id, down_ml_id) — avoid re-running
+    # the model for stretches that contribute both an on- and off-ramp to a cell.
+    pair_cache: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]] = {}
 
-    def _gru_for(stretch: pd.Series) -> tuple[np.ndarray, np.ndarray]:
+    def _estimated_pair(stretch: pd.Series) -> tuple[np.ndarray, np.ndarray]:
         key = (int(stretch["up_ml_id"]), int(stretch["down_ml_id"]))
-        if key not in gru_cache:
+        if key not in pair_cache:
             X = _build_feature_matrix(key[0], key[1], ts_dir,
                                       start=start, end=end, window_size=window_size)
-            gru_cache[key] = gru.predict_flows(X)
-        return gru_cache[key]
+            if args.strategy == "gru":
+                pair_cache[key] = estimator.predict_flows(X)
+            else:                                        # kan
+                c_w = float(c_w_by_ml.get(key[0], np.nan))
+                if not np.isfinite(c_w):
+                    print(f"  WARN: up ML {key[0]} has no calibrated capacity; "
+                          "Kan cannot reconstruct this stretch; using 0",
+                          file=sys.stderr)
+                    pair_cache[key] = (np.zeros(T5), np.zeros(T5))
+                else:
+                    ctx = {"c_w": np.full(T5, c_w)}
+                    pair_cache[key] = estimator.predict_flows(X, ctx=ctx)
+        return pair_cache[key]
+
+    def _absent_ramp_flow(vds_id, stretch_map, ids_col, *, is_on_ramp) -> np.ndarray:
+        label = "on" if is_on_ramp else "off"
+        if args.strategy == "historical_average":
+            print(f"  WARN: {label}-ramp VDS {vds_id} has no data and "
+                  "--strategy historical_average has no estimator; using 0",
+                  file=sys.stderr)
+            return np.zeros(T5)
+        stretch = stretch_map.get(vds_id)
+        if stretch is None:
+            print(f"  WARN: {label}-ramp VDS {vds_id} not in stretches; using 0",
+                  file=sys.stderr)
+            return np.zeros(T5)
+        config = str(stretch["config_type"])
+        if config in ("a", "b"):
+            est = _conservation_flow(stretch, ts_dir, start=start, end=end,
+                                     is_on_ramp=is_on_ramp)
+        else:
+            r_hat, s_hat = _estimated_pair(stretch)
+            est = r_hat if is_on_ramp else s_hat
+        return _subtract_measured_siblings(
+            est, stretch, ids_col, vds_id, ts_dir, start=start, end=end)
 
     def _on_ramp_flow_5min(vds_id: int | str) -> np.ndarray:
         if _has_any_data(vds_id, ts_dir):
             return _ramp_flow_veh_hr(vds_id, ts_dir, start=start, end=end)
-        stretch = on_to_stretch.get(vds_id)
-        if stretch is None:
-            print(f"  WARN: on-ramp VDS {vds_id} not in stretches; using 0", file=sys.stderr)
-            T5 = int((end - start) / _FIVE_MIN)
-            return np.zeros(T5)
-        config = str(stretch["config_type"])
-        if config in ("a", "b"):
-            est = _conservation_flow(stretch, ts_dir, start=start, end=end, is_on_ramp=True)
-        else:
-            est, _ = _gru_for(stretch)
-        return _subtract_measured_siblings(
-            est, stretch, "on_ids", vds_id, ts_dir, start=start, end=end)
+        return _absent_ramp_flow(vds_id, on_to_stretch, "on_ids", is_on_ramp=True)
 
     def _off_ramp_flow_5min(vds_id: int | str) -> np.ndarray:
         if _has_any_data(vds_id, ts_dir):
             return _ramp_flow_veh_hr(vds_id, ts_dir, start=start, end=end)
-        stretch = off_to_stretch.get(vds_id)
-        if stretch is None:
-            print(f"  WARN: off-ramp VDS {vds_id} not in stretches; using 0", file=sys.stderr)
-            T5 = int((end - start) / _FIVE_MIN)
-            return np.zeros(T5)
-        config = str(stretch["config_type"])
-        if config in ("a", "b"):
-            est = _conservation_flow(stretch, ts_dir, start=start, end=end, is_on_ramp=False)
-        else:
-            _, est = _gru_for(stretch)
-        return _subtract_measured_siblings(
-            est, stretch, "off_ids", vds_id, ts_dir, start=start, end=end)
+        return _absent_ramp_flow(vds_id, off_to_stretch, "off_ids", is_on_ramp=False)
 
     # Build 5-min demand and beta, then resample to sim cadence.
     demand_5min: dict[int, np.ndarray] = {}
@@ -299,7 +356,6 @@ def main() -> None:
         demand_5min[cell_idx] = sum(flows[1:], flows[0])
 
     beta_5min: dict[int, np.ndarray] = {}
-    T5 = int((end - start) / _FIVE_MIN)
     for cell_idx, row in enumerate(cells_df.itertuples(index=False)):
         if not bool(row.off_ramp):
             continue

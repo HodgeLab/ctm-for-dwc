@@ -20,6 +20,7 @@ default), with Kan's hyperparameters (500 trees, learning rate 0.1) as defaults.
 """
 from __future__ import annotations
 
+import joblib
 import numpy as np
 from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
 
@@ -102,3 +103,21 @@ class KanEstimator:
         return reconstruct_pair(alpha, q_up, q_down, c_w,
                                 r_demand=ctx.get("r_demand", np.inf),
                                 s_qmax=ctx.get("s_qmax", np.inf))
+
+    @property
+    def n_feature_lags(self) -> int:
+        """Window size the fitted model was trained with (from the RF/GBM's
+        expected feature count; the layout is 6 features per lag)."""
+        return int(self._model.n_features_in_) // 6
+
+    # ------------------------------------------------------------------ #
+    def save(self, path) -> None:
+        """Checkpoint the fitted estimator (joblib pickle)."""
+        joblib.dump(self, path)
+
+    @classmethod
+    def load(cls, path) -> "KanEstimator":
+        est = joblib.load(path)
+        if not isinstance(est, cls):
+            raise TypeError(f"{path} does not hold a {cls.__name__}")
+        return est

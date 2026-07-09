@@ -686,9 +686,9 @@ columns (which fall back to the cell defaults).
 
 ## Step 7: Ramp Flow Estimation
 Implemented in `utils/ctm/ramp_flow.py` (gap fillers) and
-`utils/ctm/scenario.py` (`demand_from_ramp_vds` /
-`beta_from_off_ramp_vds`). End-to-end demo:
-`scripts/simulate_ctm_corridor.py --ramp-fill-strategy ...`.
+`scripts/build_ctm_ramp_scenario.py` (the **only** home of ramp-fill
+logic; writes the `demand.csv` / `beta.csv` that
+`scripts/simulate_ctm_corridor.py --demand --beta` consumes).
 
 The fundamental issue with freeway ramps is that they typically
 suffer from a higher rate of VDS outages than mainline freeway
@@ -791,24 +791,37 @@ passing a strategy.
 
 ### CLI
 
-`scripts/simulate_ctm_corridor.py` gains `--ramp-fill-strategy
-{none,persistence,historical_average,stochastic_historical}`
-(default `none`). Precedence:
+Ramp filling lives entirely in `scripts/build_ctm_ramp_scenario.py
+--strategy {historical_average,gru,kan}`:
 
-1. If `--demand` / `--beta` wide CSV is given, use that.
-2. Else if `--ramp-fill-strategy != none`, call
-   `demand_from_ramp_vds` / `beta_from_off_ramp_vds` with the
-   chosen filler.
-3. Else default to zero columns (existing behavior).
+* `historical_average` -- measured ramp detectors are gap-filled;
+  completely-absent detectors get zero flow with a warning (no
+  estimator involved).
+* `gru` / `kan` -- measured detectors as above; absent detectors use
+  mainline conservation on type-(a)/(b) stretches and the chosen
+  estimator on type-(c) stretches (`--gru-checkpoint` + `--manifest`,
+  or `--kan-checkpoint` + `--station-meta`).
+
+`scripts/simulate_ctm_corridor.py` takes the resulting `--demand` /
+`--beta` CSVs; when they are omitted, every cell gets zero demand and
+zero split ratio (ramps are effectively ignored).
 
 ```
+python scripts/build_ctm_ramp_scenario.py \
+    --cells case_studies/I880N_10mi/cells.csv \
+    --stretches data/pems/stretches/880_N.csv \
+    --timeseries-dir data/pems/csv_files \
+    --strategy historical_average \
+    --start "2022-04-12 06:00" --end "2022-04-12 09:00" \
+    --dt-seconds 10
 python scripts/simulate_ctm_corridor.py \
     --freeway scripts/output/ctm_corridor/I_210_W/freeway.csv \
     --cells   scripts/output/ctm_corridor/I_210_W/cells.csv \
     --timeseries-dir data/pems/csv_files \
     --dt-seconds 10 \
     --start "2022-04-12 06:00" --end "2022-04-12 09:00" \
-    --ramp-fill-strategy historical_average
+    --demand case_studies/I880N_10mi/demand.csv \
+    --beta   case_studies/I880N_10mi/beta.csv
 ```
 
 ### Virtual ramp detectors
@@ -1152,8 +1165,8 @@ this path end-to-end against the dissertation's MATLAB output.
 
 All four PeMS → scenario adapters are now in place
 (`inflow_from_vds`, `initial_state_from_vds`, `demand_from_ramp_vds`,
-`beta_from_off_ramp_vds`), and `simulate_ctm_corridor.py`'s
-`--ramp-fill-strategy` exposes the three gap fillers end-to-end. The
+`beta_from_off_ramp_vds`), and `build_ctm_ramp_scenario.py --strategy`
+exposes historical-average, GRU, and Kan filling end-to-end. The
 remaining follow-ups are:
 
 * **Outage-duration-aware filler.** Pick Level 1 / Level 2 per gap

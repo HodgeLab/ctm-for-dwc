@@ -100,6 +100,18 @@ def test_row_context_expands_per_stretch_table():
     np.testing.assert_allclose(ctx["r_demand"], [900.0, np.inf, 900.0])
 
 
+def test_save_load_roundtrip(tmp_path):
+    X, r, s, _, ctx = _data(n=80)
+    est = KanEstimator(model="rf", n_estimators=20, random_state=0).fit(X, r, s, ctx=ctx)
+    path = tmp_path / "kan.joblib"
+    est.save(path)
+    loaded = KanEstimator.load(path)
+    assert loaded.n_feature_lags == 1                # 6-column synthetic windows
+    np.testing.assert_allclose(loaded.predict_alpha(X), est.predict_alpha(X))
+    np.testing.assert_allclose(loaded.predict_flows(X, ctx=ctx),
+                               est.predict_flows(X, ctx=ctx))
+
+
 def test_gbm_option_trains_and_predicts_in_range():
     X, r, s, _, ctx = _data()
     est = KanEstimator(model="gbm", n_estimators=50, random_state=0).fit(X, r, s, ctx=ctx)

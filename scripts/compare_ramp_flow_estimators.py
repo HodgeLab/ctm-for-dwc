@@ -68,6 +68,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--patience", type=int, default=20)
     ap.add_argument("--target-transform", choices=["zscore", "log1p"], default="zscore")
     ap.add_argument("--gru-seed", type=int, default=0)
+    ap.add_argument("--save-kan", type=Path, default=None,
+                    help="Checkpoint the fitted Kan estimator here (joblib) for "
+                         "use by build_ctm_ramp_scenario.py --strategy kan.")
     ap.add_argument("--out", type=Path,
                     default=_REPO_ROOT / "scripts/output/ramp_flow_comparison.csv")
     args = ap.parse_args(argv)
@@ -91,6 +94,10 @@ def main(argv: list[str] | None = None) -> int:
         kan = KanEstimator("gbm", n_estimators=args.n_estimators,
                            random_state=args.random_state)
     kan.fit(data.X[tr], data.r_true[tr], data.s_true[tr], ctx=slice_ctx(ctx, tr))
+    if args.save_kan is not None:
+        args.save_kan.parent.mkdir(parents=True, exist_ok=True)
+        kan.save(args.save_kan)
+        print(f"saved Kan checkpoint -> {args.save_kan}")
     r_kan, s_kan = kan.predict_flows(data.X[te], ctx=slice_ctx(ctx, te))
 
     if args.retrain_gru:

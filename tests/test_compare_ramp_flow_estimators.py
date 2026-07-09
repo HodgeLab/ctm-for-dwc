@@ -75,12 +75,15 @@ def _write_case_manifest(tmp_path):
 def test_cli_scores_both_estimators_on_manifest_split(tmp_path):
     manifest = _write_case_manifest(tmp_path)
     out = tmp_path / "comparison.csv"
+    kan_ckpt = tmp_path / "kan.joblib"
     rc = main([
         "--manifest", str(manifest), "--retrain-gru",
         "--n-estimators", "10", "--hidden-size", "8", "--max-epochs", "3",
-        "--out", str(out),
+        "--save-kan", str(kan_ckpt), "--out", str(out),
     ])
     assert rc == 0
+    from transportation_models.utils.ramp_flow_estimation.kan import KanEstimator
+    assert KanEstimator.load(kan_ckpt).n_feature_lags == 3
     df = pd.read_csv(out)
     assert set(df["estimator"]) == {"kan_rf", "gru"}
     assert "all" in set(df["slice"])
