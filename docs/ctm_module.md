@@ -795,12 +795,12 @@ Ramp filling lives entirely in `scripts/build_ctm_ramp_scenario.py
 --strategy {historical_average,gru,kan}`:
 
 * `historical_average` -- measured ramp detectors are gap-filled;
-  completely-absent detectors get zero flow with a warning (no
-  estimator involved).
-* `gru` / `kan` -- measured detectors as above; absent detectors use
-  mainline conservation on type-(a)/(b) stretches and the chosen
-  estimator on type-(c) stretches (`--gru-checkpoint` + `--manifest`,
-  or `--kan-checkpoint` + `--station-meta`).
+  completely-absent detectors are recovered by mainline conservation
+  on type-(a)/(b) stretches and get zero flow with a warning on
+  type-(c) stretches (resolving the pair needs an estimator).
+* `gru` / `kan` -- as above, except absent type-(c) detectors use the
+  chosen estimator (`--gru-checkpoint` + `--manifest`, or
+  `--kan-checkpoint` + `--station-meta`).
 
 `scripts/simulate_ctm_corridor.py` takes the resulting `--demand` /
 `--beta` CSVs; when they are omitted, every cell gets zero demand and

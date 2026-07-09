@@ -165,6 +165,34 @@ def test_strategy_historical_average_zeros_absent_ramp(tmp_path, capsys):
     assert "has no data" in capsys.readouterr().err
 
 
+def test_strategy_historical_average_uses_conservation_on_type_b(tmp_path):
+    """Conservation needs no estimator, so it applies under every strategy:
+    an absent off-ramp on a type-(b) stretch is recovered from the mainline
+    pair even with --strategy historical_average."""
+    ts_dir = tmp_path / "ts"; ts_dir.mkdir()
+    # q_up = 110 veh/5min (1320 veh/hr), q_down = 100 (1200) -> s = 120 veh/hr.
+    _write_mainline_csv(ts_dir / "100.csv", np.full(2, 110.0), start=_START)
+    _write_mainline_csv(ts_dir / "200.csv", np.full(2, 100.0), start=_START)
+
+    cells = tmp_path / "cells.csv"
+    pd.DataFrame([
+        {"on_ramp": False, "off_ramp": True, "on_ramp_vds_id": "",
+         "off_ramp_vds_id": "v400000"},
+    ]).to_csv(cells, index=False)
+    stretches = tmp_path / "stretches.csv"
+    _stretches(off_ids="v400000", config_type="b").to_csv(stretches, index=False)
+    out_dir = tmp_path / "out"
+
+    main(["--cells", str(cells), "--stretches", str(stretches),
+          "--timeseries-dir", str(ts_dir),
+          "--start", str(_START), "--end", str(_END),
+          "--dt-seconds", "300", "--out-dir", str(out_dir),
+          "--strategy", "historical_average"])
+    beta = pd.read_csv(out_dir / "beta.csv")
+    # beta = s / (f + s) = 120 / (1200 + 120)
+    np.testing.assert_allclose(beta["0"], 120.0 / 1320.0)
+
+
 def test_strategy_gru_estimates_absent_ramp(tmp_path):
     from transportation_models.utils.ramp_flow_estimation.gru import GruEstimator
 

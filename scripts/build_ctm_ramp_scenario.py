@@ -7,15 +7,15 @@ zero demand / zero splits when none are supplied).
 Dispatch per ramp VDS, by ``--strategy``:
 
 * ``historical_average`` -- measured detectors are loaded with
-  historical-average gap fill; completely-absent detectors get **zero**
-  flow with a warning (no estimator involved). The no-ML mode for
-  corridors where every ramp is measured.
-* ``gru`` / ``kan`` -- measured detectors as above; completely-absent
-  detectors on a type-(a)/(b) stretch use mainline **conservation**, and
-  on a type-(c) stretch the chosen **estimator** (GRU torch checkpoint /
-  Kan joblib checkpoint from ``compare_ramp_flow_estimators.py
-  --save-kan``). Kan additionally needs ``--station-meta`` (calibrated) to
-  rebuild its weaving capacity ``C_w`` per stretch.
+  historical-average gap fill; completely-absent detectors on a
+  type-(a)/(b) stretch are recovered by mainline **conservation** (no
+  model needed), and on a type-(c) stretch get **zero** flow with a
+  warning (resolving the pair needs an estimator). The no-ML mode.
+* ``gru`` / ``kan`` -- as above, except absent type-(c) detectors use the
+  chosen **estimator** (GRU torch checkpoint / Kan joblib checkpoint from
+  ``compare_ramp_flow_estimators.py --save-kan``). Kan additionally needs
+  ``--station-meta`` (calibrated) to rebuild its weaving capacity ``C_w``
+  per stretch.
 
 Virtual VDS ids (e.g. ``'v400001'`` -- ramps that physically exist but are
 absent from PeMS) are "completely absent" by construction. Conservation and
@@ -230,10 +230,11 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--timeseries-dir", required=True, type=Path)
     parser.add_argument("--strategy", required=True,
                         choices=["historical_average", "gru", "kan"],
-                        help="Ramp-fill strategy: historical_average = gap-fill "
-                             "measured detectors only (absent ramps get 0); "
-                             "gru/kan = full dispatch with the chosen estimator "
-                             "for absent type-(c) ramps.")
+                        help="Ramp-fill strategy: measured detectors are always "
+                             "gap-filled and absent type-(a)/(b) ramps recovered "
+                             "by conservation; the choice governs absent "
+                             "type-(c) ramps -- historical_average = 0 (no "
+                             "estimator), gru/kan = the chosen estimator.")
     parser.add_argument("--gru-checkpoint", type=Path, default=None,
                         help="GruEstimator checkpoint (required with --strategy gru).")
     parser.add_argument("--manifest", type=Path, default=None,
@@ -314,11 +315,6 @@ def main(argv: list[str] | None = None) -> None:
 
     def _absent_ramp_flow(vds_id, stretch_map, ids_col, *, is_on_ramp) -> np.ndarray:
         label = "on" if is_on_ramp else "off"
-        if args.strategy == "historical_average":
-            print(f"  WARN: {label}-ramp VDS {vds_id} has no data and "
-                  "--strategy historical_average has no estimator; using 0",
-                  file=sys.stderr)
-            return np.zeros(T5)
         stretch = stretch_map.get(vds_id)
         if stretch is None:
             print(f"  WARN: {label}-ramp VDS {vds_id} not in stretches; using 0",
@@ -326,8 +322,15 @@ def main(argv: list[str] | None = None) -> None:
             return np.zeros(T5)
         config = str(stretch["config_type"])
         if config in ("a", "b"):
+            # Conservation needs only the mainline pair, so it applies under
+            # every strategy, including historical_average.
             est = _conservation_flow(stretch, ts_dir, start=start, end=end,
                                      is_on_ramp=is_on_ramp)
+        elif args.strategy == "historical_average":
+            print(f"  WARN: {label}-ramp VDS {vds_id} has no data on a "
+                  "type-(c) stretch and --strategy historical_average has "
+                  "no estimator; using 0", file=sys.stderr)
+            return np.zeros(T5)
         else:
             r_hat, s_hat = _estimated_pair(stretch)
             est = r_hat if is_on_ramp else s_hat
