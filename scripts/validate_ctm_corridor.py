@@ -35,7 +35,6 @@ from transportation_models.utils.ctm import (
     compute_flow_geh,
     compute_qq_samples,
     corridor_rmse_mape,
-    restrict_to_direct_tiebreak,
 )
 from transportation_models.utils.ctm.plots import (
     plot_geh_heatmap,
@@ -219,11 +218,8 @@ def main() -> None:
     except ValueError as e:
         parser.error(str(e))
 
-    # Score density/flow RMSE/MAPE on one cell per unique direct/tiebreak
-    # VDS only -- the same basis as the corridor aggregates, GEH, and QQ.
     stats = compare_against_historical(
-        result, restrict_to_direct_tiebreak(cells), args.timeseries_dir,
-        start=start,
+        result, cells, args.timeseries_dir, start=start,
     )
     station_metadata = pd.read_csv(args.station_metadata)
     aggregates = compare_corridor_aggregates(

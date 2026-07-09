@@ -68,9 +68,11 @@ def _write_vds_csv(
     }).to_csv(path, index=False)
 
 
-def _cells_df(vds_ids: list[int], lanes: int = 3) -> pd.DataFrame:
+def _cells_df(vds_ids: list[int], lanes: int = 3,
+              vds_source: str = "direct") -> pd.DataFrame:
     return pd.DataFrame({
         "vds_id": vds_ids,
+        "vds_source": [vds_source] * len(vds_ids),
         "lanes": [lanes] * len(vds_ids),
         "vds_lanes": [lanes] * len(vds_ids),
     })
@@ -248,6 +250,7 @@ def test_cell_with_nan_vds_id_yields_nan_row(tmp_path):
     )
     cells = pd.DataFrame({
         "vds_id": [100, pd.NA],
+        "vds_source": ["direct", "missing"],
         "lanes": [3, 3],
         "vds_lanes": [3, 3],
     })
@@ -257,6 +260,32 @@ def test_cell_with_nan_vds_id_yields_nan_row(tmp_path):
     assert len(out) == 2
     assert out.iloc[1]["n_flow_samples"] == 0
     assert np.isnan(out.iloc[1]["flow_rmse"])
+
+
+def test_nearest_upstream_cells_are_not_scored(tmp_path):
+    """Cells with a propagated (nearest_upstream) VDS get NaN rows; their
+    lane mismatches are also exempt from the lanes contract."""
+    start = pd.Timestamp("2022-04-12 06:00")
+    n_5min = 3
+    _write_vds_csv(
+        tmp_path / "100.csv", start=start,
+        flows_5min=np.full(n_5min, 100.0),
+        speeds_mph=np.full(n_5min, 60.0),
+    )
+    result = _result_constant(
+        n_cells=2, n_5min=n_5min, steps_per_5min=30,
+        density=20.0, flow_veh_h=1200.0,
+    )
+    cells = pd.DataFrame({
+        "vds_id": [100, 100],                 # cell 1 inherits cell 0's VDS
+        "vds_source": ["direct", "nearest_upstream"],
+        "lanes": [3, 4],                      # mismatch only on the inherited cell
+        "vds_lanes": [3, 3],
+    })
+    out = compare_against_historical(result, cells, tmp_path, start=start)
+    assert out.iloc[0]["n_flow_samples"] == n_5min
+    assert out.iloc[1]["n_flow_samples"] == 0
+    assert pd.isna(out.iloc[1]["vds_id"])
 
 
 def test_caches_shared_vds_reads_once(tmp_path, monkeypatch):
@@ -403,7 +432,8 @@ def test_lane_mismatch_raises_pointing_at_step_5(tmp_path):
         n_cells=1, n_5min=3, steps_per_5min=30,
         density=20.0, flow_veh_h=1200.0,
     )
-    cells = pd.DataFrame({"vds_id": [100], "lanes": [4], "vds_lanes": [3]})
+    cells = pd.DataFrame({"vds_id": [100], "vds_source": ["direct"],
+                          "lanes": [4], "vds_lanes": [3]})
     with pytest.raises(ValueError, match="lanes != vds_lanes"):
         compare_against_historical(result, cells, tmp_path, start=start)
 

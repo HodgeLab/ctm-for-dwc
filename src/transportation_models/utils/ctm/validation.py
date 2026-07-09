@@ -5,7 +5,11 @@ Two ground-truth sources are supported today:
 * **Historical PeMS** (:func:`compare_against_historical`) -- the field
   data the model is calibrated against. Compares sim density and
   mainline flow to the cell's assigned mainline VDS over the sim
-  window. RMSE/MAPE per cell.
+  window. RMSE/MAPE per cell, scored only at cells whose VDS
+  assignment reads an observed station directly (``vds_source`` of
+  ``direct`` / ``direct_tiebreak``); cells with an inherited
+  (``nearest_upstream``) or ``missing`` assignment are reported as
+  NaN rows.
 
 * **CTMSIM reference output** (:func:`compare_against_ctmsim`) -- the
   Kurzhanskiy 2007 / Aurora reference CSVs bundled under
@@ -51,9 +55,8 @@ _FIVE_MIN_H = 5.0 / 60.0
 _GRID_TOL = 1e-9
 
 # VDS-assignment sources that read an observed station directly (one VDS
-# per cell), as opposed to interpolated/propagated assignments. The
-# corridor aggregates, GEH, QQ, and the corridor-validation CLI all score
-# on these only.
+# per cell), as opposed to interpolated/propagated assignments. Every
+# historical comparison in this module scores on these only.
 _DIRECT_SOURCES = ("direct", "direct_tiebreak")
 
 
@@ -66,6 +69,12 @@ def compare_against_historical(
 ) -> pd.DataFrame:
     """Per-cell sim-vs-observed RMSE and MAPE for density and mainline flow.
 
+    Only cells whose ``vds_source`` is ``direct`` / ``direct_tiebreak``
+    are scored -- their VDS physically sits inside the cell. Cells with a
+    propagated (``nearest_upstream``) or ``missing`` assignment would be
+    judged against a detector somewhere else on the corridor, so they are
+    reported as NaN rows instead.
+
     Parameters
     ----------
     result : SimulationResult
@@ -73,10 +82,10 @@ def compare_against_historical(
         ``dt`` must evenly divide 5 minutes, and the sim horizon
         ``n_steps * dt`` must be a positive whole multiple of 5 minutes.
     cells_df : pandas.DataFrame
-        Step 1+2 ``cells.csv`` (must carry ``vds_id``, ``lanes``, and
-        ``vds_lanes``). Row count and order must match
-        ``result.freeway.cells``. Cells whose ``vds_id`` is NaN are
-        skipped.
+        Step 1+2 ``cells.csv`` (must carry ``vds_id``, ``vds_source``,
+        ``lanes``, and ``vds_lanes``). Row count and order must match
+        ``result.freeway.cells``. Cells whose ``vds_id`` is NaN or whose
+        ``vds_source`` is not direct/direct_tiebreak are skipped.
     timeseries_dir : Path or str
         Directory of per-VDS timeseries CSVs (one ``<vds_id>.csv``
         each), in the format ``PeMSExtractor`` writes.
@@ -95,8 +104,8 @@ def compare_against_historical(
         ============================= ============================================
         ``cell``                      cell index in ``result.freeway.cells``
         ``vds_id``                    mainline VDS used for observed data, or
-                                      ``<NA>`` if the cell had no assigned VDS
-                                      (skipped in stats)
+                                      ``<NA>`` if the cell had no direct
+                                      VDS assignment (skipped in stats)
         ``n_density_samples``         non-NaN observed density samples
         ``density_rmse``              RMSE [veh/mi] of (sim, observed) density
         ``density_mape``              MAPE [%] of (sim, observed) density
@@ -121,7 +130,8 @@ def compare_against_historical(
           observed density isn't directly comparable to sim density
           when the OSM-reported and PeMS-reported lane counts disagree).
     KeyError
-        ``cells_df`` is missing ``vds_id``, ``lanes``, or ``vds_lanes``.
+        ``cells_df`` is missing ``vds_id``, ``vds_source``, ``lanes``, or
+        ``vds_lanes``.
     """
     n_cells = result.freeway.n_cells
     if len(cells_df) != n_cells:
@@ -129,12 +139,13 @@ def compare_against_historical(
             f"cells_df has {len(cells_df)} rows but result.freeway has "
             f"{n_cells} cells; one row per cell is required."
         )
-    required = {"vds_id", "lanes", "vds_lanes"}
+    required = {"vds_id", "vds_source", "lanes", "vds_lanes"}
     missing = required - set(cells_df.columns)
     if missing:
         raise KeyError(
             f"cells_df is missing column(s): {sorted(missing)}. "
-            "vds_id / vds_lanes come from Step 2 (assign_vds_to_cells)."
+            "vds_id / vds_source / vds_lanes come from Step 2 "
+            "(assign_vds_to_cells)."
         )
 
     # Resolve sim cadence vs 5-min cadence and the wallclock window.
@@ -145,7 +156,10 @@ def compare_against_historical(
     # comparable to a per-cell density on a cell with the same lane
     # count. Otherwise the user must reconcile the discrepancy in
     # cells.csv (typically by trusting the PeMS-reported value).
-    cells_with_vds = cells_df.dropna(subset=["vds_id"])
+    # Checked on the scored (direct) cells only.
+    cells_with_vds = cells_df[
+        cells_df["vds_source"].isin(_DIRECT_SOURCES)
+    ].dropna(subset=["vds_id"])
     mismatch_mask = (
         cells_with_vds["lanes"].astype(int)
         != cells_with_vds["vds_lanes"].astype(int)
@@ -174,7 +188,7 @@ def compare_against_historical(
     vds_cache: dict[int, pd.DataFrame] = {}
     for cell_idx, cell_row in enumerate(cells_df.itertuples(index=False)):
         vds_id_raw = cell_row.vds_id
-        if pd.isna(vds_id_raw):
+        if pd.isna(vds_id_raw) or cell_row.vds_source not in _DIRECT_SOURCES:
             rows.append(_nan_row(cell_idx, vds_id=pd.NA))
             continue
         vds_id = int(vds_id_raw)
@@ -210,19 +224,16 @@ def compare_against_historical(
 
 
 def restrict_to_direct_tiebreak(cells_df: pd.DataFrame) -> pd.DataFrame:
-    """Copy of ``cells_df`` that scores only the unique direct/tiebreak VDS.
+    """Copy of ``cells_df`` keeping only the unique direct/tiebreak VDS.
 
     Returns a copy in which ``vds_id`` is retained only at the *first*
     cell whose ``vds_source`` is ``direct`` / ``direct_tiebreak`` for each
     unique VDS; every other cell's ``vds_id`` is blanked to ``<NA>``.
 
-    Feeding the result to :func:`compare_against_historical` therefore
-    restricts its per-cell density/flow RMSE/MAPE to one cell per unique
-    direct/tiebreak VDS -- the blanked cells fall through that function's
-    "NaN ``vds_id`` -> skip" path -- matching the basis used by
-    :func:`compare_corridor_aggregates`, :func:`compute_flow_geh`, and
-    :func:`compute_qq_samples`. The shared function itself is unchanged,
-    so other callers (microsim / DWPT) keep scoring every assigned cell.
+    :func:`compare_against_historical` now applies the direct-only
+    restriction itself, so this helper is no longer needed there; it
+    remains for consumers that need the one-cell-per-unique-VDS view of
+    ``cells.csv`` directly (e.g. ``scripts/build_ctm_qp_inputs.py``).
 
     Raises
     ------
