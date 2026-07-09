@@ -422,7 +422,7 @@ def assign_vds_to_cells(
     vds_projected: pd.DataFrame,
     *,
     fallback: Literal["upstream", "none"] = "upstream",
-    tiebreaker: _TIEBREAKER = "furthest_downstream",
+    tiebreaker: _TIEBREAKER = "midpoint",
     min_lane_match: bool = False,
 ) -> pd.DataFrame:
     """Attach a VDS to every cell, with Dervisoglu et al. 2014 fallback.
