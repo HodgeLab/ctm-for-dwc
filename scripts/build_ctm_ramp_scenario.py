@@ -5,6 +5,13 @@ Dispatch per ramp VDS:
   2. VDS completely absent + type-(a) or -(b) stretch -> conservation
   3. VDS completely absent + type-(c) stretch -> GRU
 
+Virtual VDS ids (e.g. ``'v400001'`` -- ramps that physically exist but are
+absent from PeMS) are "completely absent" by construction and take path 2
+or 3 via the stretch listed for them in the stretches CSV. Conservation and
+GRU estimates cover a stretch side's *total* ramp flow, so when an absent
+ramp shares its stretch side with measured detectors, their (gap-filled)
+flows are subtracted from the estimate before it is assigned.
+
 Aggregates per CTM cell and writes demand.csv + beta.csv at sim cadence,
 ready for ``simulate_ctm_corridor.py --demand --beta``.
 
@@ -44,7 +51,7 @@ _FIVE_MIN = pd.Timedelta(minutes=5)
 
 # ---- VDS helpers ------------------------------------------------------------
 
-def _has_any_data(vds_id: int, ts_dir: Path) -> bool:
+def _has_any_data(vds_id: int | str, ts_dir: Path) -> bool:
     path = ts_dir / f"{vds_id}.csv"
     if not path.exists():
         return False
@@ -111,21 +118,72 @@ def _build_feature_matrix(up_id: int, down_id: int, ts_dir: Path, *,
 
 # ---- Stretch mapping helpers ------------------------------------------------
 
-def _vds_to_stretch_map(stretches_df: pd.DataFrame, col: str) -> dict[int, pd.Series]:
+def _parse_stretch_ramp_ids(value) -> list[int | str]:
+    """Parse a stretches-CSV ramp id list (``on_ids`` / ``off_ids`` cell value).
+
+    Semicolon-separated; integer tokens become ints, virtual ids (e.g.
+    ``'v400001'``, ramps absent from PeMS) stay strings.
+    """
+    ids: list[int | str] = []
+    for tok in str(value if value is not None else "").split(";"):
+        tok = tok.strip()
+        if tok and tok.lower() != "nan":
+            ids.append(int(tok) if tok.isdigit() else tok)
+    return ids
+
+
+def _vds_to_stretch_map(
+    stretches_df: pd.DataFrame, col: str,
+) -> dict[int | str, pd.Series]:
     """Map each VDS id in ``col`` (semicolon-separated) to its stretch row."""
-    mapping: dict[int, pd.Series] = {}
+    mapping: dict[int | str, pd.Series] = {}
     for _, row in stretches_df.iterrows():
-        for vid in str(row.get(col, "")).split(";"):
-            vid = vid.strip()
-            if vid.isdigit():
-                mapping[int(vid)] = row
+        for vid in _parse_stretch_ramp_ids(row.get(col, "")):
+            mapping[vid] = row
     return mapping
 
 
+def _subtract_measured_siblings(
+    est: np.ndarray,
+    stretch: pd.Series,
+    ids_col: str,
+    vds_id: int | str,
+    ts_dir: Path,
+    *, start, end,
+) -> np.ndarray:
+    """Remove measured same-side sibling ramp flows from a stretch-total estimate.
+
+    Conservation and GRU estimates cover the *total* on- (resp. off-) ramp
+    flow of a stretch, so an absent ramp sharing its stretch side with
+    measured detectors would double-count their vehicles. Siblings are
+    historical-average filled before subtraction; samples the filler leaves
+    NaN (bins with zero history) count as 0 so one empty bin can't turn the
+    whole estimate NaN. The result is clipped at 0.
+    """
+    absent_siblings = []
+    for sib in _parse_stretch_ramp_ids(stretch.get(ids_col, "")):
+        if sib == vds_id:
+            continue
+        if not _has_any_data(sib, ts_dir):
+            absent_siblings.append(sib)
+            continue
+        sib_flow = _ramp_flow_veh_hr(sib, ts_dir, start=start, end=end)
+        n_nan = int(np.isnan(sib_flow).sum())
+        if n_nan:
+            print(f"  WARN: sibling {sib}: {n_nan} unfillable sample(s) "
+                  "treated as 0 in stretch-total subtraction", file=sys.stderr)
+        est = est - np.nan_to_num(sib_flow)
+    if absent_siblings:
+        print(f"  WARN: {vds_id}: absent ramp(s) {absent_siblings} share its "
+              f"stretch's {ids_col}; the stretch-total residual is assigned "
+              "to each (double-counted)", file=sys.stderr)
+    return np.maximum(est, 0.0)
+
+
 def _furthest_downstream_ml_id(
-    off_ids: list[int],
+    off_ids: list[int | str],
     stretches_df: pd.DataFrame,
-    off_to_stretch: dict[int, pd.Series],
+    off_to_stretch: dict[int | str, pd.Series],
 ) -> int | None:
     """down_ml_id of the furthest-downstream stretch containing any of ``off_ids``."""
     rows = [off_to_stretch[v] for v in off_ids if v in off_to_stretch]
@@ -197,7 +255,7 @@ def main() -> None:
             gru_cache[key] = gru.predict_flows(X)
         return gru_cache[key]
 
-    def _on_ramp_flow_5min(vds_id: int) -> np.ndarray:
+    def _on_ramp_flow_5min(vds_id: int | str) -> np.ndarray:
         if _has_any_data(vds_id, ts_dir):
             return _ramp_flow_veh_hr(vds_id, ts_dir, start=start, end=end)
         stretch = on_to_stretch.get(vds_id)
@@ -207,11 +265,13 @@ def main() -> None:
             return np.zeros(T5)
         config = str(stretch["config_type"])
         if config in ("a", "b"):
-            return _conservation_flow(stretch, ts_dir, start=start, end=end, is_on_ramp=True)
-        r_hat, _ = _gru_for(stretch)
-        return r_hat
+            est = _conservation_flow(stretch, ts_dir, start=start, end=end, is_on_ramp=True)
+        else:
+            est, _ = _gru_for(stretch)
+        return _subtract_measured_siblings(
+            est, stretch, "on_ids", vds_id, ts_dir, start=start, end=end)
 
-    def _off_ramp_flow_5min(vds_id: int) -> np.ndarray:
+    def _off_ramp_flow_5min(vds_id: int | str) -> np.ndarray:
         if _has_any_data(vds_id, ts_dir):
             return _ramp_flow_veh_hr(vds_id, ts_dir, start=start, end=end)
         stretch = off_to_stretch.get(vds_id)
@@ -221,9 +281,11 @@ def main() -> None:
             return np.zeros(T5)
         config = str(stretch["config_type"])
         if config in ("a", "b"):
-            return _conservation_flow(stretch, ts_dir, start=start, end=end, is_on_ramp=False)
-        _, s_hat = _gru_for(stretch)
-        return s_hat
+            est = _conservation_flow(stretch, ts_dir, start=start, end=end, is_on_ramp=False)
+        else:
+            _, est = _gru_for(stretch)
+        return _subtract_measured_siblings(
+            est, stretch, "off_ids", vds_id, ts_dir, start=start, end=end)
 
     # Build 5-min demand and beta, then resample to sim cadence.
     demand_5min: dict[int, np.ndarray] = {}

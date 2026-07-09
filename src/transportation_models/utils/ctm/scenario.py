@@ -292,6 +292,16 @@ def demand_from_ramp_vds(
         if not bool(row.on_ramp):
             continue
         ids = parse_ramp_vds_ids(getattr(row, "on_ramp_vds_id", None))
+        virtual = [i for i in ids if isinstance(i, str)]
+        if virtual:
+            warnings.warn(
+                f"Cell {cell_idx}: skipping virtual on-ramp VDS id(s) "
+                f"{virtual} -- no PeMS timeseries to fill, so they "
+                "contribute 0 demand. Use scripts/build_ctm_ramp_scenario.py "
+                "to estimate flows for virtual ramps.",
+                UserWarning, stacklevel=2,
+            )
+            ids = [i for i in ids if isinstance(i, int)]
         if not ids:
             continue
         columns[cell_idx] = _sum_ramp_vds_flows(
@@ -306,21 +316,25 @@ def demand_from_ramp_vds(
     return pd.DataFrame(columns)
 
 
-def _build_off_vds_to_stretch(stretches_df: pd.DataFrame) -> dict[int, list[int]]:
-    """Map each off-ramp VDS id to the list of row-index positions in ``stretches_df``."""
-    mapping: dict[int, list[int]] = {}
+def _build_off_vds_to_stretch(stretches_df: pd.DataFrame) -> dict[int | str, list[int]]:
+    """Map each off-ramp VDS id to the list of row-index positions in ``stretches_df``.
+
+    Integer ids map as ints; virtual ids (e.g. ``'v400001'``, ramps absent
+    from PeMS) map as strings so they still resolve a downstream mainline VDS.
+    """
+    mapping: dict[int | str, list[int]] = {}
     for pos, (idx, row) in enumerate(stretches_df.iterrows()):
         for vid in str(row.get("off_ids", "")).split(";"):
             vid = vid.strip()
-            if vid.isdigit():
-                mapping.setdefault(int(vid), []).append(pos)
+            if vid and vid.lower() != "nan":
+                mapping.setdefault(int(vid) if vid.isdigit() else vid, []).append(pos)
     return mapping
 
 
 def _furthest_downstream_ml_id(
-    off_vds_ids: list[int],
+    off_vds_ids: list[int | str],
     stretches_df: pd.DataFrame,
-    vds_to_pos: dict[int, list[int]],
+    vds_to_pos: dict[int | str, list[int]],
 ) -> int | None:
     """Return the ``down_ml_id`` of the furthest-downstream stretch that
     contains any of ``off_vds_ids``, or ``None`` if none found."""
@@ -408,7 +422,22 @@ def beta_from_off_ramp_vds(
         off_ids = parse_ramp_vds_ids(getattr(row, "off_ramp_vds_id", None))
         if not off_ids:
             continue
+        measured_ids = [i for i in off_ids if isinstance(i, int)]
+        if len(measured_ids) < len(off_ids):
+            virtual = [i for i in off_ids if isinstance(i, str)]
+            warnings.warn(
+                f"Cell {cell_idx}: virtual off-ramp VDS id(s) {virtual} have "
+                "no PeMS timeseries; they are excluded from s_i, so beta is "
+                "underestimated (0 if no measured off-ramp remains). Use "
+                "scripts/build_ctm_ramp_scenario.py to estimate flows for "
+                "virtual ramps.",
+                UserWarning, stacklevel=2,
+            )
+        if not measured_ids:
+            continue
 
+        # The downstream-ML lookup uses the full id list (virtual included):
+        # f_i must be the mainline flow past *all* the cell's exits.
         ml_id = _furthest_downstream_ml_id(off_ids, stretches_df, vds_to_pos)
         if ml_id is None:
             warnings.warn(
@@ -421,7 +450,7 @@ def beta_from_off_ramp_vds(
             continue
 
         s_i = _sum_ramp_vds_flows(
-            off_ids,
+            measured_ids,
             timeseries_dir=timeseries_dir,
             fill_strategy=fill_strategy,
             dt=dt, start=start, end=end,

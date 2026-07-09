@@ -559,6 +559,13 @@ Specific aspects to consider:
   (`demand_from_ramp_vds` / `beta_from_off_ramp_vds`) both parse this
   via `parse_ramp_vds_ids` and **sum** the per-ramp capacities and
   flows into the cell's :math:`R_i`, :math:`d_i(k)`, or :math:`s_i(k)`.
+* Virtual ramp detectors. A physical ramp with **no PeMS detector at
+  all** gets a synthetic `v`-prefixed id (e.g. `v400001`) instead of a
+  real VDS id. Use the same id for the ramp in `cells.csv`
+  (`on_ramp_vds_id` / `off_ramp_vds_id`) and in the stretches CSV
+  (`on_ids` / `off_ids`), and keep ids unique across the whole
+  stretches file. See the Step 7 "Virtual ramp detectors" section for
+  how each consumer treats them.
 
 After making any manual adjustments, re-generate the derived artifacts
 (`cells.geojson`, `corridor_map.png`, `cell_layout.png`) from the
@@ -803,6 +810,34 @@ python scripts/simulate_ctm_corridor.py \
     --start "2022-04-12 06:00" --end "2022-04-12 09:00" \
     --ramp-fill-strategy historical_average
 ```
+
+### Virtual ramp detectors
+
+A ramp that physically exists but has **no PeMS detector** carries a
+synthetic `v`-prefixed id (e.g. `v400001`) in `cells.csv` and in the
+stretches CSV (see the Step 5 manual-edit conventions). There is no
+timeseries behind such an id, so each consumer handles it explicitly:
+
+* **Step 6 assembly** -- the id misses the ramp-calibration lookup and
+  the cell's ramp capacity stays NaN → :math:`R_i = \infty` /
+  :math:`S_i = \infty` (no-measurement → no-constraint).
+* **Fill-strategy adapters** (`demand_from_ramp_vds` /
+  `beta_from_off_ramp_vds`) -- there is nothing to gap-fill, so virtual
+  ids are **skipped with a `UserWarning`**: they contribute 0 demand,
+  and 0 to the off-ramp flow :math:`s_i` (though they still count for
+  the furthest-downstream mainline lookup). Estimating their flow needs
+  the offline scenario builder below.
+* **Offline scenario builder** (`scripts/build_ctm_ramp_scenario.py`) --
+  a virtual id is "VDS completely absent" by construction and dispatches
+  on the `config_type` of the stretch that lists it: conservation for
+  type (a)/(b), the GRU for type (c). Both estimates cover the stretch
+  side's **total** ramp flow, so when the virtual ramp shares its stretch
+  side with measured detectors, their historical-average-filled flows are
+  subtracted from the estimate (clipped at 0) before it is assigned --
+  otherwise the measured vehicles would enter the corridor twice.
+
+Keep virtual ids **unique across the stretches file**: the id→stretch
+map resolves duplicates silently to whichever stretch parses last.
 
 ### Model-based ramp imputation (Level 3)
 

@@ -653,3 +653,68 @@ def test_beta_sums_off_ramp_flows_then_takes_ratio(tmp_path):
     # s = 5 + 5 = 10 veh/5min => 120 veh/h; f = 90 veh/5min => 1080 veh/h.
     # beta = 120 / (1080 + 120) = 0.1.
     np.testing.assert_allclose(beta[0].to_numpy(), [0.1, 0.1])
+
+
+# ---- Virtual VDS ids (ramps absent from PeMS) ------------------------------
+
+
+def test_demand_skips_virtual_vds_ids_with_warning(tmp_path):
+    """Virtual ids (e.g. 'v400000') have no timeseries to fill: they are
+    dropped from the sum with a warning; a virtual-only cell gets no column
+    (zero demand)."""
+    cells = _ramp_cells([
+        dict(on_ramp=True, on_ramp_vds_id="900, v400000", vds_id=100),
+        dict(on_ramp=True, on_ramp_vds_id="v400001", vds_id=101),
+    ])
+    _write_vds_csv(
+        tmp_path / "900.csv", start=pd.Timestamp("2022-01-01 12:00"),
+        n_rows=2, flows_5min=np.array([10.0, 20.0]),
+    )
+    with pytest.warns(UserWarning, match="virtual on-ramp"):
+        demand = demand_from_ramp_vds(
+            cells, tmp_path, dt=5.0 / 60.0,
+            start=pd.Timestamp("2022-01-01 12:00"),
+            end=pd.Timestamp("2022-01-01 12:10"),
+        )
+    assert list(demand.columns) == [0]
+    np.testing.assert_allclose(demand[0].to_numpy(), [120.0, 240.0])
+
+
+def test_beta_excludes_virtual_off_ramp_ids_from_s_i(tmp_path):
+    """A virtual off-ramp id is excluded from s_i (warned) but still counts
+    for the furthest-downstream mainline lookup."""
+    cells = _ramp_cells([
+        dict(off_ramp=True, off_ramp_vds_id="900, v400000", vds_id=100),
+        dict(vds_id=200),
+    ])
+    _write_vds_csv(
+        tmp_path / "900.csv", start=pd.Timestamp("2022-01-01 12:00"),
+        n_rows=2, flows_5min=np.array([10.0, 10.0]),
+    )
+    _write_vds_csv(
+        tmp_path / "200.csv", start=pd.Timestamp("2022-01-01 12:00"),
+        n_rows=2, flows_5min=np.array([90.0, 90.0]),
+    )
+    with pytest.warns(UserWarning, match="virtual off-ramp"):
+        beta = beta_from_off_ramp_vds(
+            cells, tmp_path, 5.0 / 60.0, _stretches("900;v400000", 200),
+            start=pd.Timestamp("2022-01-01 12:00"),
+            end=pd.Timestamp("2022-01-01 12:10"),
+        )
+    assert list(beta.columns) == [0]
+    np.testing.assert_allclose(beta[0].to_numpy(), [0.1, 0.1])
+
+
+def test_beta_virtual_only_off_ramp_gets_no_column(tmp_path):
+    """off_ramp=True with only a virtual id -> no column (beta defaults 0)."""
+    cells = _ramp_cells([
+        dict(off_ramp=True, off_ramp_vds_id="v400000", vds_id=100),
+        dict(vds_id=200),
+    ])
+    with pytest.warns(UserWarning, match="virtual off-ramp"):
+        beta = beta_from_off_ramp_vds(
+            cells, tmp_path, 5.0 / 60.0, _stretches("v400000", 200),
+            start=pd.Timestamp("2022-01-01 12:00"),
+            end=pd.Timestamp("2022-01-01 12:10"),
+        )
+    assert beta.shape == (2, 0)

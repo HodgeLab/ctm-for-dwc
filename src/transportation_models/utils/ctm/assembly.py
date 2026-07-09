@@ -62,8 +62,22 @@ FREEWAY_COLUMNS: tuple[str, ...] = (
 _RAMP_LIST_SEP_RE = re.compile(r"[,;\s]+")
 
 
-def parse_ramp_vds_ids(value) -> list[int]:
-    """Parse a cells.csv ``*_ramp_vds_id`` cell value into a list of ints.
+def _parse_vds_token(token: str):
+    """Return int if ``token`` is a pure integer string, else return it as-is.
+
+    Allows cells.csv to carry synthetic/virtual VDS ids like ``'v400002'``
+    for ramps absent from the PeMS database; they pass through as strings,
+    KeyError gracefully in the calibration lookup, and leave the cell with
+    NaN (infinite) ramp capacity -- the correct fallback for unobserved ramps.
+    """
+    try:
+        return int(token)
+    except ValueError:
+        return token
+
+
+def parse_ramp_vds_ids(value) -> list:
+    """Parse a cells.csv ``*_ramp_vds_id`` cell value into a list of ids.
 
     Step 1+2 emits ``on_ramp_vds_id`` / ``off_ramp_vds_id`` as scalar
     Int64 (one VDS per cell), but a Step-5 manual edit can replace a
@@ -75,9 +89,11 @@ def parse_ramp_vds_ids(value) -> list[int]:
       * ``NaN`` / ``pd.NA`` / ``None`` -> ``[]`` (no ramp VDS).
       * A scalar int / numpy integer -> ``[int(value)]``.
       * A scalar float (e.g. ``900.0`` from a CSV) -> ``[int(value)]``.
-      * A string of one or more integer VDS ids separated by ``,``,
-        ``;``, or whitespace, optionally bracketed -- e.g.
-        ``"900;901"``, ``"900, 901"``, ``"[900, 901]"``.
+      * A string of one or more VDS ids separated by ``,``, ``;``, or
+        whitespace, optionally bracketed -- e.g. ``"900;901"``,
+        ``"900, 901"``, ``"[900, 901]"``, ``"v400002"``. Tokens that
+        cannot be parsed as integers are kept as strings (virtual/synthetic
+        VDS ids for ramps absent from PeMS).
       * An already-iterable list / tuple / ``numpy.ndarray`` /
         ``pandas.Series`` of integer-like values.
 
@@ -93,13 +109,14 @@ def parse_ramp_vds_ids(value) -> list[int]:
             cleaned = value.strip().strip("[](){}").strip()
             if not cleaned:
                 return []
-            return [int(p) for p in _RAMP_LIST_SEP_RE.split(cleaned) if p]
+            return [_parse_vds_token(p) for p in _RAMP_LIST_SEP_RE.split(cleaned) if p]
         # Numeric scalar.
         return [int(value)]
     # Iterable (list / tuple / ndarray / Series).
-    return [int(x) for x in value if not (
-        pd.api.types.is_scalar(x) and pd.isna(x)
-    )]
+    return [_parse_vds_token(str(x)) if isinstance(x, str) else int(x)
+            for x in value if not (
+                pd.api.types.is_scalar(x) and pd.isna(x)
+            )]
 
 
 def warn_presence_without_vds(
@@ -300,7 +317,7 @@ def _ramp_capacity_column(
     presence = cells_df[presence_col].to_numpy(dtype=bool)
     vds_ids_raw = cells_df[vds_col]
     capacities = np.full(n, np.nan, dtype=float)
-    partial_misses: list[tuple[int, list[int]]] = []
+    partial_misses: list[tuple[int, list]] = []
     for i, (has_ramp, raw) in enumerate(zip(presence, vds_ids_raw)):
         if not has_ramp:
             continue
