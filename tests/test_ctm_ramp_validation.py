@@ -1,219 +1,150 @@
-"""Tests for ramp-flow gap-fill accuracy validation (Step 9, ramp).
+"""Tests for utils/ctm/ramp_validation.py (historical-average fill accuracy).
 
-Covers the synthetic hold-out sweep core (:func:`_collect_fill_residuals`
-+ :func:`_summarize`) and the two public entry points
-(:func:`onramp_fill_accuracy`, :func:`offramp_split_accuracy`).
+Tiny synthetic per-VDS CSVs in a temp dir; stretches frames carry only the
+``on_ids`` / ``off_ids`` columns the roster consumes.
 """
-
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from transportation_models.utils.ctm import (
-    offramp_split_accuracy,
-    onramp_fill_accuracy,
-)
-from transportation_models.utils.ctm.ramp_validation import (
-    DEFAULT_STRATEGIES,
-    _collect_fill_residuals,
-    _summarize,
-)
+from transportation_models.utils.ctm.ramp_validation import ramp_fill_accuracy
 
-_PERSISTENCE = {"persistence": DEFAULT_STRATEGIES["persistence"]}
-
-_FLOW_COL = "total_flow_[veh/5-min]"
+_FLOW = "total_flow_[veh/5-min]"
 
 
-def _series(start: str, flows: np.ndarray) -> pd.DataFrame:
-    """5-min-grid VDS frame from a flow array."""
-    ts = pd.date_range(start=start, periods=len(flows), freq="5min")
-    return pd.DataFrame({"timestamp": ts, _FLOW_COL: np.asarray(flows, dtype=float)})
-
-
-def _write_vds(directory, vds_id: int, start: str, flows: np.ndarray) -> None:
-    _series(start, flows).to_csv(directory / f"{vds_id}.csv", index=False)
-
-
-# ---- core sweep ----------------------------------------------------------
-
-
-def test_persistence_perfect_on_constant_series():
-    """Persistence fills a constant series exactly -> zero error everywhere."""
-    series = _series("2022-01-03", np.full(2016, 42.0))  # 1 week
-    resid = _collect_fill_residuals(
-        series,
-        flow_col=_FLOW_COL,
-        gap_lengths_min=(5, 30, 60),
-        strategies=_PERSISTENCE,
-        gap_spacing_min=30.0,
+def _write_series(tmp, vds_id, flows, *, start="2023-06-05 00:00", freq="1h"):
+    ts = pd.date_range(start, periods=len(flows), freq=freq)
+    pd.DataFrame({"timestamp": ts, _FLOW: flows}).to_csv(
+        tmp / f"{vds_id}.csv", index=False
     )
-    summ = _summarize(
-        resid,
-        group_cols=["gap_length_min", "strategy"],
-        value_specs=[("flow", "truth", "pred")],
+
+
+def _stretches(rows) -> pd.DataFrame:
+    """rows: list of (on_ids, off_ids) cell strings."""
+    return pd.DataFrame(
+        [{"stretch_id": i, "on_ids": on, "off_ids": off}
+         for i, (on, off) in enumerate(rows)]
     )
-    assert (summ["flow_rmse"] == 0.0).all()
-    assert (summ["flow_n"] > 0).all()
-    assert (summ["flow_n_unfilled"] == 0).all()
 
 
-def test_masked_stats_historical_recovers_bin_constant_series():
-    """Historical avg recovers a per-(weekday,tod) constant even with the
-    held-out sample removed from its own bin (masked-stats regime)."""
-    # Two full weeks; flow depends only on time-of-day (same each day), so
-    # every (weekday, tod) bin holds 2 identical samples. Masking one leaves
-    # the other -> the bin mean is unchanged and the fill is exact.
-    n = 2016 * 2
-    tod = np.arange(n) % 288
-    flows = 100.0 + tod.astype(float)
-    series = _series("2022-01-03", flows)  # a Monday
-    resid = _collect_fill_residuals(
-        series,
-        flow_col=_FLOW_COL,
-        gap_lengths_min=(15, 60),
-        strategies={"historical_average": DEFAULT_STRATEGIES["historical_average"]},
-        gap_spacing_min=60.0,
+def test_constant_series_fills_perfectly(tmp_path):
+    # 8 weeks of a constant flow: every (weekday, time) bin mean equals the
+    # truth, so the fill is exact and all error metrics are zero. (8 weeks =
+    # 8 samples per bin, so a 20% random mask emptying a whole bin is
+    # vanishingly unlikely.)
+    _write_series(tmp_path, 10, np.full(24 * 56, 50.0))
+    out = ramp_fill_accuracy(_stretches([("10", "")]), tmp_path, seed=0)
+    assert len(out) == 1
+    row = out.iloc[0]
+    assert row["ramp_type"] == "on"
+    assert row["n_observed"] == 24 * 56
+    assert row["n_masked"] == int(0.2 * 24 * 56)
+    assert row["n_scored"] == row["n_masked"] and row["n_unfilled"] == 0
+    for metric in ("rmse", "nrmse", "bias", "nbias"):
+        assert row[metric] == pytest.approx(0.0, abs=1e-12)
+
+
+def test_ramp_type_classification_and_dedupe(tmp_path):
+    for vid in (10, 20):
+        _write_series(tmp_path, vid, np.full(24 * 14, 30.0))
+    # VDS 10 appears in two stretches' on_ids -> one row.
+    out = ramp_fill_accuracy(
+        _stretches([("10", "20"), ("10", "")]), tmp_path, seed=0
     )
-    summ = _summarize(
-        resid,
-        group_cols=["gap_length_min", "strategy"],
-        value_specs=[("flow", "truth", "pred")],
-    )
-    assert summ["flow_n"].sum() > 0
-    assert summ["flow_rmse"].max() == pytest.approx(0.0, abs=1e-9)
+    assert list(out["vds_id"]) == [10, 20]
+    assert list(out["ramp_type"]) == ["on", "off"]
 
 
-def test_persistence_error_grows_with_gap_length():
-    """On a strictly rising series, longer gaps drift further from truth."""
-    series = _series("2022-01-03", np.arange(2016, dtype=float))
-    resid = _collect_fill_residuals(
-        series,
-        flow_col=_FLOW_COL,
-        gap_lengths_min=(5, 15, 30, 60),
-        strategies=_PERSISTENCE,
-        gap_spacing_min=30.0,
-    )
-    summ = _summarize(
-        resid,
-        group_cols=["gap_length_min", "strategy"],
-        value_specs=[("flow", "truth", "pred")],
-    ).sort_values("gap_length_min")
-    rmse = summ["flow_rmse"].to_numpy()
-    assert np.all(np.diff(rmse) > 0)
-    # Persistence under-predicts a rising series -> negative bias.
-    assert (summ["flow_bias"] < 0).all()
-
-
-def test_collect_residuals_skips_blocks_with_nan_truth():
-    """A masked block overlapping a real NaN is never scored."""
-    flows = np.full(2016, 10.0)
-    flows[500:520] = np.nan  # a real outage in the middle
-    series = _series("2022-01-03", flows)
-    resid = _collect_fill_residuals(
-        series,
-        flow_col=_FLOW_COL,
-        gap_lengths_min=(15,),
-        strategies=_PERSISTENCE,
-        gap_spacing_min=30.0,
-    )
-    # No scored position may land on a real-NaN index.
-    assert not resid["pos"].isin(range(500, 520)).any()
-    assert resid["truth"].notna().all()
-
-
-def test_no_gaps_fit_returns_empty():
-    """A series too short for any block yields empty residuals + summary."""
-    series = _series("2022-01-03", np.full(5, 10.0))
-    resid = _collect_fill_residuals(
-        series,
-        flow_col=_FLOW_COL,
-        gap_lengths_min=(60,),
-        strategies=_PERSISTENCE,
-        gap_spacing_min=30.0,
-    )
-    assert resid.empty
-    summ = _summarize(
-        resid,
-        group_cols=["gap_length_min", "strategy"],
-        value_specs=[("flow", "truth", "pred")],
-    )
-    assert summ.empty
-    assert "flow_rmse" in summ.columns
-
-
-# ---- on-ramp entry point -------------------------------------------------
-
-
-def _onramp_cells(rows):
-    return pd.DataFrame(rows)
-
-
-def test_onramp_fill_accuracy_pools_and_dedups(tmp_path):
-    """Two cells sharing one on-ramp VDS score it once; pooled + per_vds
-    tables are both populated."""
-    _write_vds(tmp_path, 900, "2022-01-03", np.full(2016, 30.0))
-    cells = _onramp_cells(
-        [
-            {"on_ramp": True, "on_ramp_vds_id": 900},
-            {"on_ramp": False, "on_ramp_vds_id": pd.NA},
-            {"on_ramp": True, "on_ramp_vds_id": 900},  # duplicate VDS
-        ]
-    )
-    acc = onramp_fill_accuracy(
-        cells,
-        tmp_path,
-        gap_lengths_min=(5, 30),
-        strategies=_PERSISTENCE,
-        gap_spacing_min=30.0,
-    )
-    # Deduped: only one VDS in per_vds.
-    assert acc.per_vds["vds_id"].nunique() == 1
-    assert (acc.per_vds["vds_id"] == "900").all()
-    # Constant series -> persistence exact.
-    assert (acc.pooled["flow_rmse"] == 0.0).all()
-    assert set(acc.pooled["gap_length_min"]) == {5, 30}
-
-
-# ---- off-ramp split entry point ------------------------------------------
-
-
-def test_offramp_split_accuracy_perfect_on_constant_flows(tmp_path):
-    """Constant off-ramp s and mainline f -> reconstructed beta is exact."""
-    _write_vds(tmp_path, 800, "2022-01-03", np.full(2016, 25.0))  # off-ramp s
-    _write_vds(tmp_path, 100, "2022-01-03", np.full(2016, 75.0))  # downstream f
-    cells = pd.DataFrame(
-        [
-            {"off_ramp": True, "off_ramp_vds_id": 800, "vds_id": pd.NA},
-            {"off_ramp": False, "off_ramp_vds_id": pd.NA, "vds_id": 100},
-        ]
-    )
-    acc = offramp_split_accuracy(
-        cells,
-        tmp_path,
-        gap_lengths_min=(5, 30),
-        strategies=_PERSISTENCE,
-        gap_spacing_min=30.0,
-    )
-    assert (acc.pooled["flow_rmse"] == 0.0).all()
-    assert (acc.pooled["beta_rmse"] == 0.0).all()
-    # Sanity: truth beta = 25/(25+75) = 0.25, so a wrong fill would move it.
-    assert {"beta_rmse", "beta_mape", "beta_bias"} <= set(acc.pooled.columns)
-
-
-def test_offramp_tail_cell_skipped_with_warning(tmp_path):
-    """An off-ramp on the corridor's last cell has no downstream f -> skip."""
-    _write_vds(tmp_path, 800, "2022-01-03", np.full(2016, 25.0))
-    cells = pd.DataFrame(
-        [{"off_ramp": True, "off_ramp_vds_id": 800, "vds_id": pd.NA}]
-    )
-    with pytest.warns(UserWarning, match="last cell"):
-        acc = offramp_split_accuracy(
-            cells,
-            tmp_path,
-            gap_lengths_min=(5,),
-            strategies=_PERSISTENCE,
+def test_conflicting_classification_warns_keeps_first(tmp_path):
+    _write_series(tmp_path, 10, np.full(24 * 14, 30.0))
+    with pytest.warns(UserWarning, match="both on- and off-ramp"):
+        out = ramp_fill_accuracy(
+            _stretches([("10", ""), ("", "10")]), tmp_path, seed=0
         )
-    assert acc.pooled.empty
-    assert acc.per_vds.empty
+    assert list(out["ramp_type"]) == ["on"]
+
+
+def test_virtual_and_missing_ids_skipped(tmp_path):
+    _write_series(tmp_path, 10, np.full(24 * 14, 30.0))
+    # 'v99' is virtual (never parsed); 55 is real but has no CSV -> warning.
+    with pytest.warns(UserWarning, match="no timeseries"):
+        out = ramp_fill_accuracy(
+            _stretches([("v99;10", "55")]), tmp_path, seed=0
+        )
+    assert list(out["vds_id"]) == [10]
+
+
+def test_only_observed_samples_are_masked(tmp_path):
+    flows = np.full(24 * 14, 40.0)
+    flows[::3] = np.nan                        # a third of the series is a real gap
+    _write_series(tmp_path, 10, flows)
+    out = ramp_fill_accuracy(_stretches([("10", "")]), tmp_path, seed=0)
+    row = out.iloc[0]
+    n_obs = int(np.sum(~np.isnan(flows)))
+    assert row["n_observed"] == n_obs
+    assert row["n_masked"] == int(0.2 * n_obs)
+
+
+def test_unfillable_bins_counted_not_scored(tmp_path):
+    # One week of data: each (weekday, time) bin holds exactly one sample, so
+    # masking a sample leaves its bin empty -> unfilled, not scored.
+    _write_series(tmp_path, 10, np.full(24 * 7, 25.0))
+    out = ramp_fill_accuracy(_stretches([("10", "")]), tmp_path, seed=0)
+    row = out.iloc[0]
+    assert row["n_unfilled"] == row["n_masked"]
+    assert row["n_scored"] == 0
+    assert np.isnan(row["rmse"]) and np.isnan(row["nbias"])
+
+
+def test_same_seed_reproducible(tmp_path):
+    rng = np.random.default_rng(3)
+    _write_series(tmp_path, 10, rng.uniform(10, 100, 24 * 28))
+    stretches = _stretches([("10", "")])
+    a = ramp_fill_accuracy(stretches, tmp_path, seed=7)
+    b = ramp_fill_accuracy(stretches, tmp_path, seed=7)
+    pd.testing.assert_frame_equal(a, b)
+
+
+def test_known_error_two_week_alternation(tmp_path):
+    # Two weeks, week1=10 / week2=30 at identical bin times. Masking one
+    # sample of a bin makes the fill equal the other week's value, so every
+    # scored error is +/-20 -> RMSE exactly 20.
+    _write_series(tmp_path, 10, np.concatenate([np.full(24 * 7, 10.0),
+                                                np.full(24 * 7, 30.0)]))
+    out = ramp_fill_accuracy(_stretches([("10", "")]), tmp_path,
+                             mask_rate=0.1, seed=0)
+    row = out.iloc[0]
+    assert row["n_scored"] > 0
+    assert row["rmse"] == pytest.approx(20.0)
+
+
+def test_bad_mask_rate_raises(tmp_path):
+    with pytest.raises(ValueError, match="mask_rate"):
+        ramp_fill_accuracy(_stretches([("10", "")]), tmp_path, mask_rate=0.0)
+
+
+def test_cli_writes_averaged_and_trial_tables(tmp_path):
+    import sys
+    from pathlib import Path as _P
+    sys.path.insert(0, str(_P(__file__).resolve().parents[1] / "scripts"))
+    from validate_ramp_flow import main
+
+    ts_dir = tmp_path / "ts"; ts_dir.mkdir()
+    _write_series(ts_dir, 10, np.full(24 * 28, 50.0))
+    _write_series(ts_dir, 20, np.full(24 * 28, 80.0))
+    sd = tmp_path / "stretches"; sd.mkdir()
+    _stretches([("10", "20")]).to_csv(sd / "880_N.csv", index=False)
+    out = tmp_path / "accuracy.csv"
+
+    rc = main(["--stretches", str(sd), "--timeseries-dir", str(ts_dir),
+               "--seeds", "0", "1", "--out", str(out)])
+    assert rc == 0
+    averaged = pd.read_csv(out)
+    assert list(averaged["vds_id"]) == [10, 20]
+    assert set(averaged["ramp_type"]) == {"on", "off"}
+    assert {"rmse", "nrmse", "bias", "nbias"} <= set(averaged.columns)
+    trials = pd.read_csv(tmp_path / "accuracy_trials.csv")
+    assert sorted(trials["seed"].unique()) == [0, 1]
+    assert len(trials) == 4                    # 2 detectors x 2 seeds
