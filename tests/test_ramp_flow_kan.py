@@ -1,7 +1,8 @@
 """Tests for utils/ramp_flow_estimation/kan.py (alpha regressor + Kan context).
 
-Synthetic single-lag windows (6 feature columns) so the last-lag block *is* the
-whole row: X[:, 0] = q_up, X[:, 3] = q_down by the feature layout.
+Synthetic single-lag windows (6 traffic + 3 time = 9 feature columns) so the
+last-lag block leads the row: X[:, 0] = q_up, X[:, 3] = q_down by the feature
+layout (the trailing 3 columns are the time features at t).
 """
 from __future__ import annotations
 
@@ -28,6 +29,7 @@ def _data(n=200, seed=0):
     X = np.column_stack([
         q_up, rng.uniform(50, 70, n), rng.uniform(5, 15, n),
         q_down, rng.uniform(50, 70, n), rng.uniform(5, 15, n),
+        rng.integers(0, 7, n), rng.integers(0, 24, n), rng.integers(0, 12, n),
     ])
     alpha = np.clip(0.2 + 0.01 * (X[:, 1] - 50.0), 0.0, 1.0)  # depends on up speed
     r, s = bounds.reconstruct_pair(alpha, q_up, q_down, _C_W)
@@ -106,7 +108,7 @@ def test_save_load_roundtrip(tmp_path):
     path = tmp_path / "kan.joblib"
     est.save(path)
     loaded = KanEstimator.load(path)
-    assert loaded.n_feature_lags == 1                # 6-column synthetic windows
+    assert loaded.n_feature_lags == 1                # (9 - 3 time cols) // 6
     np.testing.assert_allclose(loaded.predict_alpha(X), est.predict_alpha(X))
     np.testing.assert_allclose(loaded.predict_flows(X, ctx=ctx),
                                est.predict_flows(X, ctx=ctx))

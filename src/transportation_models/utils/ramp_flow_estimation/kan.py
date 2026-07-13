@@ -25,7 +25,7 @@ import numpy as np
 from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
 
 from .bounds import alpha_out_of_band, alpha_target, compute_bounds, reconstruct_pair
-from .features import mainline_flows
+from .features import FEATURES_PER_LAG, N_TIME_FEATURES, mainline_flows
 
 _CTX_KEYS = ("c_w", "r_demand", "s_qmax")
 
@@ -107,8 +107,9 @@ class KanEstimator:
     @property
     def n_feature_lags(self) -> int:
         """Window size the fitted model was trained with (from the RF/GBM's
-        expected feature count; the layout is 6 features per lag)."""
-        return int(self._model.n_features_in_) // 6
+        expected feature count; 6 features per lag plus the trailing time
+        columns)."""
+        return (int(self._model.n_features_in_) - N_TIME_FEATURES) // FEATURES_PER_LAG
 
     # ------------------------------------------------------------------ #
     def save(self, path) -> None:

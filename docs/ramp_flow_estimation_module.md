@@ -111,7 +111,11 @@ $$q^{up} > q^{down}:\quad \hat s = \alpha\, s_{max} + (1-\alpha)\, s_{min},\quad
 * **Units**: PeMS `total_flow` is veh/5-min; the assembler scales flows to **veh/hr**
   on load so that `q_up`, `q_down`, `r`, `s`, and the bounds match the veh/hr `C_w`.
 * **Features `Z`** (Kan Table III): upstream and downstream mainline `total_flow`,
-  `avg_speed`, `avg_occupancy` at `t, t-1, t-2`.
+  `avg_speed`, `avg_occupancy` at `t, t-1, t-2`, plus three window-level time
+  features at the prediction step `t`: day-of-week (0–6), hour-of-day (0–23),
+  and the 5-minute slot within the hour (0–11). The latter two decompose Kan's
+  time-of-day index `k ∈ [0, 287]` (`k = 12·hour + slot`); day-of-week adds
+  weekly structure. They are appended as the last 3 columns of `Z`.
 * **Target**: $\alpha = (y - y_{min}) / (y_{max} - y_{min})$ of the determined-first ramp,
   derived *inside the estimator* from the corpus and its bounds context (the corpus
   itself is method-agnostic; see the module layout below). `q_up`/`q_down` are recovered
@@ -165,13 +169,17 @@ It may be possible to develop a more accurate estimator for $r$ and $s$, which c
 
 Using the same feature vector as Kan, we train a gated recurrent unit (GRU) to estimate the ramp flows directly (`gru.py`):
 
-* **Inputs**: the same feature windows as Kan, reshaped to a `(window_size, 6)` sequence
-  of [up/down × flow/speed/occ] steps; the estimator accepts whatever window the corpus
-  carries (default 3, matching Kan for a controlled comparison). numpy→tensor conversion
-  happens once at the estimator boundary; everything inside is torch.
+* **Inputs**: the same feature windows as Kan — the traffic block reshaped to a
+  `(window_size, 6)` sequence of [up/down × flow/speed/occ] steps, with the three
+  window-level time features (day-of-week, hour, 5-min slot at `t`) broadcast onto
+  every timestep, giving a `(window_size, 9)` sequence; the estimator accepts whatever
+  window the corpus carries (default 3, matching Kan for a controlled comparison).
+  numpy→tensor conversion happens once at the estimator boundary; everything inside
+  is torch.
 * **Normalization** (`gru.Normalizer`, fitted on the train split): features are scaled
   per physical **variable** — one mean/std each for flow, speed, occupancy, shared
-  across the up/downstream stations and all lags. Targets are configurable
+  across the up/downstream stations and all lags; each time channel gets its own
+  independent mean/std. Targets are configurable
   (`target_transform`): `"zscore"` (center+scale) or `"log1p"` (log1p then
   center+scale, weighting relative rather than absolute errors).
 * **Output**: joint prediction — GRU → 2-unit linear head in normalized-target space;

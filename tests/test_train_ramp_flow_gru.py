@@ -120,7 +120,7 @@ def test_cli_trains_and_writes_manifest_and_checkpoint(tmp_path, monkeypatch):
     assert m["split"]["val_stretch"] != m["split"]["test_stretch"]
     est = GruEstimator.load(out_dir / "gru.pt")
     assert est.target_transform == "log1p"
-    r_hat, s_hat = est.predict_flows(np.random.default_rng(0).uniform(0, 1, (5, 18)))
+    r_hat, s_hat = est.predict_flows(np.random.default_rng(0).uniform(0, 1, (5, 21)))
     assert (r_hat >= 0).all() and (s_hat >= 0).all()
     result = json.loads((out_dir / "result.json").read_text())
     assert result["config"]["dropout"] == 0.25

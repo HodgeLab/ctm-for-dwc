@@ -4,9 +4,12 @@ Motivation (docs/ramp_flow_estimation_module.md): raw PeMS data shows flow is
 generally *not* conserved at ramp gores, while Kan's alpha-blend encodes
 conservation through its band -- out-of-band true flows are unreachable by
 construction. This estimator maps the feature matrix ``Z`` (see
-:mod:`features`) to ``(r, s)`` directly, treating each row as a
-``(window_size, 6)`` sequence. No conservation or capacity structure is
-imposed; predictions are clamped non-negative on the way back to flow units.
+:mod:`features`) to ``(r, s)`` directly, treating each row's traffic block as
+a ``(window_size, 6)`` sequence; the trailing window-level time features
+(day-of-week, hour, 5-min slot at the prediction step) are broadcast onto
+every timestep, so the GRU consumes ``(window_size, 9)``. No conservation or
+capacity structure is imposed; predictions are clamped non-negative on the
+way back to flow units.
 
 Implements the shared interface ``fit(X, r, s, ctx=None)`` /
 ``predict_flows(X, ctx=None)``; ``ctx`` (the bounds context used by Kan) is
@@ -22,7 +25,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from .features import FEATURES_PER_LAG, _VARS_PER_STATION
+from .features import FEATURES_PER_LAG, N_TIME_FEATURES, _VARS_PER_STATION
 from .validation import flow_metrics
 
 _TARGET_TRANSFORMS = ("zscore", "log1p", "maxscale")
@@ -35,6 +38,8 @@ class Normalizer:
     shared across the up/downstream stations and all lags -- so every channel
     of one variable stays on a single scale (channel layout
     ``[up_flow, up_speed, up_occ, down_flow, down_speed, down_occ]``).
+    Channels beyond the traffic block (the broadcast time features) each get
+    their own independent mean/std.
 
     **Targets** (``target_transform``):
 
@@ -62,11 +67,16 @@ class Normalizer:
         x_mean = torch.empty(channels, dtype=x.dtype)
         x_std = torch.ones(channels, dtype=x.dtype)
         for var in range(_VARS_PER_STATION):
-            chans = list(range(var, channels, _VARS_PER_STATION))
+            chans = list(range(var, FEATURES_PER_LAG, _VARS_PER_STATION))
             vals = x[..., chans]
             x_mean[chans] = vals.mean()
             if (std := vals.std()) > 0:
                 x_std[chans] = std
+        for ch in range(FEATURES_PER_LAG, channels):   # time channels
+            vals = x[..., ch]
+            x_mean[ch] = vals.mean()
+            if (std := vals.std()) > 0:
+                x_std[ch] = std
         self._x_mean, self._x_std = x_mean, x_std
 
         yt = self._pre(y)
@@ -110,8 +120,8 @@ class _GruNet(nn.Module):
 
     def __init__(self, hidden_size: int, num_layers: int, dropout: float = 0.0):
         super().__init__()
-        self.gru = nn.GRU(FEATURES_PER_LAG, hidden_size, num_layers,
-                          batch_first=True, dropout=dropout)
+        self.gru = nn.GRU(FEATURES_PER_LAG + N_TIME_FEATURES, hidden_size,
+                          num_layers, batch_first=True, dropout=dropout)
         self.head = nn.Linear(hidden_size, 2)
 
     def forward(self, x):
@@ -163,13 +173,19 @@ class GruEstimator:
     # ------------------------------------------------------------------ #
     @staticmethod
     def _sequences(X) -> torch.Tensor:
-        """Convert the flat ``(n, 6*T)`` matrix to raw ``(n, T, 6)`` sequence
-        tensors (the per-lag feature layout makes this a pure reshape)."""
+        """Convert the flat ``(n, 6*T + 3)`` matrix to raw ``(n, T, 9)``
+        sequence tensors: the per-lag traffic block is a pure reshape, and the
+        trailing window-level time features are broadcast onto every step."""
         X = np.asarray(X, dtype=np.float32)
-        if X.ndim != 2 or X.shape[1] % FEATURES_PER_LAG:
-            raise ValueError(f"expected (n, {FEATURES_PER_LAG}*T) features, got {X.shape}")
-        n, t = X.shape[0], X.shape[1] // FEATURES_PER_LAG
-        return torch.from_numpy(X.reshape(n, t, FEATURES_PER_LAG))
+        width = X.shape[1] - N_TIME_FEATURES if X.ndim == 2 else -1
+        if width <= 0 or width % FEATURES_PER_LAG:
+            raise ValueError(f"expected (n, {FEATURES_PER_LAG}*T + "
+                             f"{N_TIME_FEATURES}) features, got {X.shape}")
+        n, t = X.shape[0], width // FEATURES_PER_LAG
+        traffic = torch.from_numpy(
+            X[:, :width].reshape(n, t, FEATURES_PER_LAG))
+        time = torch.from_numpy(X[:, width:]).unsqueeze(1).expand(n, t, N_TIME_FEATURES)
+        return torch.cat([traffic, time], dim=2)
 
     @staticmethod
     def _flows(r, s) -> torch.Tensor:

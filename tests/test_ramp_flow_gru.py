@@ -1,7 +1,7 @@
 """Tests for utils/ramp_flow_estimation/gru.py (Normalizer + GRU estimator).
 
-Small synthetic problems (window 3, 18 feature columns) so training stays in
-the sub-second range on CPU; all runs are seeded.
+Small synthetic problems (window 3, 18 traffic + 3 time = 21 feature columns)
+so training stays in the sub-second range on CPU; all runs are seeded.
 """
 from __future__ import annotations
 
@@ -15,7 +15,11 @@ from transportation_models.utils.ramp_flow_estimation.gru import GruEstimator, N
 def _synthetic(n=400, seed=0):
     """Learnable mapping: r, s are positive linear functions of the features."""
     rng = np.random.default_rng(seed)
-    X = rng.uniform(0, 1, size=(n, 18))
+    X = np.column_stack([
+        rng.uniform(0, 1, size=(n, 18)),               # traffic block
+        rng.integers(0, 7, n), rng.integers(0, 24, n), # dow, hour
+        rng.integers(0, 12, n),                        # 5-min slot
+    ]).astype(float)
     r = 200.0 + 400.0 * X[:, 12] + 100.0 * X[:, 0]     # up flow at t, t-2
     s = 100.0 + 300.0 * X[:, 15] + 50.0 * X[:, 3]      # down flow at t, t-2
     return X, r, s
@@ -45,6 +49,20 @@ def test_normalizer_feature_stats_shared_per_variable():
     assert xm[2] == xm[5] and xs[2] == xs[5]  # occupancy group
     # and the group stats actually differ between variables
     assert xm[0] != xm[1]
+
+
+def test_normalizer_time_channels_get_independent_stats():
+    # channels beyond the 6-channel traffic block (broadcast time features)
+    # are normalized per channel, not folded into the variable groups.
+    torch.manual_seed(0)
+    x = torch.rand(50, 3, 9)
+    x[..., 6] *= 7.0                          # dow scale
+    x[..., 7] *= 24.0                         # hour scale
+    norm = Normalizer().fit(x, torch.rand(50, 2))
+    xm, xs = norm._x_mean, norm._x_std
+    assert xm[6] != xm[7] and xs[6] != xs[7]
+    # traffic groups untouched by the time channels
+    assert xm[0] == xm[3] and xs[0] == xs[3]
 
 
 @pytest.mark.parametrize("transform", ["zscore", "log1p"])
@@ -110,7 +128,7 @@ def test_early_stopping_on_noise_val():
     # unlearnable val targets -> val loss plateaus -> stops well before max_epochs
     rng = np.random.default_rng(1)
     X, r, s = _synthetic(n=200)
-    Xv = rng.uniform(0, 1, size=(80, 18))
+    Xv, _, _ = _synthetic(n=80, seed=1)
     rv, sv = rng.uniform(0, 1000, 80), rng.uniform(0, 1000, 80)
     epochs = []
     _fast(max_epochs=200, patience=5).fit(
@@ -124,7 +142,7 @@ def test_patience_none_disables_early_stopping():
     # patience=None the run must go the full max_epochs (final weights kept)
     rng = np.random.default_rng(1)
     X, r, s = _synthetic(n=200)
-    Xv = rng.uniform(0, 1, size=(80, 18))
+    Xv, _, _ = _synthetic(n=80, seed=1)
     rv, sv = rng.uniform(0, 1000, 80), rng.uniform(0, 1000, 80)
     epochs = []
     _fast(max_epochs=15, patience=None).fit(
@@ -188,9 +206,9 @@ def test_save_load_roundtrip(tmp_path, transform):
 def test_bad_feature_width_raises():
     X, r, s = _synthetic(n=50)
     with pytest.raises(ValueError):
-        _fast(max_epochs=1).fit(X[:, :17], r, s)
+        _fast(max_epochs=1).fit(X[:, :20], r, s)   # (20 - 3) % 6 != 0
 
 
 def test_predict_before_fit_raises():
     with pytest.raises(RuntimeError):
-        _fast().predict_flows(np.zeros((3, 18)))
+        _fast().predict_flows(np.zeros((3, 21)))

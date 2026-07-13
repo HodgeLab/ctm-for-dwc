@@ -6,7 +6,10 @@ consecutive 5-min samples yields one training sample:
 * **features Z** -- upstream and downstream mainline ``total_flow``,
   ``avg_speed``, ``avg_occupancy`` at each lag ``t-2, t-1, t``, laid out
   oldest-lag-first: ``[up_flow, up_speed, up_occ, down_flow, down_speed,
-  down_occ]`` repeated per lag -> ``6 * window_size`` columns.
+  down_occ]`` repeated per lag, then the prediction step's time-of-week
+  indices ``[day_of_week (0-6), hour (0-23), 5-min slot in hour (0-11)]``
+  (Kan's time index ``k`` decomposed, plus weekday) ->
+  ``6 * window_size + 3`` columns.
 * **targets** -- the ramp flows ``r, s`` at the prediction step ``t`` (window's
   last sample). By default (``require_both_measured=True``) only windows where
   *both* ramps' detectors report are kept -- clean, directly-measured targets.
@@ -37,6 +40,7 @@ from .observations import sliding_all
 _VARS_PER_STATION = 3          # flow, speed, occupancy
 _STATIONS = 2                  # upstream, downstream mainline
 FEATURES_PER_LAG = _VARS_PER_STATION * _STATIONS
+N_TIME_FEATURES = 3            # day-of-week, hour, 5-min slot (at step t)
 
 _TS = "timestamp"
 _FLOW = "total_flow_[veh/5-min]"
@@ -62,16 +66,23 @@ class Samples:
 
 def mainline_flows(X) -> tuple[np.ndarray, np.ndarray]:
     """``(q_up, q_down)`` at the prediction step ``t``, recovered from the
-    last-lag block of the (raw, unscaled) feature matrix."""
+    last-lag block of the (raw, unscaled) feature matrix (the trailing
+    ``N_TIME_FEATURES`` time columns sit after it)."""
     X = np.asarray(X, dtype=float)
-    return X[:, -FEATURES_PER_LAG], X[:, -FEATURES_PER_LAG + _VARS_PER_STATION]
+    up = X.shape[1] - N_TIME_FEATURES - FEATURES_PER_LAG
+    return X[:, up], X[:, up + _VARS_PER_STATION]
 
 
 def stretch_samples(
     up_id, down_id, on_ids, off_ids, *,
-    flow, speed, occ, observed, window_size=3, require_both_measured=True,
+    flow, speed, occ, observed, timestamps, window_size=3,
+    require_both_measured=True,
 ) -> Samples:
     n = len(flow[up_id])
+    ts = pd.DatetimeIndex(timestamps)
+    dow = ts.dayofweek.to_numpy()
+    hour = ts.hour.to_numpy()
+    slot = (ts.minute // 5).to_numpy()
     absent = np.zeros(n, dtype=bool)   # mask for a ramp id missing from ``observed``
 
     def ramp_value(ids, t):
@@ -117,11 +128,12 @@ def stretch_samples(
             j = i + lag
             feats += [flow[up_id][j], speed[up_id][j], occ[up_id][j],
                       flow[down_id][j], speed[down_id][j], occ[down_id][j]]
+        feats += [dow[t], hour[t], slot[t]]
         rows_X.append(feats)
         r_list.append(r_true); s_list.append(s_true)
         qu_list.append(q_up); qd_list.append(q_down); t_list.append(t)
 
-    ncols = FEATURES_PER_LAG * window_size
+    ncols = FEATURES_PER_LAG * window_size + N_TIME_FEATURES
     return Samples(
         X=np.array(rows_X, dtype=float).reshape(-1, ncols),
         r_true=np.array(r_list, dtype=float),
@@ -180,7 +192,7 @@ def _as_int(value):
 def _empty_corpus(window_size: int) -> tuple[TrainingData, pd.DataFrame]:
     z = lambda: np.zeros(0, dtype=float)
     data = TrainingData(
-        X=np.zeros((0, FEATURES_PER_LAG * window_size), dtype=float),
+        X=np.zeros((0, FEATURES_PER_LAG * window_size + N_TIME_FEATURES), dtype=float),
         r_true=z(), s_true=z(), q_up=z(), q_down=z(),
         stretch_id=np.zeros(0, dtype=str),
     )
@@ -291,7 +303,8 @@ def build_training_data(
 
         s = stretch_samples(
             up, down, on, off, flow=flow, speed=speed, occ=occ, observed=observed,
-            window_size=window_size, require_both_measured=require_both_measured,
+            timestamps=grid, window_size=window_size,
+            require_both_measured=require_both_measured,
         )
         n = len(s.r_true)
         if n == 0:

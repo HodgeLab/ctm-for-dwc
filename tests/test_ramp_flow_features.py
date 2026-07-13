@@ -3,11 +3,13 @@
 Exercises the pure per-stretch sample extractor with tiny synthetic aligned
 arrays (no timeseries files). One stretch: up ML 100, down ML 200, on-ramp 10,
 off-ramp 20. Feature layout is 2 stations x {flow, speed, occ} x 3 lags
-(t-2, t-1, t), 18 columns, lags oldest-first.
+(t-2, t-1, t), lags oldest-first, then [day-of-week, hour, 5-min slot] at t:
+21 columns.
 """
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 
 from transportation_models.utils.ramp_flow_estimation.features import (
     mainline_flows,
@@ -29,7 +31,9 @@ def _inputs(n=6, **over):
             observed[int(k[4:])] = np.asarray(v, dtype=bool)
         elif k in ("100", "200", "10", "20"):
             flow[int(k)] = np.asarray(v, dtype=float)
-    return dict(flow=flow, speed=speed, occ=occ, observed=observed)
+    # 2023-06-01 is a Thursday (dayofweek 3)
+    ts = pd.date_range("2023-06-01 00:00", periods=n, freq="5min")
+    return dict(flow=flow, speed=speed, occ=occ, observed=observed, timestamps=ts)
 
 
 def _call(**over):
@@ -50,10 +54,30 @@ def test_fully_measured_yields_one_sample_per_window():
 
 def test_feature_matrix_shape_and_current_step_values():
     s = _call()
-    assert s.X.shape == (4, 18)
+    assert s.X.shape == (4, 21)
     # newest lag (t) block starts at col 12: [up_flow, up_speed, up_occ, down_flow,...]
     np.testing.assert_allclose(s.X[:, 12], 1000.0)   # up flow at t
     np.testing.assert_allclose(s.X[:, 15], 1200.0)   # down flow at t
+
+
+def test_time_features_taken_at_prediction_step():
+    # windows predict at t = 2..5 -> 00:10 .. 00:25 on Thursday 2023-06-01
+    s = _call()
+    np.testing.assert_allclose(s.X[:, 18], 3.0)               # day-of-week
+    np.testing.assert_allclose(s.X[:, 19], 0.0)               # hour
+    np.testing.assert_allclose(s.X[:, 20], [2, 3, 4, 5])      # 5-min slot
+
+
+def test_time_features_cross_hour_and_day_boundaries():
+    ts = pd.date_range("2023-06-01 23:50", periods=6, freq="5min")
+    s = stretch_samples(
+        up_id=100, down_id=200, on_ids=[10], off_ids=[20],
+        window_size=3, **{**_inputs(), "timestamps": ts},
+    )
+    # t = 2..5 -> 00:00, 00:05, 00:10, 00:15 on Friday 2023-06-02
+    np.testing.assert_allclose(s.X[:, 18], 4.0)
+    np.testing.assert_allclose(s.X[:, 19], 0.0)
+    np.testing.assert_allclose(s.X[:, 20], [0, 1, 2, 3])
 
 
 def test_mainline_flows_recovered_from_last_lag_block():

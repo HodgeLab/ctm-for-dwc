@@ -59,7 +59,11 @@ def test_assembles_samples_with_stretch_labels_and_ctx(tmp_path):
     _measured_case(tmp_path)
     td, ctx = build_training_data(_stretches(), tmp_path, _meta(capacity=2000.0, lanes=3))
 
-    assert td.X.shape == (4, 18)
+    assert td.X.shape == (4, 21)
+    # trailing time features from the grid: 2023-06-01 is a Thursday, t = 2..5
+    np.testing.assert_allclose(td.X[:, 18], 3.0)             # day-of-week
+    np.testing.assert_allclose(td.X[:, 19], 0.0)             # hour
+    np.testing.assert_allclose(td.X[:, 20], [2, 3, 4, 5])    # 5-min slot
     np.testing.assert_array_equal(td.stretch_id, np.zeros(4, dtype=int))
     assert list(ctx.index) == [0]
     assert ctx.at[0, "c_w"] == 6000.0                # 2000 veh/h/lane * 3 lanes
