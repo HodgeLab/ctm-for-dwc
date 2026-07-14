@@ -151,6 +151,8 @@ dict of row-aligned context arrays (Kan's bounds context; the GRU ignores it).
 | `bounds.py` | Kan Appendix A bounds, determined-first rule, α↔flow, out-of-band detection |
 | `kan.py` | RF/GBM α-regressor behind the shared interface: derives α targets internally (`alpha_targets`), expands the ctx table (`row_context`), reconstructs via `bounds` |
 | `gru.py` | direct joint `(r, s)` GRU regressor + `Normalizer`; checkpoint save/load |
+| `zhang_features.py` | Zhang 2024 corpus: mainline preprocessing (fill rules) + per-stretch samples (ρ = q/v, per-step hour/minute) |
+| `zhang.py` | Zhang 2024 estimator: GRU backbone + Deep Domain Adaptation + Model Transfer, staged interface |
 | `validation.py` | leave-`k`-out CV, stretch-level train/val/test split, NRMSE/R²/BIAS, Scenario 1–4 aggregation |
 | `manifest.py` | split manifest (corpus params + split + digest over corpus **and** ctx) so separate runs provably share one corpus |
 
@@ -219,3 +221,125 @@ see identical data:
 
 A clean negative result (GRU no better than Kan) is a valid outcome; the protocol's job
 is attribution, not advocacy.
+
+## Zhang estimator (transfer learning: GRU + DDA + MT)
+
+A faithful implementation of [Zhang et al. 2024](https://doi.org/10.1109/TITS.2023.3315693)
+(`zhang_features.py` + `zhang.py`), which frames the type-(c) problem as
+*transfer learning*: a **Source Stretch** with measured ramps trains an
+estimator, adapted to a **Target Stretch** whose ramps are unmeasured. Unlike
+the pooled-corpus estimators above, the pipeline is pairwise: one explicit
+source stretch, one explicit target stretch, three stages evaluated in order
+so each component's contribution is attributable.
+
+1. **GRU backbone** (paper Fig. 3) — per step, the mainline state
+   `[q_up, q_down, v_up, v_down, ρ_up, ρ_down]` plus that step's Time Feature
+   `[hour, minute]`, over `H = 5` history steps. Per-step Linear embedding
+   (8→64) → GRU (hidden 64) → FC (64→256) → hidden state `H_t` → separate FC
+   heads for `r` and `s`. Trained on the source with Adam (lr 1e-4), MSE,
+   batch 64, ≤100 epochs; early stopping on a seeded held-out fraction of
+   **source days** (default 20%). No conservation or capacity structure.
+2. **Deep Domain Adaptation** (DDA) — reduces the marginal distribution
+   difference using only the target's *unlabeled* mainline windows: a fresh
+   BatchNorm(256) is inserted before `H_t` (the paper adds BN only at this
+   stage — Fig. 2 vs Fig. 3), the embedding+GRU are frozen, and FC/BN/heads
+   fine-tune on `source MSE + λ·MMD(H_src, H_tgt)` with `λ = 0.01` for a
+   **fixed** number of epochs (no target labels ⇒ no early-stop signal).
+3. **Model Transfer** (MT, paper Eq. 5) — per-ramp amplitude scalars
+   `h = mean(y / ŷ)` over one *Traffic-Survey* day's samples with nonzero
+   estimates; predictions are multiplied by `(h_r, h_s)`. In evaluation the
+   survey is simulated from one full day of the target's real ramp flows,
+   repeated over 5 seeded random days (metrics mean ± std, each repetition
+   scored on the target minus its survey day, Kan/Zhang's `T = n_t − n_p`).
+   In real deployment this requires a field count — the known limitation.
+
+**Zhang-specific preprocessing** (`zhang_features.preprocess_mainline`).
+Applied at runtime to **mainline series only** — the on-disk 5-minute grid is
+never modified, and ramp targets are never filled:
+
+1. mainline samples with `pct_observed` below a threshold (CLI
+   `--pct-observed-threshold`, default 50) are treated as missing;
+2. missing runs of 1–2 steps are filled by persistence (a run at the record
+   start falls through to rule 3);
+3. longer runs are filled by the detector's historical mean for that
+   (day-of-week, time-of-day) slot; never-observed slots stay NaN and the
+   window is unusable;
+4. windows whose mainline data are *entirely* filled are dropped.
+
+### Decision log vs. the paper
+
+The paper's description is the default; every departure is deliberate and
+recorded here so the implementation is auditable.
+
+**Deviations from the paper's specification:**
+
+* **Preprocessing is replaced wholesale.** The paper fills large gaps with
+  the same-weekday historical average, small gaps by linear interpolation,
+  and deletes+re-interpolates 3σ outliers. We use the four rules above
+  instead: a PeMS-specific `pct_observed` quality gate (the paper has no
+  equivalent), **persistence** rather than linear interpolation for short
+  gaps, **no outlier removal**, and the all-filled-window drop. Fill rules
+  apply to mainline only — the paper preprocesses the whole dataset, ramp
+  series included, whereas our targets are always directly-measured values.
+* **Density is derived, not measured**: `ρ = q/v` (PeMS carries occupancy,
+  not the density the paper's feature vector specifies).
+* **No early stopping in the DDA stage.** The paper says early stopping is
+  used "in training and fine-tuning" but never names the fine-tuning signal,
+  and no target labels exist to supply one — the DDA stage runs a fixed
+  `--dda-epochs` instead. (Backbone early stopping is kept; see below.)
+* **BatchNorm is inserted at the DDA stage.** Fig. 3 (backbone) has no BN;
+  Fig. 2 (transfer framework) shows BN before the adaptation layer. We follow
+  the text ("the BN Layer is *added* before the Adaptation layer… in
+  adaptation"): the backbone trains without BN, and a fresh BN(256) is
+  inserted when `adapt` begins.
+* **Evaluation is one direction per run.** The paper's groups average the
+  two directions of each stretch pair (and its no-transfer baseline is a
+  single-source model); we run one explicit `--source-stretch` →
+  `--target-stretch` direction per invocation, with per-stage metrics.
+  Looping over configurations is a deferred open item.
+
+**Where the paper is silent, choices made:**
+
+* **MMD kernel** (Eq. 2 never states φ): Gaussian RBF, per-batch
+  median-heuristic bandwidth; the loss is the RKHS *norm* (square root of the
+  biased squared-MMD estimator), matching Eq. 2 as printed.
+* **Feature/target scaling** (unstated): per-channel z-score fitted on the
+  source training split only; predictions clamped ≥ 0 on the inverse.
+* **Embedding width** (unstated): 64. The FC after the GRU maps 64 → 256 so
+  that the adaptation layer matches the stated "BN hidden dimension = 256"
+  (the text's word "reduce" is treated as loose wording).
+* **Backbone early-stopping signal** (unstated): source-val MSE on a seeded
+  held-out fraction of **source days** (default 20%, `--source-val-frac`).
+* **Survey-day selection** (unstated): seeded random draw among target days
+  carrying ≥ 50% of the busiest day's window count (so a sparsely-observed
+  day can't stand in for a full survey day).
+* **Per-pair MMD distance** (`ZhangEstimator.pair_mmd`): the paper reports
+  the MMD between each source/target pair (Tables II/IV/VI) as
+  transfer-difficulty context. Per Eq. 2 and §III-D this is defined over the
+  **Adaptation Layer** — the hidden state `H_t` after the GRU module — so it
+  requires a trained backbone and is computed with the same Gaussian-RBF
+  median-heuristic estimator as the DDA loss (the kernel itself remains our
+  choice), on a seeded subsample of ≤ 2048 windows per stretch (the kernel
+  matrix is O(n²)). The driver reports it twice: after backbone training
+  (the paper-analogous pre-adaptation distance) and after DDA (which should
+  shrink it). Values are comparable across our runs but not to the paper's
+  tables (their kernel/scaling are unknown).
+
+**Matched to the paper** (for the record): workday-only data (weekend
+windows dropped by default; `--include-weekends` opts out; public holidays
+are *not* excluded — a refinement over-and-above the weekday filter),
+`H = 5`, per-step `[hour, minute]` time features, Adam lr 1e-4 / MSE /
+batch 64 / 100 epochs, GRU hidden 64, `λ_mmd = 0.01`, frozen embedding+GRU
+during DDA, MT over the nonzero-estimate set with 5 survey days reported as
+mean ± std, and NRMSE/R² pooled over both ramps (Eqs. 6–7).
+
+Run via `scripts/train_ramp_flow_zhang.py --source-stretch <id> --target-stretch <id>`
+(same W&B/out-dir conventions as the GRU driver; writes `pair_manifest.json`
+with build params + array digests, `result.json` with the source↔target MMD
+distance and per-stage target metrics, and the post-DDA checkpoint).
+
+**Open items (deferred by design)**: looping over many source/target
+configurations; the pooled-GRU vs single-source+DDA vs pooled+DDA experiment
+(fast-follow once the estimator is validated); source-selection rules (e.g.
+min-MMD); MT ratio-robustness variants (mean-of-ratios inflates when ŷ is
+small — kept faithful to Eq. 5 for now); congestion-regime slicing.
