@@ -122,6 +122,16 @@ class ZhangSamples:
     t_index: np.ndarray    # (n,) prediction sample index into the grid
 
 
+def concat_samples(parts: list[ZhangSamples]) -> ZhangSamples:
+    """Row-concatenate several stretches' samples (a pooled training corpus).
+    ``t_index`` stays per-stretch and is meaningful only within one part."""
+    if not parts:
+        raise ValueError("concat_samples needs at least one part")
+    cat = lambda name: np.concatenate([getattr(p, name) for p in parts])
+    return ZhangSamples(X=cat("X"), r=cat("r"), s=cat("s"),
+                        date=cat("date"), t_index=cat("t_index"))
+
+
 def stretch_samples(
     up: Preprocessed, down: Preprocessed, on_flows, off_flows, timestamps, *,
     window_size=WINDOW_SIZE, weekdays_only=True,

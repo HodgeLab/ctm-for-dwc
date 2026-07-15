@@ -11,6 +11,7 @@ from transportation_models.utils.ramp_flow_estimation.zhang_features import (
     Preprocessed,
     ZhangSamples,
     build_stretch_samples,
+    concat_samples,
     preprocess_mainline,
     stretch_samples,
 )
@@ -187,6 +188,21 @@ def test_unusable_mainline_window_dropped():
     out = stretch_samples(up, down, _ramp(np.full(n, 50.0)),
                           _ramp(np.full(n, 30.0)), _grid(n), window_size=H)
     assert len(out.r) == 0
+
+
+def test_concat_samples_pools_rows():
+    n, H = 7, 5
+    up, down = _station(np.full(n, 1000.0)), _station(np.full(n, 1100.0))
+    a = stretch_samples(up, down, _ramp(np.full(n, 50.0)),
+                        _ramp(np.full(n, 30.0)), _grid(n), window_size=H)
+    b = stretch_samples(up, down, _ramp(np.full(n, 70.0)),
+                        _ramp(np.full(n, 20.0)), _grid(n), window_size=H)
+    pooled = concat_samples([a, b])
+    assert len(pooled.r) == len(a.r) + len(b.r)
+    np.testing.assert_allclose(pooled.r, np.concatenate([a.r, b.r]))
+    np.testing.assert_allclose(pooled.X[:len(a.r)], a.X)
+    with pytest.raises(ValueError):
+        concat_samples([])
 
 
 # --------------------------------------------------------------------------- #

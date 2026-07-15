@@ -338,8 +338,39 @@ Run via `scripts/train_ramp_flow_zhang.py --source-stretch <id> --target-stretch
 with build params + array digests, `result.json` with the source↔target MMD
 distance and per-stage target metrics, and the post-DDA checkpoint).
 
+### Pooled-vs-DDA 2×2 experiment
+
+Does pooling training data across stretches already buy what DDA buys? The
+experiment trains the full 2×2 — {single-source, pooled} × {no-DDA, +DDA} —
+on the Zhang backbone/corpus and scores every arm on the same held-out
+target stretch (all target windows, full flow metrics + adaptation-layer
+pair MMD; **no MT** — the question lives in the mainline-features-only
+regime). The pool is an explicit stretch-ID list minus the target, so it
+includes the single source and pooled-vs-single is a pure data-addition
+comparison; the no-DDA/+DDA arms of each pool share one backbone (evaluated
+before and after `adapt`), and both backbones start from the same model
+seed. Early stopping uses the same seeded day-level holdout, drawn over each
+arm's own training stretches.
+
+* `scripts/compare_zhang_pooling.py` — one (target, single-source)
+  combination per run: builds each stretch's samples once (byte-identical
+  across arms, digests recorded), trains the four arms, logs per-epoch
+  curves under arm prefixes and final target metrics over `arm_idx` to W&B,
+  writes the 2×2 table to `result.json`.
+* `scripts/aggregate_zhang_pooling.py` — offline evaluation over a sweep
+  directory of `result.json` files (no W&B): `combos.csv` (one row per
+  combination × arm: NRMSE/R²/NBIAS + MMD), `summary.csv` (per-arm mean/std
+  across combinations), and per-metric scatter+trend plots of accuracy vs
+  pair MMD, one series per arm. The x-axis is the **single/no-DDA arm's**
+  pair MMD — the distance as seen by a source-trained backbone before
+  adaptation (each arm's own MMD is also in the CSV).
+
+Reading the result: if `pooled` tracks the DDA arms flat across MMD, pooling
+subsumes DDA; if the no-DDA arms degrade with MMD while the DDA arms stay
+flat, the transfer machinery earns its keep.
+
 **Open items (deferred by design)**: looping over many source/target
-configurations; the pooled-GRU vs single-source+DDA vs pooled+DDA experiment
-(fast-follow once the estimator is validated); source-selection rules (e.g.
-min-MMD); MT ratio-robustness variants (mean-of-ratios inflates when ŷ is
-small — kept faithful to Eq. 5 for now); congestion-regime slicing.
+configurations; source-selection rules (e.g. min-MMD); MT ratio-robustness
+variants (mean-of-ratios inflates when ŷ is small — kept faithful to Eq. 5
+for now); congestion-regime slicing; multi-seed error bars for the 2×2
+experiment if the arm gaps look seed-sized.
