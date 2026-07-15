@@ -29,6 +29,7 @@ import pandas as pd  # noqa: E402
 
 STAGES = ("dda", "dda_mt")
 METRICS = ("nrmse", "r2", "nbias")
+Y_LIMITS = {"nrmse": (0.0, 1.0), "r2": (-1.0, 1.0), "nbias": (-1.0, 1.0)}
 
 
 def load_pairs(results_dir: Path) -> pd.DataFrame:
@@ -69,6 +70,7 @@ def plot_metric_vs_mmd(pairs: pd.DataFrame, metric: str, path: Path) -> None:
             ax.plot(x, slope * x + intercept, color=color, linewidth=1)
     ax.set_xlabel("source<->target pair MMD (adaptation layer, post-DDA)")
     ax.set_ylabel(f"target {metric.upper()}")
+    ax.set_ylim(*Y_LIMITS[metric])
     ax.set_title(f"{metric.upper()} vs post-DDA pair MMD")
     ax.legend()
     fig.tight_layout()
