@@ -187,12 +187,29 @@ def main(argv: list[str] | None = None) -> int:
         seed=args.model_seed,
     )
 
+    def _log_target_stage(idx, name, metrics, mmd):
+        """Post-stage target metrics (RMSE/R2/NRMSE/...) + adaptation-layer
+        MMD as chartable W&B series over the stage index."""
+        wandb.log({"stage_idx": idx, "stage": name, "target/mmd": mmd,
+                   **{f"target/{k}": v for k, v in metrics.items()}})
+
+    def _stage_log(stage, names):
+        """Per-epoch W&B logger: positional losses + raw-space source-val
+        flow metrics (NRMSE/R2/...) under a stage prefix."""
+        def log(epoch, *args):
+            *losses, val_metrics = args
+            row = {f"{stage}/epoch": epoch,
+                   **{f"{stage}/{n}": v for n, v in zip(names, losses)}}
+            if val_metrics is not None:
+                row.update({f"{stage}/val_{k}": v for k, v in val_metrics.items()})
+            wandb.log(row)
+        return log
+
     # stage 1: backbone on the source
     est.fit_source(
         src.X[tr], src.r[tr], src.s[tr],
         X_val=src.X[val], r_val=src.r[val], s_val=src.s[val],
-        log_fn=lambda e, tl, vl: wandb.log(
-            {"backbone/epoch": e, "backbone/train_loss": tl, "backbone/val_loss": vl}),
+        log_fn=_stage_log("backbone", ["train_loss", "val_loss"]),
     )
     source_val = flow_metrics(src.r[val], src.s[val],
                               *est.predict_flows(src.X[val]))
@@ -201,6 +218,7 @@ def main(argv: list[str] | None = None) -> int:
     # Adaptation Layer H_t, i.e. how far apart the stretches look to the
     # source-trained backbone
     mmd_backbone = est.pair_mmd(src.X, tgt.X)
+    _log_target_stage(0, "backbone", backbone_target, mmd_backbone)
     print(f"backbone  target NRMSE {backbone_target['nrmse']:.4f} "
           f"R2 {backbone_target['r2']:.4f}; "
           f"source<->target adaptation-layer MMD {mmd_backbone:.4f}")
@@ -208,12 +226,12 @@ def main(argv: list[str] | None = None) -> int:
     # stage 2: Deep Domain Adaptation against the target's unlabeled mainline
     est.adapt(
         src.X[tr], src.r[tr], src.s[tr], tgt.X,
-        log_fn=lambda e, est_l, mmd_l, tot: wandb.log(
-            {"dda/epoch": e, "dda/est_loss": est_l, "dda/mmd": mmd_l,
-             "dda/total_loss": tot}),
+        X_val=src.X[val], r_val=src.r[val], s_val=src.s[val],
+        log_fn=_stage_log("dda", ["est_loss", "mmd", "total_loss"]),
     )
     dda_target = flow_metrics(tgt.r, tgt.s, *est.predict_flows(tgt.X))
     mmd_dda = est.pair_mmd(src.X, tgt.X)   # should shrink if DDA worked
+    _log_target_stage(1, "dda", dda_target, mmd_dda)
     print(f"+DDA      target NRMSE {dda_target['nrmse']:.4f} "
           f"R2 {dda_target['r2']:.4f}; "
           f"source<->target adaptation-layer MMD {mmd_dda:.4f}")
@@ -232,6 +250,10 @@ def main(argv: list[str] | None = None) -> int:
               f"R2 {m['r2']:.4f} (h_r {h_r:.3f}, h_s {h_s:.3f})")
     metric_keys = [k for k in per_day[0] if k != "survey_day"]
     mt_agg = _aggregate([{k: d[k] for k in metric_keys} for d in per_day])
+    # MT rescales the outputs downstream of H_t, so the pair MMD is unchanged
+    _log_target_stage(2, "dda_mt", mt_agg["mean"], mmd_dda)
+    wandb.log({"stage_idx": 2,
+               **{f"target/{k}_std": v for k, v in mt_agg["std"].items()}})
     print(f"+DDA+MT   target NRMSE {mt_agg['mean']['nrmse']:.4f} "
           f"+/- {mt_agg['std']['nrmse']:.4f}, "
           f"R2 {mt_agg['mean']['r2']:.4f} +/- {mt_agg['std']['r2']:.4f} "

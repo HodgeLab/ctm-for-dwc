@@ -34,6 +34,7 @@ import numpy as np
 import torch
 from torch import nn
 
+from .validation import flow_metrics
 from .zhang_features import FEATURES_PER_STEP
 
 
@@ -172,7 +173,10 @@ class ZhangEstimator:
     def fit_source(self, X, r, s, *, X_val=None, r_val=None, s_val=None,
                    log_fn=None) -> "ZhangEstimator":
         """Train the backbone on the source stretch. ``log_fn(epoch,
-        train_loss, val_loss)`` is an optional per-epoch callback."""
+        train_loss, val_loss, val_metrics)`` is an optional per-epoch
+        callback; ``val_metrics`` is the raw-space
+        :func:`validation.flow_metrics` dict (NRMSE/R2/...) on the validation
+        set, or None without one."""
         torch.manual_seed(self.seed)
         x_raw, y_raw = self._sequences(X), self._flows(r, s)
         self._norm = ZhangNormalizer().fit(x_raw, y_raw)
@@ -202,13 +206,19 @@ class ZhangEstimator:
                 total += loss.item() * len(idx)
             train_loss = total / len(xt)
 
-            val_loss = float("nan")
+            val_loss, val_metrics = float("nan"), None
             if has_val:
                 net.eval()
                 with torch.no_grad():
-                    val_loss = float(loss_fn(net(xv), yv))
+                    val_pred = net(xv)
+                    val_loss = float(loss_fn(val_pred, yv))
+                    if log_fn is not None:
+                        flows = self._norm.inverse_targets(val_pred.cpu()).numpy()
+                        val_metrics = flow_metrics(
+                            np.asarray(r_val, float), np.asarray(s_val, float),
+                            flows[:, 0], flows[:, 1])
             if log_fn is not None:
-                log_fn(epoch, train_loss, val_loss)
+                log_fn(epoch, train_loss, val_loss, val_metrics)
             if has_val and self.patience is not None:
                 if val_loss < best_loss:
                     best_loss, since_best = val_loss, 0
@@ -223,12 +233,16 @@ class ZhangEstimator:
         self._net = net.eval()
         return self
 
-    def adapt(self, X_src, r_src, s_src, X_tgt, *, log_fn=None) -> "ZhangEstimator":
+    def adapt(self, X_src, r_src, s_src, X_tgt, *, X_val=None, r_val=None,
+              s_val=None, log_fn=None) -> "ZhangEstimator":
         """Deep Domain Adaptation fine-tune (fixed ``dda_epochs`` epochs).
 
-        ``log_fn(epoch, est_loss, mmd_loss, total_loss)`` is an optional
-        per-epoch callback. Target batches cycle when the target has fewer
-        rows than the source; BN running statistics see both streams."""
+        ``log_fn(epoch, est_loss, mmd_loss, total_loss, val_metrics)`` is an
+        optional per-epoch callback; ``val_metrics`` is the raw-space
+        :func:`validation.flow_metrics` dict on ``X_val`` (e.g. the source
+        validation days -- no target labels exist to validate on), or None
+        without one. Target batches cycle when the target has fewer rows
+        than the source; BN running statistics see both streams."""
         if self._net is None:
             raise RuntimeError("call fit_source before adapt")
         torch.manual_seed(self.seed + 1)
@@ -272,7 +286,14 @@ class ZhangEstimator:
                 sums += [est.item(), mmd.item(), total.item()]
                 n_batches += 1
             if log_fn is not None:
-                log_fn(epoch, *(sums / n_batches))
+                val_metrics = None
+                if X_val is not None and len(X_val) > 0:
+                    net.eval()
+                    r_hat, s_hat = self._predict_raw(X_val)
+                    val_metrics = flow_metrics(np.asarray(r_val, float),
+                                               np.asarray(s_val, float),
+                                               r_hat, s_hat)
+                log_fn(epoch, *(sums / n_batches), val_metrics)
 
         self._net = net.eval()
         return self

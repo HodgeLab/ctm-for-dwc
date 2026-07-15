@@ -137,8 +137,29 @@ def test_early_stopping_on_noise_val():
     epochs = []
     _fast(max_epochs=200, patience=5).fit_source(
         X, r, s, X_val=Xv, r_val=rv, s_val=sv,
-        log_fn=lambda e, tl, vl: epochs.append(e))
+        log_fn=lambda e, tl, vl, vm: epochs.append(e))
     assert len(epochs) < 200
+
+
+def test_fit_source_logs_val_flow_metrics():
+    X, r, s = _synthetic(n=120)
+    logged = []
+    _fast(max_epochs=3).fit_source(
+        X, r, s, X_val=X[:40], r_val=r[:40], s_val=s[:40],
+        log_fn=lambda e, tl, vl, vm: logged.append((vl, vm)))
+    assert len(logged) == 3
+    for vl, vm in logged:
+        assert np.isfinite(vl)
+        # raw-space per-epoch validation metrics for W&B
+        assert all(np.isfinite(vm[k]) for k in ("nrmse", "r2", "rmse", "bias"))
+
+
+def test_fit_source_no_val_metrics_without_val_set():
+    X, r, s = _synthetic(n=80)
+    logged = []
+    _fast(max_epochs=2).fit_source(X, r, s,
+                                   log_fn=lambda e, tl, vl, vm: logged.append(vm))
+    assert logged == [None, None]
 
 
 def test_bad_feature_width_raises():
@@ -168,13 +189,22 @@ def test_adapt_inserts_bn_and_freezes_gru_module():
     torch.testing.assert_close(est._net.embedding.weight, emb_before)
 
 
-def test_adapt_logs_fixed_epochs():
+def test_adapt_logs_fixed_epochs_and_val_flow_metrics():
     X, r, s = _synthetic(n=100)
     Xt, _, _ = _synthetic(n=80, seed=1)
     est = _fast(max_epochs=2, dda_epochs=4).fit_source(X, r, s)
     logged = []
-    est.adapt(X, r, s, Xt, log_fn=lambda e, est_l, mmd_l, tot: logged.append(e))
-    assert logged == [0, 1, 2, 3]
+    est.adapt(X, r, s, Xt, X_val=X[:30], r_val=r[:30], s_val=s[:30],
+              log_fn=lambda e, est_l, mmd_l, tot, vm: logged.append((e, vm)))
+    assert [e for e, _ in logged] == [0, 1, 2, 3]
+    for _, vm in logged:
+        assert np.isfinite(vm["nrmse"]) and np.isfinite(vm["r2"])
+    # without a val set the metrics slot is None
+    logged.clear()
+    est2 = _fast(max_epochs=2, dda_epochs=2).fit_source(X, r, s)
+    est2.adapt(X, r, s, Xt,
+               log_fn=lambda e, est_l, mmd_l, tot, vm: logged.append(vm))
+    assert logged == [None, None]
 
 
 def test_adapt_before_fit_raises():
