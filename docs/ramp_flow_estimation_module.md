@@ -337,6 +337,10 @@ Run via `scripts/train_ramp_flow_zhang.py --source-stretch <id> --target-stretch
 (same W&B/out-dir conventions as the GRU driver; writes `pair_manifest.json`
 with build params + array digests, `result.json` with the source↔target MMD
 distance and per-stage target metrics, and the post-DDA checkpoint).
+A pair sweep's results aggregate offline via `scripts/aggregate_zhang_pairs.py
+--results-dir <sweep dir>`: `pairs.csv` plus per-metric (NRMSE/R²/NBIAS)
+plots against the **post-DDA** pair MMD — the DDA stage as a scatter, the
+DDA+MT stage as mean ± std error bars across survey days.
 
 ### Pooled-vs-DDA 2×2 experiment
 
