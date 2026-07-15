@@ -12,8 +12,17 @@ import pandas as pd
 _REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO / "scripts"))
 
-from aggregate_zhang_pairs import METRICS, STAGES  # noqa: E402
+from aggregate_zhang_pairs import METRICS, STAGES, _binned_stats  # noqa: E402
 from aggregate_zhang_pairs import main as aggregate_main  # noqa: E402
+
+
+def test_binned_stats_groups_by_fixed_width_bins():
+    x = np.array([0.02, 0.04, 0.11, 0.13, 0.31])   # bins [0,.05), [.1,.15), [.3,.35)
+    y = np.array([1.0, 3.0, 10.0, 20.0, 7.0])
+    centers, means, stds = _binned_stats(x, y, bin_width=0.05)
+    np.testing.assert_allclose(centers, [0.025, 0.125, 0.325])
+    np.testing.assert_allclose(means, [2.0, 15.0, 7.0])
+    np.testing.assert_allclose(stds, [1.0, 5.0, 0.0])   # single-point bin -> 0
 
 
 def _fake_result(out_dir, source, target, mmd_dda, dda_nrmse):

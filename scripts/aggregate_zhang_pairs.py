@@ -11,7 +11,9 @@ Offline evaluation over a sweep directory of the pairwise driver's
   post-DDA adaptation-layer MMD distances.
 * ``{metric}_vs_mmd.png`` -- per metric: the DDA-only stage as a scatter and
   the DDA+MT stage as mean +/- std error bars across survey days, both
-  against the post-DDA pair MMD, with a least-squares trend line per stage.
+  against the post-DDA pair MMD. Per stage, pairs are binned by MMD
+  (``--mmd-bin-width``) and the binned mean is drawn as a line with a
+  +/- std shaded band around it.
 """
 from __future__ import annotations
 
@@ -53,7 +55,22 @@ def load_pairs(results_dir: Path) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def plot_metric_vs_mmd(pairs: pd.DataFrame, metric: str, path: Path) -> None:
+def _binned_stats(x, y, bin_width):
+    """Bin ``y`` by ``x`` into fixed-width bins from 0; returns the occupied
+    bins' centers, means, and stds (population std; 0 for one-point bins)."""
+    edges = np.arange(0.0, x.max() + bin_width, bin_width)
+    which = np.digitize(x, edges) - 1
+    centers, means, stds = [], [], []
+    for b in np.unique(which):
+        in_bin = y[which == b]
+        centers.append(edges[b] + bin_width / 2)
+        means.append(in_bin.mean())
+        stds.append(in_bin.std())
+    return np.array(centers), np.array(means), np.array(stds)
+
+
+def plot_metric_vs_mmd(pairs: pd.DataFrame, metric: str, path: Path, *,
+                       bin_width: float) -> None:
     fig, ax = plt.subplots(figsize=(7, 5))
     colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
     for stage, color in zip(STAGES, colors):
@@ -62,12 +79,14 @@ def plot_metric_vs_mmd(pairs: pd.DataFrame, metric: str, path: Path) -> None:
         if stage == "dda_mt":     # mean +/- std across survey days
             ax.errorbar(x, y, yerr=part[f"{metric}_std"].to_numpy(),
                         fmt="o", color=color, label="DDA+MT (mean +/- std)",
-                        alpha=0.7, capsize=3)
+                        alpha=0.5, capsize=3)
         else:
-            ax.scatter(x, y, color=color, label="DDA", alpha=0.7)
-        if len(part) >= 2 and np.ptp(x) > 0:
-            slope, intercept = np.polyfit(x, y, 1)
-            ax.plot(x, slope * x + intercept, color=color, linewidth=1)
+            ax.scatter(x, y, color=color, label="DDA", alpha=0.5)
+        centers, means, stds = _binned_stats(x, y, bin_width)
+        ax.plot(centers, means, color=color, linewidth=1.5,
+                label=f"{'DDA+MT' if stage == 'dda_mt' else 'DDA'} binned mean")
+        ax.fill_between(centers, means - stds, means + stds,
+                        color=color, alpha=0.2)
     ax.set_xlabel("source<->target pair MMD (adaptation layer, post-DDA)")
     ax.set_ylabel(f"target {metric.upper()}")
     ax.set_ylim(*Y_LIMITS[metric])
@@ -85,6 +104,8 @@ def main(argv: list[str] | None = None) -> int:
                          "(e.g. scripts/output/zhang_sweep).")
     ap.add_argument("--out-dir", type=Path, default=None,
                     help="Where CSV/plots go (default: <results-dir>/aggregate).")
+    ap.add_argument("--mmd-bin-width", type=float, default=0.05,
+                    help="MMD bin width for the binned mean +/- std bands.")
     args = ap.parse_args(argv)
 
     pairs = load_pairs(args.results_dir)
@@ -98,7 +119,8 @@ def main(argv: list[str] | None = None) -> int:
 
     pairs.to_csv(out_dir / "pairs.csv", index=False)
     for metric in METRICS:
-        plot_metric_vs_mmd(pairs, metric, out_dir / f"{metric}_vs_mmd.png")
+        plot_metric_vs_mmd(pairs, metric, out_dir / f"{metric}_vs_mmd.png",
+                           bin_width=args.mmd_bin_width)
 
     print(f"{n_pairs} pairs aggregated -> {out_dir}")
     return 0
