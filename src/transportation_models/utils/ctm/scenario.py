@@ -581,11 +581,12 @@ def initial_state_from_vds(
         ``cells_df`` is missing ``vds_id``, ``lanes``, or ``vds_lanes``.
     ValueError
         * Any cell has a NaN ``vds_id``.
-        * Any cell has ``lanes != vds_lanes`` (see lane-count contract).
+        * Any cell has ``lanes != vds_lanes`` (see lane-count contract) AND vds_source == 'direct'
         * Any VDS has no row at ``at_time``.
         * Any sampled flow or speed at ``at_time`` is NaN.
     """
-    required = {"vds_id", "lanes", "vds_lanes"}
+
+    required = {"vds_id", "lanes", "vds_lanes", "vds_source"}
     missing = required - set(cells_df.columns)
     if missing:
         raise KeyError(
@@ -603,14 +604,15 @@ def initial_state_from_vds(
             "edit cells.csv."
         )
     mismatch_mask = cells_df["lanes"].astype(int) != cells_df["vds_lanes"].astype(int)
+    mismatch_mask &= cells_df["vds_source"] == "direct"
     if mismatch_mask.any():
         rows = cells_df.index[mismatch_mask].to_list()
         raise ValueError(
             f"Cell(s) at row(s) {rows} have `lanes != vds_lanes` "
             "(OSM-derived lane count disagrees with PeMS-reported VDS "
-            "Lanes). Resolve in cells.csv (Step 5 manual edit) before "
-            "sampling initial state; PeMS Lanes is typically the "
-            "authoritative source."
+            "Lanes) with `vds_source='direct'`. Resolve in cells.csv "
+            "(Step 5 manual edit) before sampling initial state; PeMS "
+            "Lanes is typically the authoritative source."
         )
 
     at_time = pd.Timestamp(at_time)
