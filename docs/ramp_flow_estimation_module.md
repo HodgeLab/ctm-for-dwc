@@ -351,7 +351,15 @@ distance and per-stage target metrics, and the post-DDA checkpoint).
 A pair sweep's results aggregate offline via `scripts/aggregate_zhang_pairs.py
 --results-dir <sweep dir>`: `pairs.csv` plus per-metric (NRMSE/R²/NBIAS)
 plots against the **post-DDA** pair MMD — the DDA stage as a scatter, the
-DDA+MT stage as mean ± std error bars across survey days.
+DDA+MT stage as mean ± std error bars across survey days, with x-binned
+mean ± std bands. Passing `--stretches`/`--timeseries-dir` additionally
+computes each pair's **flow-amplitude ratio** per ramp type — the mean of
+log(source/target) over the rank-matched top-500 ramp flows (positive =
+source peaks hotter; an MT-aligned difficulty axis orthogonal to MMD) — and
+emits the matching per-ramp `{metric}_{on,off}_vs_flowratio.png` plots. The
+samples are rebuilt with each pair's `pair_manifest.json` build parameters,
+so the ratios always match the corpus that produced that pair's results; no
+re-training is involved.
 
 ### Pooled-vs-DDA 2×2 experiment
 
