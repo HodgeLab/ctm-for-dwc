@@ -15,6 +15,8 @@ Offline evaluation over a sweep directory of ``result.json`` files (one per
   metric against ``mmd_x`` with one series + least-squares trend line per
   arm, making "how does each arm's accuracy change with pair distance"
   directly readable.
+* ``{metric}_by_arm.png`` -- per metric: box-and-whisker of the metric's
+  distribution across combinations, one box per arm (mean marked).
 """
 from __future__ import annotations
 
@@ -79,6 +81,21 @@ def plot_metric_vs_mmd(combos: pd.DataFrame, metric: str, path: Path) -> None:
     plt.close(fig)
 
 
+def plot_arm_summary(combos: pd.DataFrame, metric: str, path: Path) -> None:
+    """Box-and-whisker of the metric's distribution across combinations, one
+    box per arm; the mean is marked in addition to the median line."""
+    fig, ax = plt.subplots(figsize=(6, 4.5))
+    data = [combos.loc[combos["arm"] == arm, metric].to_numpy() for arm in ARMS]
+    ax.boxplot(data, showmeans=True)
+    ax.set_xticks(range(1, len(ARMS) + 1), list(ARMS))
+    ax.axhline(0.0, color="black", linewidth=0.8)
+    ax.set_ylabel(f"target {metric.upper()} across {len(data[0])} combinations")
+    ax.set_title(f"{metric.upper()} by arm")
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--results-dir", type=Path, required=True,
@@ -101,6 +118,7 @@ def main(argv: list[str] | None = None) -> int:
     summary.to_csv(out_dir / "summary.csv")
     for metric in METRICS:
         plot_metric_vs_mmd(combos, metric, out_dir / f"{metric}_vs_mmd.png")
+        plot_arm_summary(combos, metric, out_dir / f"{metric}_by_arm.png")
 
     print(f"{n_combos} combinations aggregated -> {out_dir}")
     with pd.option_context("display.width", 120):

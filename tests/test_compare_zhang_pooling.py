@@ -153,6 +153,7 @@ def test_aggregator_builds_csvs_and_plots(tmp_path, capsys):
 
     for metric in METRICS:
         assert (out / f"{metric}_vs_mmd.png").exists()
+        assert (out / f"{metric}_by_arm.png").exists()
 
 
 def test_aggregator_empty_dir_fails_cleanly(tmp_path):
