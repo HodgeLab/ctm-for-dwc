@@ -23,6 +23,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import wandb
 
 from transportation_models.utils import constants
@@ -62,8 +63,14 @@ def _split_source_days(dates, val_frac, seed) -> np.ndarray:
 
 
 def _survey_days(dates, n_days, seed) -> np.ndarray:
-    """Seeded draw of survey days among days with enough windows."""
+    """Seeded draw of survey days among weekdays with enough windows (a real
+    Traffic Survey runs on a weekday; the coverage floor is taken over
+    weekdays only)."""
     days, counts = np.unique(dates, return_counts=True)
+    weekday = pd.DatetimeIndex(days).dayofweek < 5
+    days, counts = days[weekday], counts[weekday]
+    if len(days) == 0:
+        raise SystemExit("target stretch has no weekday survey days")
     eligible = days[counts >= _SURVEY_DAY_MIN_FRACTION * counts.max()]
     if len(eligible) == 0:
         raise SystemExit("target stretch has no eligible survey days")
@@ -101,9 +108,10 @@ def main(argv: list[str] | None = None) -> int:
                     help="A ramp sample is 'measured' when pct_observed exceeds "
                          "this floor (targets are never filled).")
     ap.add_argument("--window-size", type=int, default=WINDOW_SIZE)
-    ap.add_argument("--include-weekends", action="store_true",
-                    help="Keep weekend windows (the paper, and therefore the "
-                         "default, uses workday data only).")
+    ap.add_argument("--weekdays-only", action="store_true",
+                    help="Opt back into the paper's workday-only corpus "
+                         "(default: all days; the day-of-week/holiday feature "
+                         "channels carry the day-type signal).")
     ap.add_argument("--record-start", default=None)
     ap.add_argument("--record-end", default=None)
     # source validation split (day-level)
@@ -134,7 +142,7 @@ def main(argv: list[str] | None = None) -> int:
     build_kw = dict(pct_threshold=args.pct_observed_threshold,
                     window_size=args.window_size,
                     ramp_pct_floor=args.ramp_pct_floor,
-                    weekdays_only=not args.include_weekends,
+                    weekdays_only=args.weekdays_only,
                     record_start=args.record_start, record_end=args.record_end)
     src = build_stretch_samples(stretches, args.source_stretch,
                                 args.timeseries_dir, **build_kw)
@@ -160,7 +168,7 @@ def main(argv: list[str] | None = None) -> int:
         "source_stretch": args.source_stretch, "target_stretch": args.target_stretch,
         "pct_observed_threshold": args.pct_observed_threshold,
         "ramp_pct_floor": args.ramp_pct_floor, "window_size": args.window_size,
-        "weekdays_only": not args.include_weekends,
+        "weekdays_only": args.weekdays_only,
         "record_start": args.record_start, "record_end": args.record_end,
         "source_val_frac": args.source_val_frac, "val_seed": args.val_seed,
         "embed_dim": args.embed_dim, "hidden_size": args.hidden_size,

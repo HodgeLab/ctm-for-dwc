@@ -114,14 +114,14 @@ def test_feature_layout_and_targets():
     out = stretch_samples(up, down, on, off, _grid(n), window_size=H)
     assert out.X.shape == (n - H + 1, FEATURES_PER_STEP * H)
     # first window, first step: [q_up, q_down, v_up, v_down, rho_up, rho_down,
-    # hour, minute] at t-4
+    # hour, minute, day-of-week (Monday=0), is-holiday] at t-4
     np.testing.assert_allclose(
         out.X[0, :FEATURES_PER_STEP],
-        [1000, 2000, 60, 60, 1000 / 60, 2000 / 60, 0, 0])
+        [1000, 2000, 60, 60, 1000 / 60, 2000 / 60, 0, 0, 0, 0])
     # first window, last step (t = index 4, 00:20)
     np.testing.assert_allclose(
         out.X[0, -FEATURES_PER_STEP:],
-        [1004, 2004, 60, 60, 1004 / 60, 2004 / 60, 0, 20])
+        [1004, 2004, 60, 60, 1004 / 60, 2004 / 60, 0, 20, 0, 0])
     np.testing.assert_allclose(out.r, np.arange(H - 1, n) + 10)
     np.testing.assert_allclose(out.s, np.arange(H - 1, n) + 20)
     assert (out.date == np.datetime64("2023-06-05")).all()
@@ -163,8 +163,9 @@ def test_entirely_filled_window_dropped_partially_filled_kept():
     assert _WEEK + H in t                          # 4 filled + 1 observed kept
 
 
-def test_weekend_windows_dropped_by_default():
-    # record starts Friday: Friday windows kept, Sat/Sun dropped, Monday kept
+def test_all_days_kept_by_default_weekdays_only_opt_in():
+    # record starts Friday and spans the weekend: kept by default, and the
+    # opt-in weekdays_only flag reproduces the old workday-only corpus
     n, H = 4 * 288, 5
     friday = "2023-06-09 00:00"
     up, down = (_pre(np.full(n, 1000.0), start=friday),
@@ -172,12 +173,27 @@ def test_weekend_windows_dropped_by_default():
     on, off = _ramp(np.full(n, 50.0)), _ramp(np.full(n, 30.0))
     grid = _grid(n, start=friday)
     out = stretch_samples(up, down, on, off, grid, window_size=H)
+    assert len(out.r) == n - H + 1                 # weekends in by default
     dows = pd.DatetimeIndex(grid[out.t_index]).dayofweek
-    assert (dows < 5).all()
-    assert {4, 0} <= set(dows)                     # Friday and Monday survive
-    kept_all = stretch_samples(up, down, on, off, grid, window_size=H,
-                               weekdays_only=False)
-    assert len(kept_all.r) == n - H + 1            # opt-out keeps weekends
+    np.testing.assert_allclose(out.X[:, -2], dows)  # dow channel at step t
+    weekday = stretch_samples(up, down, on, off, grid, window_size=H,
+                              weekdays_only=True)
+    t_dows = pd.DatetimeIndex(grid[weekday.t_index]).dayofweek
+    assert (t_dows < 5).all()
+    assert {4, 0} <= set(t_dows)                   # Friday and Monday survive
+
+
+def test_holiday_channel_flags_federal_holidays():
+    # July 4th 2023 is a Tuesday; July 5th is not a holiday
+    n, H = 2 * 288, 5
+    up, down = (_pre(np.full(n, 1000.0), start="2023-07-04 00:00"),
+                _pre(np.full(n, 1100.0), start="2023-07-04 00:00"))
+    on, off = _ramp(np.full(n, 50.0)), _ramp(np.full(n, 30.0))
+    out = stretch_samples(up, down, on, off,
+                          _grid(n, start="2023-07-04 00:00"), window_size=H)
+    day = out.date == np.datetime64("2023-07-04")
+    assert (out.X[day, -1] == 1.0).all()           # holiday channel at step t
+    assert (out.X[~day, -1] == 0.0).all()
 
 
 def test_unusable_mainline_window_dropped():

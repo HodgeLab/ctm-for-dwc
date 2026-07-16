@@ -18,7 +18,7 @@ from transportation_models.utils.ramp_flow_estimation.zhang import ZhangEstimato
 _REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO / "scripts"))
 
-from train_ramp_flow_zhang import main  # noqa: E402
+from train_ramp_flow_zhang import _survey_days, main  # noqa: E402
 
 _DAYS = 3
 _N = _DAYS * 288
@@ -92,8 +92,18 @@ def test_cli_runs_all_stages_and_writes_outputs(tmp_path, monkeypatch):
     assert est._net.bn is not None                        # post-DDA checkpoint
     assert est._h_mt is not None
     r_hat, s_hat = est.predict_flows(
-        np.random.default_rng(0).uniform(0, 1, (5, 40)))
+        np.random.default_rng(0).uniform(0, 1, (5, 50)))
     assert (r_hat >= 0).all() and (s_hat >= 0).all()
+
+
+def test_survey_days_are_weekdays_only():
+    # 9 days starting Friday 2023-06-09: Sat/Sun (x2) must never be drawn
+    days = pd.date_range("2023-06-09", periods=9, freq="D").to_numpy("datetime64[D]")
+    dates = np.repeat(days, 100)                          # equal coverage
+    for seed in range(5):
+        chosen = _survey_days(dates, 5, seed)
+        assert (pd.DatetimeIndex(chosen).dayofweek < 5).all()
+        assert len(chosen) == 5                           # 5 weekdays exist
 
 
 def test_cli_unknown_stretch_fails_cleanly(tmp_path):

@@ -69,7 +69,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--pct-observed-threshold", type=float, default=50.0)
     ap.add_argument("--ramp-pct-floor", type=float, default=0.0)
     ap.add_argument("--window-size", type=int, default=WINDOW_SIZE)
-    ap.add_argument("--include-weekends", action="store_true")
+    ap.add_argument("--weekdays-only", action="store_true",
+                    help="Opt back into the paper's workday-only corpus "
+                         "(default: all days).")
     ap.add_argument("--record-start", default=None)
     ap.add_argument("--record-end", default=None)
     # validation split (day-level, over each arm's own training stretches)
@@ -107,7 +109,7 @@ def main(argv: list[str] | None = None) -> int:
     build_kw = dict(pct_threshold=args.pct_observed_threshold,
                     window_size=args.window_size,
                     ramp_pct_floor=args.ramp_pct_floor,
-                    weekdays_only=not args.include_weekends,
+                    weekdays_only=args.weekdays_only,
                     record_start=args.record_start, record_end=args.record_end)
     samples, digests = {}, {}
     for sid in ids:
@@ -137,7 +139,7 @@ def main(argv: list[str] | None = None) -> int:
         "source_stretch": args.source_stretch, "pool_stretches": pool_ids,
         "pct_observed_threshold": args.pct_observed_threshold,
         "ramp_pct_floor": args.ramp_pct_floor, "window_size": args.window_size,
-        "weekdays_only": not args.include_weekends,
+        "weekdays_only": args.weekdays_only,
         "record_start": args.record_start, "record_end": args.record_end,
         "source_val_frac": args.source_val_frac, "val_seed": args.val_seed,
         "embed_dim": args.embed_dim, "hidden_size": args.hidden_size,

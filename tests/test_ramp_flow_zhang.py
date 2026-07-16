@@ -1,6 +1,6 @@
 """Tests for utils/ramp_flow_estimation/zhang.py (normalizer, MMD, and the
 staged GRU + DDA + MT estimator). Small synthetic problems (window 5,
-8 features/step = 40 columns) keep runs in the sub-second range on CPU."""
+10 features/step = 50 columns) keep runs in the sub-second range on CPU."""
 from __future__ import annotations
 
 import numpy as np
@@ -13,7 +13,7 @@ from transportation_models.utils.ramp_flow_estimation.zhang import (
     gaussian_mmd,
 )
 
-_NCOLS = 40   # 8 features/step * window 5
+_NCOLS = 50   # 10 features/step * window 5
 
 
 def _synthetic(n=400, seed=0, shift=0.0):
@@ -21,8 +21,8 @@ def _synthetic(n=400, seed=0, shift=0.0):
     ``shift`` displaces the feature distribution (a 'different stretch')."""
     rng = np.random.default_rng(seed)
     X = rng.uniform(0, 1, size=(n, _NCOLS)) + shift
-    r = 200.0 + 400.0 * X[:, 32] + 100.0 * X[:, 0]   # q_up at t and t-4
-    s = 100.0 + 300.0 * X[:, 33] + 50.0 * X[:, 1]    # q_down at t and t-4
+    r = 200.0 + 400.0 * X[:, 40] + 100.0 * X[:, 0]   # q_up at t and t-4
+    s = 100.0 + 300.0 * X[:, 41] + 50.0 * X[:, 1]    # q_down at t and t-4
     return X.astype(float), r, s
 
 
@@ -39,7 +39,7 @@ def _fast(**over):
 # --------------------------------------------------------------------------- #
 def test_normalizer_per_channel_stats_and_roundtrip():
     torch.manual_seed(0)
-    x = torch.rand(50, 5, 8)
+    x = torch.rand(50, 5, 10)
     x[..., 0] *= 1000.0                            # flow-scale channel
     y = torch.tensor([[0.0, 10.0], [500.0, 300.0], [1200.0, 40.0]])
     norm = ZhangNormalizer().fit(x, y)
@@ -51,7 +51,7 @@ def test_normalizer_per_channel_stats_and_roundtrip():
 
 
 def test_normalizer_inverse_clamps_negative_flows():
-    norm = ZhangNormalizer().fit(torch.rand(3, 5, 8),
+    norm = ZhangNormalizer().fit(torch.rand(3, 5, 10),
                                  torch.tensor([[100.0, 200.0], [300.0, 400.0],
                                                [500.0, 600.0]]))
     assert (norm.inverse_targets(torch.full((2, 2), -100.0)) >= 0).all()
@@ -165,7 +165,7 @@ def test_fit_source_no_val_metrics_without_val_set():
 def test_bad_feature_width_raises():
     X, r, s = _synthetic(n=50)
     with pytest.raises(ValueError, match="features"):
-        _fast(max_epochs=1).fit_source(X[:, :30], r, s)   # 30 % 8 != 0
+        _fast(max_epochs=1).fit_source(X[:, :35], r, s)   # 35 % 10 != 0
 
 
 def test_predict_before_fit_raises():

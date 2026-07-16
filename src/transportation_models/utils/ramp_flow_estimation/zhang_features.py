@@ -1,12 +1,14 @@
 """Zhang et al. 2024 corpus: mainline preprocessing + per-stretch samples.
 
-Feature layout (Zhang Definition 1): each window of ``window_size`` (paper
-``H = 5``) consecutive 5-min steps yields, per step, the mainline states
-``[q_up, q_down, v_up, v_down, rho_up, rho_down]`` plus that step's Time
-Feature ``[hour, minute]`` -- density is derived as ``rho = q / v`` (PeMS
-reports occupancy, not density). Rows are flattened oldest-step-first, 8
-columns per step -> ``8 * window_size`` columns. Flows are veh/hr (PeMS
-veh/5-min scaled on load), speeds mph, densities veh/mile.
+Feature layout (Zhang Definition 1, extended): each window of ``window_size``
+(paper ``H = 5``) consecutive 5-min steps yields, per step, the mainline
+states ``[q_up, q_down, v_up, v_down, rho_up, rho_down]`` plus that step's
+time features ``[hour, minute, day_of_week (0-6), is_holiday (0/1)]`` --
+density is derived as ``rho = q / v`` (PeMS reports occupancy, not density);
+holidays are the ``USFederalHolidayCalendar`` observed dates. Rows are
+flattened oldest-step-first, 10 columns per step -> ``10 * window_size``
+columns. Flows are veh/hr (PeMS veh/5-min scaled on load), speeds mph,
+densities veh/mile.
 
 Mainline preprocessing (project decision; **mainline series only**, applied at
 runtime -- the on-disk grid is never modified):
@@ -24,9 +26,10 @@ Targets ``(r, s)`` are the measured ramp flows at the prediction step ``t``
 without fully-measured ramps are dropped. Each row also carries the calendar
 date of ``t`` for day-level splits (source validation days, MT survey days).
 
-Following the paper's experiment setup ("we only use the workday data"),
-windows whose prediction step falls on a weekend are dropped by default
-(``weekdays_only``; public holidays are not excluded).
+The day-of-week and holiday channels let the corpus include all days by
+default; ``weekdays_only=True`` opts back into the paper's workday-only
+setup (drops windows whose prediction step falls on a weekend; public
+holidays are not dropped by the flag -- they carry the holiday channel).
 """
 from __future__ import annotations
 
@@ -35,9 +38,10 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from pandas.tseries.holiday import USFederalHolidayCalendar
 
 TRAFFIC_PER_STEP = 6           # q_up, q_down, v_up, v_down, rho_up, rho_down
-TIME_PER_STEP = 2              # hour, minute
+TIME_PER_STEP = 4              # hour, minute, day-of-week, is-holiday
 FEATURES_PER_STEP = TRAFFIC_PER_STEP + TIME_PER_STEP
 WINDOW_SIZE = 5                # Zhang's H
 
@@ -134,7 +138,7 @@ def concat_samples(parts: list[ZhangSamples]) -> ZhangSamples:
 
 def stretch_samples(
     up: Preprocessed, down: Preprocessed, on_flows, off_flows, timestamps, *,
-    window_size=WINDOW_SIZE, weekdays_only=True,
+    window_size=WINDOW_SIZE, weekdays_only=False,
 ) -> ZhangSamples:
     """Extract windows from preprocessed mainline + measured ramp series.
 
@@ -144,7 +148,12 @@ def stretch_samples(
     ts = pd.DatetimeIndex(timestamps)
     hour = ts.hour.to_numpy(dtype=float)
     minute = ts.minute.to_numpy(dtype=float)
-    weekend = ts.dayofweek.to_numpy() >= 5
+    dow = ts.dayofweek.to_numpy(dtype=float)
+    weekend = dow >= 5
+    holiday = np.zeros(len(ts), dtype=float)
+    if len(ts):
+        observed = USFederalHolidayCalendar().holidays(start=ts.min(), end=ts.max())
+        holiday[ts.normalize().isin(observed)] = 1.0
     n = len(up.flow)
 
     def ramp_at(pairs, t):
@@ -172,7 +181,8 @@ def stretch_samples(
         feats = []
         for j in range(i, t + 1):
             feats += [up.flow[j], down.flow[j], up.speed[j], down.speed[j],
-                      up.density[j], down.density[j], hour[j], minute[j]]
+                      up.density[j], down.density[j],
+                      hour[j], minute[j], dow[j], holiday[j]]
         rows.append(feats)
         r_list.append(r_val); s_list.append(s_val)
         d_list.append(ts[t].date()); t_list.append(t)
@@ -189,7 +199,7 @@ def stretch_samples(
 def build_stretch_samples(
     stretches: "pd.DataFrame", stretch_id, timeseries_dir, *,
     pct_threshold: float, window_size: int = WINDOW_SIZE,
-    ramp_pct_floor: float = 0.0, weekdays_only: bool = True,
+    ramp_pct_floor: float = 0.0, weekdays_only: bool = False,
     record_start=None, record_end=None,
 ) -> ZhangSamples:
     """Assemble samples for one stretch of a (namespaced) stretches table.

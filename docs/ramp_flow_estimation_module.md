@@ -233,12 +233,13 @@ source stretch, one explicit target stretch, three stages evaluated in order
 so each component's contribution is attributable.
 
 1. **GRU backbone** (paper Fig. 3) — per step, the mainline state
-   `[q_up, q_down, v_up, v_down, ρ_up, ρ_down]` plus that step's Time Feature
-   `[hour, minute]`, over `H = 5` history steps. Per-step Linear embedding
-   (8→64) → GRU (hidden 64) → FC (64→256) → hidden state `H_t` → separate FC
-   heads for `r` and `s`. Trained on the source with Adam (lr 1e-4), MSE,
-   batch 64, ≤100 epochs; early stopping on a seeded held-out fraction of
-   **source days** (default 20%). No conservation or capacity structure.
+   `[q_up, q_down, v_up, v_down, ρ_up, ρ_down]` plus that step's time
+   features `[hour, minute, day-of-week (0–6), is-holiday (0/1)]`, over
+   `H = 5` history steps. Per-step Linear embedding (10→64) → GRU (hidden
+   64) → FC (64→256) → hidden state `H_t` → separate FC heads for `r` and
+   `s`. Trained on the source with Adam (lr 1e-4), MSE, batch 64, ≤100
+   epochs; early stopping on a seeded held-out fraction of **source days**
+   (default 20%, drawn from all days). No conservation or capacity structure.
 2. **Deep Domain Adaptation** (DDA) — reduces the marginal distribution
    difference using only the target's *unlabeled* mainline windows: a fresh
    BatchNorm(256) is inserted before `H_t` (the paper adds BN only at this
@@ -297,6 +298,17 @@ recorded here so the implementation is auditable.
   single-source model); we run one explicit `--source-stretch` →
   `--target-stretch` direction per invocation, with per-stage metrics.
   Looping over configurations is a deferred open item.
+* **All days, with day-type feature channels.** The paper restricts to
+  workday data; we instead extend the per-step time features with
+  day-of-week (integer 0–6) and an is-holiday flag
+  (`USFederalHolidayCalendar`, observed dates) and train on **all days by
+  default** — more data, and weekend/holiday ramp behavior stays learnable.
+  `--weekdays-only` opts back into the paper-faithful workday-only corpus
+  (results predating this change were produced in that mode). Simulated
+  Traffic-Survey days remain **weekday-only** regardless (a real survey runs
+  on a weekday, and a weekend-calibrated MT scalar would mis-scale weekday
+  predictions); the source-validation day holdout is unrestricted so it
+  mirrors the training distribution.
 
 **Where the paper is silent, choices made:**
 
@@ -310,9 +322,9 @@ recorded here so the implementation is auditable.
   (the text's word "reduce" is treated as loose wording).
 * **Backbone early-stopping signal** (unstated): source-val MSE on a seeded
   held-out fraction of **source days** (default 20%, `--source-val-frac`).
-* **Survey-day selection** (unstated): seeded random draw among target days
-  carrying ≥ 50% of the busiest day's window count (so a sparsely-observed
-  day can't stand in for a full survey day).
+* **Survey-day selection** (unstated): seeded random draw among target
+  **weekdays** carrying ≥ 50% of the busiest such day's window count (so a
+  sparsely-observed day can't stand in for a full survey day).
 * **Per-pair MMD distance** (`ZhangEstimator.pair_mmd`): the paper reports
   the MMD between each source/target pair (Tables II/IV/VI) as
   transfer-difficulty context. Per Eq. 2 and §III-D this is defined over the
@@ -325,13 +337,12 @@ recorded here so the implementation is auditable.
   shrink it). Values are comparable across our runs but not to the paper's
   tables (their kernel/scaling are unknown).
 
-**Matched to the paper** (for the record): workday-only data (weekend
-windows dropped by default; `--include-weekends` opts out; public holidays
-are *not* excluded — a refinement over-and-above the weekday filter),
-`H = 5`, per-step `[hour, minute]` time features, Adam lr 1e-4 / MSE /
-batch 64 / 100 epochs, GRU hidden 64, `λ_mmd = 0.01`, frozen embedding+GRU
-during DDA, MT over the nonzero-estimate set with 5 survey days reported as
-mean ± std, and NRMSE/R² pooled over both ramps (Eqs. 6–7).
+**Matched to the paper** (for the record): `H = 5`, per-step
+`[hour, minute]` time features (ours adds day-of-week/holiday; see the
+deviations), Adam lr 1e-4 / MSE / batch 64 / 100 epochs, GRU hidden 64,
+`λ_mmd = 0.01`, frozen embedding+GRU during DDA, MT over the
+nonzero-estimate set with 5 survey days reported as mean ± std, and
+NRMSE/R² pooled over both ramps (Eqs. 6–7).
 
 Run via `scripts/train_ramp_flow_zhang.py --source-stretch <id> --target-stretch <id>`
 (same W&B/out-dir conventions as the GRU driver; writes `pair_manifest.json`
