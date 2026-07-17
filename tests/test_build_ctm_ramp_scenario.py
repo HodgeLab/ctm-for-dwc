@@ -98,7 +98,7 @@ def test_subtract_measured_siblings_treats_unfillable_nan_as_zero(tmp_path):
     as 0 in the subtraction instead of NaN-ing the estimate."""
     stretch = _stretches(off_ids="900;v400000").iloc[0]
     # Single-day CSV: the NaN sample's (weekday, time-of-day) bin has no
-    # other history, so historical_average_fill leaves it NaN.
+    # other history, so gap_aware_fill leaves it NaN.
     _write_ramp_csv(tmp_path / "900.csv", np.array([np.nan, 10.0]))
     est = np.full(2, 200.0)
     out = _subtract_measured_siblings(
@@ -114,7 +114,7 @@ def test_subtract_measured_siblings_no_siblings_is_identity(tmp_path):
     np.testing.assert_allclose(out, [50.0, 0.0])
 
 
-# ---- --strategy modes (end-to-end through main) ------------------------------
+# ---- --estimator modes (end-to-end through main) -----------------------------
 
 
 def _write_mainline_csv(path: Path, flows_5min, *, start) -> None:
@@ -127,7 +127,7 @@ def _write_mainline_csv(path: Path, flows_5min, *, start) -> None:
     }).to_csv(path, index=False)
 
 
-def _strategy_case(tmp_path):
+def _estimator_case(tmp_path):
     """2-cell corridor: cell 0 has a measured on-ramp (900), cell 1 an absent
     (virtual) off-ramp on a type-(c) stretch. Mainline 100/200 cover the sim
     window plus GRU warmup lags."""
@@ -155,9 +155,9 @@ def _strategy_case(tmp_path):
     return base, out_dir
 
 
-def test_strategy_historical_average_zeros_absent_ramp(tmp_path, capsys):
-    base, out_dir = _strategy_case(tmp_path)
-    main(base + ["--strategy", "historical_average"])
+def test_estimator_none_zeros_absent_ramp(tmp_path, capsys):
+    base, out_dir = _estimator_case(tmp_path)
+    main(base + ["--estimator", "none"])
     demand = pd.read_csv(out_dir / "demand.csv")
     beta = pd.read_csv(out_dir / "beta.csv")
     np.testing.assert_allclose(demand["0"], 120.0)        # 10 veh/5min * 12
@@ -165,10 +165,10 @@ def test_strategy_historical_average_zeros_absent_ramp(tmp_path, capsys):
     assert "has no data" in capsys.readouterr().err
 
 
-def test_strategy_historical_average_uses_conservation_on_type_b(tmp_path):
-    """Conservation needs no estimator, so it applies under every strategy:
+def test_estimator_none_uses_conservation_on_type_b(tmp_path):
+    """Conservation needs no estimator, so it applies under every choice:
     an absent off-ramp on a type-(b) stretch is recovered from the mainline
-    pair even with --strategy historical_average."""
+    pair even with --estimator none."""
     ts_dir = tmp_path / "ts"; ts_dir.mkdir()
     # q_up = 110 veh/5min (1320 veh/hr), q_down = 100 (1200) -> s = 120 veh/hr.
     _write_mainline_csv(ts_dir / "100.csv", np.full(2, 110.0), start=_START)
@@ -187,16 +187,16 @@ def test_strategy_historical_average_uses_conservation_on_type_b(tmp_path):
           "--timeseries-dir", str(ts_dir),
           "--start", str(_START), "--end", str(_END),
           "--dt-seconds", "300", "--out-dir", str(out_dir),
-          "--strategy", "historical_average"])
+          "--estimator", "none"])
     beta = pd.read_csv(out_dir / "beta.csv")
     # beta = s / (f + s) = 120 / (1200 + 120)
     np.testing.assert_allclose(beta["0"], 120.0 / 1320.0)
 
 
-def test_strategy_gru_estimates_absent_ramp(tmp_path):
+def test_estimator_gru_estimates_absent_ramp(tmp_path):
     from transportation_models.utils.ramp_flow_estimation.gru import GruEstimator
 
-    base, out_dir = _strategy_case(tmp_path)
+    base, out_dir = _estimator_case(tmp_path)
     rng = np.random.default_rng(0)
     X = rng.uniform(50, 150, size=(200, 18))
     est = GruEstimator(hidden_size=8, max_epochs=20, lr=1e-2, seed=0,
@@ -206,17 +206,17 @@ def test_strategy_gru_estimates_absent_ramp(tmp_path):
     manifest = tmp_path / "manifest.json"
     manifest.write_text('{"corpus": {"window_size": 3}}')
 
-    main(base + ["--strategy", "gru", "--gru-checkpoint", str(ckpt),
+    main(base + ["--estimator", "gru", "--gru-checkpoint", str(ckpt),
                  "--manifest", str(manifest)])
     beta = pd.read_csv(out_dir / "beta.csv")
     assert (beta["1"] > 0).all() and (beta["1"] < 1).all()
 
 
-def test_strategy_kan_estimates_absent_ramp(tmp_path):
+def test_estimator_kan_estimates_absent_ramp(tmp_path):
     from transportation_models.utils.ramp_flow_estimation.kan import KanEstimator
     from transportation_models.utils.ramp_flow_estimation import bounds
 
-    base, out_dir = _strategy_case(tmp_path)
+    base, out_dir = _estimator_case(tmp_path)
     rng = np.random.default_rng(0)
     q_up = rng.uniform(800.0, 1600.0, 200)
     q_down = q_up + 200.0
@@ -231,14 +231,14 @@ def test_strategy_kan_estimates_absent_ramp(tmp_path):
     pd.DataFrame({"Station ID": [100], "capacity": [2000.0],
                   "Lanes": [3]}).to_csv(meta, index=False)
 
-    main(base + ["--strategy", "kan", "--kan-checkpoint", str(ckpt),
+    main(base + ["--estimator", "kan", "--kan-checkpoint", str(ckpt),
                  "--station-meta", str(meta)])
     beta = pd.read_csv(out_dir / "beta.csv")
     assert (beta["1"] >= 0).all() and (beta["1"] < 1).all()
 
 
-def test_strategy_gru_requires_checkpoint_and_manifest(tmp_path):
+def test_estimator_gru_requires_checkpoint_and_manifest(tmp_path):
     import pytest
-    base, _ = _strategy_case(tmp_path)
+    base, _ = _estimator_case(tmp_path)
     with pytest.raises(SystemExit):
-        main(base + ["--strategy", "gru"])
+        main(base + ["--estimator", "gru"])

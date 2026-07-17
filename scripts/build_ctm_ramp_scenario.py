@@ -4,18 +4,23 @@ This is the **only** home of ramp-fill logic: ``simulate_ctm_corridor.py``
 consumes the ``demand.csv`` / ``beta.csv`` written here (or simulates with
 zero demand / zero splits when none are supplied).
 
-Dispatch per ramp VDS, by ``--strategy``:
+Dispatch per ramp VDS (following the Step-7 decision flowchart):
 
-* ``historical_average`` -- measured detectors are loaded with
-  historical-average gap fill; completely-absent detectors on a
-  type-(a)/(b) stretch are recovered by mainline **conservation** (no
-  model needed), and on a type-(c) stretch get **zero** flow with a
-  warning (resolving the pair needs an estimator). The no-ML mode.
-* ``gru`` / ``kan`` -- as above, except absent type-(c) detectors use the
-  chosen **estimator** (GRU torch checkpoint / Kan joblib checkpoint from
-  ``compare_ramp_flow_estimators.py --save-kan``). Kan additionally needs
-  ``--station-meta`` (calibrated) to rebuild its weaving capacity ``C_w``
-  per stretch.
+* **partially-present** detectors are always gap-filled by
+  :func:`gap_aware_fill` (short gaps persisted, longer gaps
+  historical-averaged) -- the same fill also patches the mainline series
+  that conservation reads;
+* **completely-absent** detectors on a type-(a)/(b) stretch are recovered
+  by mainline **conservation** (no model needed);
+* **completely-absent** detectors on a type-(c) stretch are handled by the
+  ``--estimator`` chosen on the CLI:
+
+  * ``none`` -- they get **zero** flow with a warning (the no-ML baseline);
+  * ``gru`` / ``kan`` -- the chosen **estimator** predicts the pair (GRU
+    torch checkpoint / Kan joblib checkpoint from
+    ``compare_ramp_flow_estimators.py --save-kan``). Kan additionally needs
+    ``--station-meta`` (calibrated) to rebuild its weaving capacity ``C_w``
+    per stretch.
 
 Virtual VDS ids (e.g. ``'v400001'`` -- ramps that physically exist but are
 absent from PeMS) are "completely absent" by construction. Conservation and
@@ -32,7 +37,7 @@ Run from the repo root::
         --cells     case_studies/I880N_10mi/cells.csv \\
         --stretches data/pems/stretches/880N_stretches.csv \\
         --timeseries-dir data/pems/csv_files \\
-        --strategy gru \\
+        --estimator gru \\
         --gru-checkpoint models/gru/best.pt \\
         --manifest   models/gru/manifest.json \\
         --start "2023-06-01 06:00" --end "2023-06-01 10:00" \\
@@ -49,7 +54,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from transportation_models.utils.ctm import historical_average_fill
+from transportation_models.utils.ctm import gap_aware_fill
 from transportation_models.utils.ctm.assembly import parse_ramp_vds_ids
 from transportation_models.utils.ramp_flow_estimation.gru import GruEstimator
 from transportation_models.utils.ramp_flow_estimation.kan import KanEstimator
@@ -75,19 +80,20 @@ def _has_any_data(vds_id: int | str, ts_dir: Path) -> bool:
 
 
 def _ramp_flow_veh_hr(vds_id: int, ts_dir: Path, *, start, end) -> np.ndarray:
-    """Load ramp timeseries, historical-average fill, slice to [start, end) at 5-min, veh/hr."""
+    """Load ramp timeseries, gap-aware fill, slice to [start, end) at 5-min, veh/hr."""
     df = pd.read_csv(ts_dir / f"{vds_id}.csv", parse_dates=[_TS])
-    df = historical_average_fill(df, flow_col=_FLOW)
+    df = gap_aware_fill(df, flow_col=_FLOW, time_col=_TS)
     grid = pd.date_range(start, end, freq="5min", inclusive="left")
     arr = df.set_index(_TS).reindex(grid)[_FLOW].to_numpy(dtype=float)
     return arr * _SAMPLES_PER_HOUR
 
 
 def _ml_flow_veh_hr(vds_id: int, ts_dir: Path, *, start, end) -> np.ndarray:
-    """Load mainline timeseries flow [veh/hr], forward-fill NaN."""
+    """Load mainline timeseries flow [veh/hr], gap-aware fill NaN."""
     df = pd.read_csv(ts_dir / f"{vds_id}.csv", parse_dates=[_TS])
+    df = gap_aware_fill(df, flow_col=_FLOW, time_col=_TS)
     grid = pd.date_range(start, end, freq="5min", inclusive="left")
-    arr = df.set_index(_TS).reindex(grid)[_FLOW].ffill().to_numpy(dtype=float)
+    arr = df.set_index(_TS).reindex(grid)[_FLOW].to_numpy(dtype=float)
     return arr * _SAMPLES_PER_HOUR
 
 
@@ -169,7 +175,7 @@ def _subtract_measured_siblings(
     Conservation and GRU estimates cover the *total* on- (resp. off-) ramp
     flow of a stretch, so an absent ramp sharing its stretch side with
     measured detectors would double-count their vehicles. Siblings are
-    historical-average filled before subtraction; samples the filler leaves
+    gap-aware filled before subtraction; samples the filler leaves
     NaN (bins with zero history) count as 0 so one empty bin can't turn the
     whole estimate NaN. The result is clipped at 0.
     """
@@ -228,26 +234,28 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--cells", required=True, type=Path)
     parser.add_argument("--stretches", required=True, type=Path)
     parser.add_argument("--timeseries-dir", required=True, type=Path)
-    parser.add_argument("--strategy", required=True,
-                        choices=["historical_average", "gru", "kan"],
-                        help="Ramp-fill strategy: measured detectors are always "
-                             "gap-filled and absent type-(a)/(b) ramps recovered "
-                             "by conservation; the choice governs absent "
-                             "type-(c) ramps -- historical_average = 0 (no "
-                             "estimator), gru/kan = the chosen estimator.")
+    parser.add_argument("--estimator", default="none",
+                        choices=["none", "gru", "kan"],
+                        help="Estimator for absent type-(c) ramp pairs. Gap fill "
+                             "(short gaps persisted, longer historical-averaged) "
+                             "and type-(a)/(b) conservation are always active "
+                             "regardless; this choice governs only absent "
+                             "type-(c) ramps -- none = 0 (no estimator, the "
+                             "default no-ML baseline), gru/kan = the chosen "
+                             "estimator.")
     parser.add_argument("--gru-checkpoint", type=Path, default=None,
-                        help="GruEstimator checkpoint (required with --strategy gru).")
+                        help="GruEstimator checkpoint (required with --estimator gru).")
     parser.add_argument("--manifest", type=Path, default=None,
                         help="Split manifest of the GRU's training corpus; supplies "
-                             "the feature window size (required with --strategy gru).")
+                             "the feature window size (required with --estimator gru).")
     parser.add_argument("--kan-checkpoint", type=Path, default=None,
                         help="KanEstimator joblib checkpoint from "
                              "compare_ramp_flow_estimators.py --save-kan "
-                             "(required with --strategy kan).")
+                             "(required with --estimator kan).")
     parser.add_argument("--station-meta", type=Path, default=None,
                         help="Calibrated station metadata (Station ID, capacity, "
                              "Lanes) for Kan's weaving capacity C_w "
-                             "(required with --strategy kan).")
+                             "(required with --estimator kan).")
     parser.add_argument("--start", required=True, type=pd.Timestamp)
     parser.add_argument("--end", required=True, type=pd.Timestamp)
     parser.add_argument("--dt-seconds", required=True, type=float,
@@ -255,10 +263,10 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--out-dir", type=Path, default=None)
     args = parser.parse_args(argv)
 
-    if args.strategy == "gru" and (args.gru_checkpoint is None or args.manifest is None):
-        parser.error("--strategy gru requires --gru-checkpoint and --manifest")
-    if args.strategy == "kan" and (args.kan_checkpoint is None or args.station_meta is None):
-        parser.error("--strategy kan requires --kan-checkpoint and --station-meta")
+    if args.estimator == "gru" and (args.gru_checkpoint is None or args.manifest is None):
+        parser.error("--estimator gru requires --gru-checkpoint and --manifest")
+    if args.estimator == "kan" and (args.kan_checkpoint is None or args.station_meta is None):
+        parser.error("--estimator kan requires --kan-checkpoint and --station-meta")
 
     cells_df = pd.read_csv(args.cells)
     stretches_df = pd.read_csv(args.stretches)
@@ -272,14 +280,14 @@ def main(argv: list[str] | None = None) -> None:
     print("=== build_ctm_ramp_scenario ===", file=sys.stderr)
     print(f"  window   : [{start}, {end})", file=sys.stderr)
     print(f"  dt       : {args.dt_seconds} s", file=sys.stderr)
-    print(f"  strategy : {args.strategy}", file=sys.stderr)
+    print(f"  estimator: {args.estimator}", file=sys.stderr)
 
-    if args.strategy == "gru":
+    if args.estimator == "gru":
         estimator = GruEstimator.load(args.gru_checkpoint)
         manifest = json.loads(Path(args.manifest).read_text())
         window_size = int(manifest.get("corpus", {}).get("window_size", 3))
         c_w_by_ml = None
-    elif args.strategy == "kan":
+    elif args.estimator == "kan":
         estimator = KanEstimator.load(args.kan_checkpoint)
         window_size = estimator.n_feature_lags
         meta = pd.read_csv(args.station_meta).set_index("Station ID")
@@ -299,7 +307,7 @@ def main(argv: list[str] | None = None) -> None:
         if key not in pair_cache:
             X = _build_feature_matrix(key[0], key[1], ts_dir,
                                       start=start, end=end, window_size=window_size)
-            if args.strategy == "gru":
+            if args.estimator == "gru":
                 pair_cache[key] = estimator.predict_flows(X)
             else:                                        # kan
                 c_w = float(c_w_by_ml.get(key[0], np.nan))
@@ -323,12 +331,12 @@ def main(argv: list[str] | None = None) -> None:
         config = str(stretch["config_type"])
         if config in ("a", "b"):
             # Conservation needs only the mainline pair, so it applies under
-            # every strategy, including historical_average.
+            # every estimator choice, including none.
             est = _conservation_flow(stretch, ts_dir, start=start, end=end,
                                      is_on_ramp=is_on_ramp)
-        elif args.strategy == "historical_average":
+        elif args.estimator == "none":
             print(f"  WARN: {label}-ramp VDS {vds_id} has no data on a "
-                  "type-(c) stretch and --strategy historical_average has "
+                  "type-(c) stretch and --estimator none has "
                   "no estimator; using 0", file=sys.stderr)
             return np.zeros(T5)
         else:

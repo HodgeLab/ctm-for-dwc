@@ -52,6 +52,7 @@ from .osm import (
 )
 from .results import SimulationResult
 from .ramp_flow import (
+    gap_aware_fill,
     historical_average_fill,
     persistence_fill,
     stochastic_historical_fill,
@@ -132,6 +133,7 @@ __all__ = [
     "persistence_fill",
     "historical_average_fill",
     "stochastic_historical_fill",
+    "gap_aware_fill",
     "ramp_fill_accuracy",
     "compare_against_historical",
     "restrict_to_direct_tiebreak",

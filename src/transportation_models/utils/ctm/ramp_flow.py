@@ -15,7 +15,7 @@ versions use every non-NaN sample available in the input to estimate
 per-(weekday, time-of-day) statistics, so a wider input window gives
 better stats.
 
-Three levels of increasing sophistication
+Four fillers of increasing sophistication
 =========================================
 
 * :func:`persistence_fill` (Level 1) -- forward-fill with the last known
@@ -27,9 +27,12 @@ Three levels of increasing sophistication
 * :func:`stochastic_historical_fill` (Level 2b) -- same binning, but
   draw each fill from ``Normal(mean, stddev)`` of the bin and clip to
   ``>= 0``. Useful for Monte Carlo sensitivity studies.
-
-Outage-duration-aware composition (e.g. use Level 1 for < 30 min
-outages, Level 2 for longer ones) is deferred to a follow-up.
+* :func:`gap_aware_fill` -- outage-duration-aware composition of the two
+  rules above: short gaps (<= ``short_gap_max`` samples with a prior
+  value) are persisted, everything else takes the historical-average.
+  This is the always-on gap fill used by
+  ``scripts/build_ctm_ramp_scenario.py`` for both ramp and mainline
+  series.
 """
 
 from __future__ import annotations
@@ -250,3 +253,53 @@ def stochastic_historical_fill(
     return _apply_bin_fill(
         df, stats, flow_col=flow_col, time_col=time_col, rng=rng,
     )
+
+
+# ---- Gap-aware composition -----------------------------------------------
+
+
+def gap_aware_fill(
+    df: pd.DataFrame, *,
+    flow_col: str,
+    time_col: str = "timestamp",
+    short_gap_max: int = 2,
+    history_df: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """Persist short gaps and historical-average the rest, by outage length.
+
+    Composes :func:`persistence_fill` and :func:`historical_average_fill`:
+    a NaN run of ``<= short_gap_max`` samples with a prior observed value
+    is forward-filled (the rate is unlikely to have moved much), and every
+    other gap -- longer runs, and short runs at the very start of the
+    record with no prior value -- is filled with the per-(weekday,
+    time-of-day) historical mean. Bin statistics come from the **original**
+    ``df`` (or ``history_df``), so persisted values don't pollute them.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Per-VDS 5-minute timeseries; must have ``flow_col`` and
+        ``time_col`` columns. Assumed sorted by ``time_col`` ascending.
+    flow_col, time_col : str
+        Column names; same defaults as :func:`persistence_fill`.
+    short_gap_max : int
+        Longest NaN run (in 5-min samples) still filled by persistence.
+        Default 2 (i.e. gaps of 1-2 samples / up to 10 min).
+    history_df : pandas.DataFrame, optional
+        Source of the historical-average bin statistics. Defaults to
+        ``df`` itself.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Copy of ``df`` with NaN ``flow_col`` values filled. Rows whose
+        historical bin has no non-NaN history remain NaN (with the same
+        warning as :func:`historical_average_fill`).
+    """
+    persisted = persistence_fill(
+        df, flow_col=flow_col, time_col=time_col,
+        max_gap_minutes=short_gap_max * 5.0,
+    )
+    src = df if history_df is None else history_df
+    stats = _bin_stats(src, flow_col=flow_col, time_col=time_col)
+    return _apply_bin_fill(persisted, stats, flow_col=flow_col, time_col=time_col)

@@ -1,49 +1,31 @@
 # Ramp Flow Estimation
 A fundamental issue in traffic flow modeling is the existence of missing ramp flows, which are critical boundary conditions for freeway traffic simulation.
-For example, in the Cell Transmission Model (CTM), on- and off-ramp flows are used to determine the on-ramp demand and off-ramp split ratio at each cell.
-The existence of missing ramp flow data may result in a transportation network that is not fully observable, which is a severe challenge to overcome when modeling traffic flow in the network.
+The problem is described in detail in [ctm_module](ctm_module.md); here, we describe the different methods for estimating missing ramp flows. Most methods are specific to Type 1 estimation on stretches which are configuration type (c), except for the model-based optimization method.
 
-The estimation of missing ramp flow data is commonly categorized into one of two types:
+## Table of Contents
 
-1. Historical data is 100% lacking for the ramp of interest
-2. Some historical data exists
+- [Module layout](#module-layout)
+- [Stretch identification](#stretch-identification-pems-native)
+- [Kan estimator](#kan-estimator)
+- [GRU estimator](#gru-estimator)
+- [Zhang estimator](#zhang-estimator-transfer-learning-gru--dda--mt)
+- [Model-based optimization](#model-based-optimization)
 
-For type 2, it may be possible to exploit temporal dependencies in the historical data to fill in, or impute, the missing values. This is commonly achieved through either a statistical method (e.g., ARIMA) or a machine learning-based method (e.g., recurrent neural network).
-Type 1 is a more challenging problem, which has been addressed in [Muralidharan and Horowitz 2009](https://doi.org/10.3141/2099-07), [Kan et al. 2021](https://doi.org/10.1109/TITS.2020.2989365), and [Zhang et al. 2024](https://doi.org/10.1109/TITS.2023.3315693).
+## Module layout
 
-Furthermore, Type 1 may be further classified on the basis of ramp configuration.
-Consider the three options presented in Figure 1 from Zhang et al. 2024.
+The data processing and estimator validation machinery are method-agnostic; everything method-specific receives its own file.
 
-![ramp_configs](ramp_configurations.png)
+| file | responsibility |
+|---|---|
+| `features.py` | corridor windows → feature matrix `Z` + measured `(r, s)` targets; the IO assembler returns `(TrainingData, stretch_ctx)` — the corpus plus a per-stretch bounds-context table (`c_w`, `r_demand`, `s_qmax`). `require_capacity=False` keeps stretches without calibrated capacity (GRU-only corpora) |
+| `bounds.py` | Kan Appendix A bounds, determined-first rule, α↔flow, out-of-band detection |
+| `kan.py` | RF/GBM α-regressor behind the shared interface: derives α targets internally (`alpha_targets`), expands the ctx table (`row_context`), reconstructs via `bounds` |
+| `gru.py` | direct joint `(r, s)` GRU regressor + `Normalizer`; checkpoint save/load |
+| `zhang_features.py` | Zhang 2024 corpus: mainline preprocessing (fill rules) + per-stretch samples (ρ = q/v, per-step hour/minute) |
+| `zhang.py` | Zhang 2024 estimator: GRU backbone + Deep Domain Adaptation + Model Transfer, staged interface |
+| `validation.py` | leave-`k`-out CV, stretch-level train/val/test split, NRMSE/R²/BIAS, Scenario 1–4 aggregation |
+| `manifest.py` | split manifest (corpus params + split + digest over corpus **and** ctx) so separate runs provably share one corpus |
 
-When we say we are concerned with estimating missing ramp flows, we are interested in determining the quantities $r$ and $s$, and we assume that the quantities $q^{up}$ and $q^{down}$ are known.
-For stretches of type (a) or (b), we use conservation of flow to determine the missing ramp flow, setting $s$ or $r$ to zero depending on the type.
-
-$$ q^{up} + r = q^{down} + s $$
-
-For stretches of type (c), it is impossible to uniquely determine the pair of missing ramp flows from mainline flow alone.
-This is the problem that Kan et al. 2021 and Zhang et al. 2024 address.
-
-## Implementation Plan
-We require a standalone ramp flow estimation module which is capable of generating CSV files for CTM cell demand and split ratios that are compatible with the CTM simulation engine.
-Based on the classifications of missing ramp flow estimation previously discussed, the module is implemented as follows:
-
-```python
-if n_historical_points > threshold:
-    temporal_fill()
-elif (cell_type == TYPE_A) or (cell_type == TYPE_B):
-    conservation_fill()
-else:
-    pair_fill()
-```
-
-For each vehicle detector station (VDS) associated with a ramp, we will determine whether the number of historical points in the available timeseries for the VDS(`n_historical_points`) exceeds some user-defined `threshold`.
-If so, we will employ a fill strategy which exploits the temporal dependency of the historical data.
-If not, we will evaluate the cell with which the VDS is associated and determine the configuration type as previously defined.
-If the configuration type permits missing ramp flow estimation by conservation of flow, then that method will be used.
-Finally, if the ramp flow data cannot be described by the prior methods, we will implement a fill strategy consistent with the approaches described by Kan et al. and Zhang et al.
-
-Note that we make the problem specific to missing VDS estimation here. This is because a given cell may have multiple VDSs assigned to its on-ramp and/or off-ramp, and it is the *total* demand from these VDSs with which we are concerned, per the CTM Module's [Step 5](ctm_module.md#step-5-manual-validation-of-cell-mappings).
 
 ## Stretch identification (PeMS-native)
 
@@ -62,13 +44,9 @@ stretch is *determinable* — both `ML` detectors observed and ≤1 ramp unobser
 (conservation recovers one). Type-(c) stretches with enough determinable windows
 form the **training corpus** for the estimator below.
 
-## Kan estimator (`utils/ramp_flow_estimation`)
+## Kan estimator
 
-The `pair_fill()` strategy for type-(c) stretches is a faithful implementation of
-[Kan et al. 2021](https://doi.org/10.1109/TITS.2020.2989365). The module is named
-generally (`ramp_flow_estimation`) so alternative methods (e.g. Zhang 2024) can be
-added later; the method-agnostic pieces (bounds, feature extraction, validation)
-are separated from the Kan-specific estimator.
+This is a faithful implementation of [Kan et al. 2021](https://doi.org/10.1109/TITS.2020.2989365). The core is implemented in `utils.ramp_flow_estimation.kan.py`, with an entry point in `scripts/estimate_ramp_flows_kan.py`.
 
 ### Formulation (Kan Appendix A)
 
@@ -137,24 +115,6 @@ detectors report at `t`), giving clean directly-measured flow targets. A
 `require_both_measured=False` flag additionally admits `conservation_resolvable` windows
 (one ramp measured, the other recovered by conservation) — whose target is then partly a
 function of the mainline inputs, so it is opt-in.
-
-### Module layout
-
-The corpus and validation machinery are method-agnostic; everything Kan-specific
-lives in `kan.py`/`bounds.py`. Estimators share the interface
-`fit(X, r, s, ctx=None)` / `predict_flows(X, ctx=None)`, where `ctx` is an opaque
-dict of row-aligned context arrays (Kan's bounds context; the GRU ignores it).
-
-| file | responsibility |
-|---|---|
-| `features.py` | corridor windows → feature matrix `Z` + measured `(r, s)` targets; the IO assembler returns `(TrainingData, stretch_ctx)` — the corpus plus a per-stretch bounds-context table (`c_w`, `r_demand`, `s_qmax`). `require_capacity=False` keeps stretches without calibrated capacity (GRU-only corpora) |
-| `bounds.py` | Kan Appendix A bounds, determined-first rule, α↔flow, out-of-band detection |
-| `kan.py` | RF/GBM α-regressor behind the shared interface: derives α targets internally (`alpha_targets`), expands the ctx table (`row_context`), reconstructs via `bounds` |
-| `gru.py` | direct joint `(r, s)` GRU regressor + `Normalizer`; checkpoint save/load |
-| `zhang_features.py` | Zhang 2024 corpus: mainline preprocessing (fill rules) + per-stretch samples (ρ = q/v, per-step hour/minute) |
-| `zhang.py` | Zhang 2024 estimator: GRU backbone + Deep Domain Adaptation + Model Transfer, staged interface |
-| `validation.py` | leave-`k`-out CV, stretch-level train/val/test split, NRMSE/R²/BIAS, Scenario 1–4 aggregation |
-| `manifest.py` | split manifest (corpus params + split + digest over corpus **and** ctx) so separate runs provably share one corpus |
 
 Run via `scripts/estimate_ramp_flows_kan.py` over `data/pems/stretches/*.csv`.
 
@@ -397,3 +357,137 @@ configurations; source-selection rules (e.g. min-MMD); MT ratio-robustness
 variants (mean-of-ratios inflates when ŷ is small — kept faithful to Eq. 5
 for now); congestion-regime slicing; multi-seed error bars for the 2×2
 experiment if the arm gaps look seed-sized.
+
+## Model-based optimization
+This is a method inspired by [Muralidharan and Horowitz 2009](https://doi.org/10.3141/2099-07), though the implementation is distinct.
+
+Implemented across three pieces: `scripts/build_ctm_qp_inputs.py` (Python prep),
+`julia/ramp_qp/solve_ramp_qp.jl` (the solver), and `scripts/verify_ramp_qp.py`
+(round-trip verification). Unlike the other estimators, this method estimates the ramp flows in *cells*; every ramp in the freeway is estimated, without any historical data.
+
+**Idea.** Rather than reconstruct each ramp series on its own, fit the *whole
+corridor* at once: find the ramp flows that make the CTM's mainline density
+trajectory match observed PeMS density, with the CTM update equations enforced
+as constraints. Observed ramp data is deliberately **excluded** from the fit,
+so the held-out ramp measurements become an honest test set for "can mainline
+density + CTM dynamics alone reconstruct ramp flow?"
+
+**Formulation (a convex QP).** Solved with JuMP + Gurobi:
+
+* **Decision variables** — on-ramp *admitted flow* $r_i(k)$ and off-ramp *flow*
+  $s_i(k)$, both $\ge 0$, piecewise-constant over 5-min blocks (PeMS cadence).
+* **State variables** — density $\rho_i(k)$ and mainline flow $f_i(k)$, pinned by
+  the CTM update as equality/inequality constraints (simultaneous transcription).
+* **Objective** — $\sum (\rho_i(k_m) - \hat\rho_i(m))^2$ over the **direct /
+  tiebreak** cells (genuine observations) at the 5-min sample grid, with
+  $\hat\rho = \text{total\_flow}\cdot 12 / \text{avg\_speed}$.
+* **Key linearizations** that keep it a *convex* QP:
+  * The off-ramp **split** $\beta$ is not a variable — using it would make
+    $\beta\rho$, $\beta f$, $1/\beta$ nonconvex. We solve for the off-ramp
+    **flow** $s_i$ instead and recover $\beta_i = s_i/(f_i+s_i)$ afterward.
+  * **$\gamma = 1$** (the engine/CTMSIM default). Under the $s$-form $\gamma$
+    enters only linearly ($\rho_i + \gamma r_i\,\Delta T/l_i$), so matching the
+    forward simulator costs nothing in convexity.
+  * **No on-ramp queue** ($q\equiv 0$): demand is unidentifiable from mainline
+    density (only the *admitted* flow $r_i$ appears in conservation), and the
+    held-out target is observed ramp *flow*. So $r_i$ is the variable and is
+    output as `--demand`; this also round-trips the on-ramp exactly.
+  * The CTM `min` operators are **relaxed to $\le$** (Ziliaskopoulos-style), so
+    no binaries. The relaxation is exact only where the bound is active; the
+    round-trip check below measures this.
+* **Boundary/initial conditions fixed from PeMS** — $\rho_i(0)$ from
+  `initial_state_from_vds` and upstream inflow $f_0(k)$ from `inflow_from_vds`
+  enter as parameters, not variables, so the QP is fed exactly what the forward
+  simulator is fed (keeping the round-trip honest).
+* **No regularization** beyond $r,s\ge 0$ — pure least squares. The inverse is
+  generally **non-unique**, so the recovered flows are one of many
+  density-equivalent solutions. (Deferred: a small temporal-smoothness /
+  minimal-norm penalty to select a physical minimizer; and a big-M **MIQP**
+  escalation to make the `min` exact where the relaxation is loose.)
+
+**Pipeline.**
+
+```
+# 1. Prep the QP bundle (reuses initial_state_from_vds / inflow_from_vds /
+#    the Step-9 observed-density extraction):
+python scripts/build_ctm_qp_inputs.py \
+    --freeway scripts/output/ctm_corridor/<case>/freeway.csv \
+    --cells   scripts/output/ctm_corridor/<case>/cells.csv \
+    --timeseries-dir data/pems/csv_files \
+    --start "2022-04-12 06:00" --end "2022-04-12 09:00"
+# -> writes freeway.csv, rho0.csv, inflow.csv, observed_density.csv, meta.json
+#    into <case>/qp_inputs/. dt defaults to the largest CFL-stable 5-min divisor.
+
+# 2. Solve (Julia). Default optimizer is Gurobi; set RAMP_QP_OPTIMIZER=clarabel
+#    for a license-free convex-QP solver (used by the test suite):
+julia --project=julia/ramp_qp julia/ramp_qp/solve_ramp_qp.jl <case>/qp_inputs
+# -> demand.csv, beta.csv (the --demand / --beta inputs), plus *_fitted.csv and
+#    solve_report.json.
+
+# 3. Verify the round-trip + relaxation tightness:
+python scripts/verify_ramp_qp.py --bundle <case>/qp_inputs
+```
+
+**Round-trip = the tightness diagnostic.** Because the `min` constraints are
+relaxed, the QP's fitted trajectory only equals a real CTM run where those
+relaxations are tight. `verify_ramp_qp.py` feeds the solver's `demand`/`beta`
+back through the **exact** forward simulator (with `gamma=1`, matching the QP)
+and reports (a) the density gap between the forward run and the QP's fitted
+density, and (b) a per-cell/step map of how much slack sits on each mainline
+flow's binding bound. A large gap with many loose operators means the recovered
+ramp flows, while density-matching, are **not** a physical CTM solution — the
+expected symptom of the unregularized, relaxed inverse, and the signal to add
+regularization or escalate those operators to a big-M MIQP.
+
+**Status.** Prep, solver, and verification are implemented and unit-tested
+(`tests/test_build_ctm_qp_inputs.py`, `tests/test_verify_ramp_qp.py`); the Julia
+solver is exercised manually (Gurobi license / cross-language, so it is not in
+CI). A synthetic identifiability check (known freeway $\to$ forward-sim density
+$\to$ QP) confirms the QP reproduces the observed density to ~$10^{-8}$.
+
+**Finding — density transfers, flow does not, and the gap grows with length.**
+On the I-880 N case studies (`case_studies/I880N_{1,5,10}mi`,
+2023-06-01, 24 h, dt 5 s) the QP matches observed density essentially exactly
+(objective $\approx 0$). Run through the **exact** forward simulator and scored
+with `validate_ctm_corridor.py` against historical PeMS (vs the
+historical-average ramp fill), the result is corridor-length-dependent:
+
+| case | metric | Level 3 | histAve |
+|---|---|---|---|
+| 1mi (2 cells)  | density RMSE / flow RMSE | **19.9** / 638 | 24.6 / **342** |
+| 1mi            | flow MAPE / GEH<5        | 12.3% / 62%    | 11.8% / 60%    |
+| 5mi (14 cells) | density MAPE / flow MAPE | 47% / 50%      | **27% / 17%**  |
+| 5mi            | flow RMSE / GEH<5        | 955 / 24%      | **443 / 44%**  |
+
+On the short corridor Level 3 is competitive — it even beats historical average
+on **density** (the quantity it optimizes) — but on the 5mi it is clearly worse,
+especially on **flow** and the aggregate/GEH measures. The split is diagnostic:
+the objective (density) stays competitive while flow degrades and worsens with
+length. Two coupled causes:
+
+1. **Relaxation looseness (dominant).** The QP fits density under the *relaxed*
+   CTM (`min` $\to$ `$\le$`), but `simulate`/`validate` use the *exact* `min`.
+   The optimizer exploits the slack — choosing flows below their true `min` — so
+   its trajectory is not a valid CTM run. When the exact operators "snap back,"
+   density diverges (`verify_ramp_qp` round-trip: ~190 RMS veh/mi on the 5mi,
+   100 % of mainline operators loose). This is independent of the validator, so
+   it is the relaxation, not a wiring bug.
+2. **Flow is never in the objective** — only density. Historical average feeds
+   *physically real* ramp flows that the exact simulator handles sanely, so its
+   density *and* flow validate well.
+
+Critically, regularization-for-uniqueness alone would **not** fix this: a unique
+loose solution is still loose. Making the optimum a genuine exact-CTM trajectory
+is what guarantees transfer. Two principled routes (under evaluation):
+
+* **Exact MIQP** — big-M binaries make the `min` exact, keeping the JuMP+Gurobi
+  constraint formulation; the solution round-trips by construction. Cost:
+  tens of thousands of binaries (tractability on 5mi/10mi is the open question).
+* **Differentiable forward-simulation** — optimize the ramp inputs by running
+  the *exact* forward CTM each iteration and descending the density error;
+  structurally immune to the transfer failure because it never leaves the exact
+  dynamics. (This is the "option B" set aside during design.)
+
+Baseline `validate_ctm_corridor` stats for the current relaxed-QP output are
+saved under each case study's `qp_ramps/validation/` for comparison against
+whichever fix lands next.
