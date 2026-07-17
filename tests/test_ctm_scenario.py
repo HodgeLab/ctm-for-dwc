@@ -259,7 +259,9 @@ def test_inflow_raises_when_end_before_start(tmp_path):
 
 
 def _cells_df(rows: list[dict]) -> pd.DataFrame:
-    return pd.DataFrame(rows)
+    # vds_source defaults to "direct" (the case that enforces the lane-match
+    # contract); a row can override it to exercise the inherited-VDS branch.
+    return pd.DataFrame([{"vds_source": "direct", **r} for r in rows])
 
 
 def test_initial_state_when_lanes_match(tmp_path):
@@ -301,6 +303,24 @@ def test_initial_state_raises_when_lanes_mismatch(tmp_path):
         initial_state_from_vds(
             cells, tmp_path, at_time=pd.Timestamp("2022-01-01 12:00"),
         )
+
+
+def test_initial_state_tolerates_lane_mismatch_for_inherited_vds(tmp_path):
+    """A lane mismatch is only fatal when vds_source == 'direct'. An inherited
+    (e.g. upstream) VDS carries its own lane count, so lanes != vds_lanes is
+    expected and must not raise -- density uses flow/speed, not lanes."""
+    _write_vds_csv(
+        tmp_path / "100.csv", start=pd.Timestamp("2022-01-01 12:00"),
+        n_rows=2, flows_5min=np.array([100.0, 150.0]),
+        speeds_mph=np.array([60.0, 30.0]), station_id=100,
+    )
+    cells = _cells_df([
+        dict(vds_id=100, lanes=4, vds_lanes=3, vds_source="upstream"),
+    ])
+    rho = initial_state_from_vds(
+        cells, tmp_path, at_time=pd.Timestamp("2022-01-01 12:00"),
+    )
+    np.testing.assert_allclose(rho, [20.0])   # 1200 / 60, lanes ignored
 
 
 def test_initial_state_raises_on_missing_vds_id(tmp_path):
