@@ -41,7 +41,8 @@ def _build_case(tmp_path):
     ts = tmp_path / "ts"; ts.mkdir()
     rows = []
     for stid, (up, down, on, off) in enumerate([(100, 200, 10, 20),
-                                                (300, 400, 30, 40)]):
+                                                (300, 400, 30, 40),
+                                                (500, 600, 50, 60)]):
         rows.append(dict(stretch_id=stid, up_ml_id=up, down_ml_id=down,
                          on_ids=str(on), off_ids=str(off), review_ids="",
                          n_on=1, n_off=1, config_type="c"))
@@ -53,7 +54,8 @@ def _build_case(tmp_path):
     return sd, ts
 
 
-def test_cli_runs_all_stages_and_writes_outputs(tmp_path, monkeypatch):
+def test_cli_pooled_default_skips_dda(tmp_path, monkeypatch):
+    """Default recipe: pool sources (--stretch-ids minus target), no DDA, +MT."""
     monkeypatch.setenv("WANDB_MODE", "offline")
     monkeypatch.setenv("WANDB_DIR", str(tmp_path))
     monkeypatch.setenv("WANDB_SILENT", "true")
@@ -61,6 +63,48 @@ def test_cli_runs_all_stages_and_writes_outputs(tmp_path, monkeypatch):
     out_dir = tmp_path / "out"
     rc = main([
         "--stretches", str(sd), "--timeseries-dir", str(ts),
+        "--stretch-ids", "880_N:0", "880_N:1", "880_N:2",
+        "--target-stretch", "880_N:2",
+        "--embed-dim", "8", "--hidden-size", "8", "--adapt-dim", "8",
+        "--max-epochs", "2", "--n-survey-days", "2",
+        "--out-dir", str(out_dir),
+    ])
+    assert rc == 0
+
+    manifest = json.loads((out_dir / "pair_manifest.json").read_text())
+    assert manifest["mode"] == "pooled" and manifest["dda"] is False
+    assert manifest["source_stretch"] is None
+    assert manifest["source_stretches"] == ["880_N:0", "880_N:1"]   # target dropped
+    assert set(manifest["source_digests"]) == {"880_N:0", "880_N:1"}
+
+    result = json.loads((out_dir / "result.json").read_text())
+    # No DDA stage anywhere; MT folds onto the backbone as the "mt" stage.
+    assert "dda" not in result["source_target_mmd"]
+    tm = result["target_metrics"]
+    assert "dda" not in tm and "dda_mt" not in tm
+    assert np.isfinite(tm["backbone"]["nrmse"])
+    per_day = tm["mt"]["per_survey_day"]
+    assert len(per_day) == 2 and len({d["survey_day"] for d in per_day}) == 2
+    assert np.isfinite(tm["mt"]["mean"]["nrmse"])
+
+    est = ZhangEstimator.load(out_dir / "zhang.pt")
+    assert est._net.bn is None                            # no DDA -> no BN
+    assert est._h_mt is not None
+    r_hat, s_hat = est.predict_flows(
+        np.random.default_rng(0).uniform(0, 1, (5, 50)))
+    assert (r_hat >= 0).all() and (s_hat >= 0).all()
+
+
+def test_cli_single_dda_is_paper_faithful(tmp_path, monkeypatch):
+    """--mode single --dda reproduces the backbone -> +DDA -> +DDA+MT pipeline."""
+    monkeypatch.setenv("WANDB_MODE", "offline")
+    monkeypatch.setenv("WANDB_DIR", str(tmp_path))
+    monkeypatch.setenv("WANDB_SILENT", "true")
+    sd, ts = _build_case(tmp_path)
+    out_dir = tmp_path / "out"
+    rc = main([
+        "--stretches", str(sd), "--timeseries-dir", str(ts),
+        "--stretch-ids", "880_N:0", "880_N:1", "--mode", "single", "--dda",
         "--source-stretch", "880_N:0", "--target-stretch", "880_N:1",
         "--embed-dim", "8", "--hidden-size", "8", "--adapt-dim", "8",
         "--max-epochs", "2", "--dda-epochs", "2", "--n-survey-days", "2",
@@ -69,31 +113,30 @@ def test_cli_runs_all_stages_and_writes_outputs(tmp_path, monkeypatch):
     assert rc == 0
 
     manifest = json.loads((out_dir / "pair_manifest.json").read_text())
-    assert manifest["source_stretch"] == "880_N:0"
-    assert manifest["n_source_rows"] > 0 and manifest["n_target_rows"] > 0
-    assert manifest["source_digest"] != manifest["target_digest"]
+    assert manifest["mode"] == "single" and manifest["dda"] is True
+    assert manifest["source_stretches"] == ["880_N:0"]
 
     result = json.loads((out_dir / "result.json").read_text())
-    for stage in ("backbone", "dda"):                     # adaptation-layer MMD
-        assert np.isfinite(result["source_target_mmd"][stage])
-        assert result["source_target_mmd"][stage] >= 0.0
-    tm = result["target_metrics"]
     for stage in ("backbone", "dda"):
-        assert np.isfinite(tm[stage]["nrmse"])
-    per_day = tm["dda_mt"]["per_survey_day"]
-    assert len(per_day) == 2
-    assert len({d["survey_day"] for d in per_day}) == 2   # distinct days
-    for d in per_day:
-        assert np.isfinite(d["h_r"]) and np.isfinite(d["h_s"])
+        assert np.isfinite(result["source_target_mmd"][stage])
+    tm = result["target_metrics"]
+    assert np.isfinite(tm["dda"]["nrmse"])
     assert np.isfinite(tm["dda_mt"]["mean"]["nrmse"])
-    assert np.isfinite(result["source_val_metrics"]["nrmse"])
 
     est = ZhangEstimator.load(out_dir / "zhang.pt")
-    assert est._net.bn is not None                        # post-DDA checkpoint
+    assert est._net.bn is not None                        # DDA inserts BN
     assert est._h_mt is not None
-    r_hat, s_hat = est.predict_flows(
-        np.random.default_rng(0).uniform(0, 1, (5, 50)))
-    assert (r_hat >= 0).all() and (s_hat >= 0).all()
+
+
+def test_cli_single_mode_requires_source_stretch(tmp_path):
+    sd, ts = _build_case(tmp_path)
+    try:
+        main(["--stretches", str(sd), "--timeseries-dir", str(ts),
+              "--stretch-ids", "880_N:0", "880_N:1", "--mode", "single",
+              "--target-stretch", "880_N:1"])
+    except SystemExit:
+        return
+    raise AssertionError("expected --mode single without --source-stretch to fail")
 
 
 def test_survey_days_are_weekdays_only():
@@ -110,6 +153,7 @@ def test_cli_unknown_stretch_fails_cleanly(tmp_path):
     sd, ts = _build_case(tmp_path)
     try:
         main(["--stretches", str(sd), "--timeseries-dir", str(ts),
+              "--stretch-ids", "880_N:9", "880_N:1", "--mode", "single",
               "--source-stretch", "880_N:9", "--target-stretch", "880_N:1"])
     except (SystemExit, ValueError):
         return

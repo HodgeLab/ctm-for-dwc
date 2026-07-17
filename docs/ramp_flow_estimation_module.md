@@ -234,6 +234,19 @@ recorded here so the implementation is auditable.
 
 **Deviations from the paper's specification:**
 
+* **Default deployment pools sources and omits DDA.** The paper's pipeline is
+  single-source backbone → Deep Domain Adaptation → Model Transfer. Our
+  `train_ramp_flow_zhang.py` **defaults** to training the backbone on a *pool*
+  of source stretches (all `--stretch-ids` except `--target-stretch`) and
+  **skipping** DDA, because the 2×2 pooling experiment below found
+  pooled-no-DDA beats the faithful single-source + DDA on target NRMSE mean
+  *and* variance — pooling appears to buy what DDA was meant to. The knobs are
+  orthogonal: `--mode {pooled,single}` selects the source set and `--dda`
+  toggles the adaptation stage, so `--mode single --dda` reproduces the
+  paper-faithful pipeline exactly. Model Transfer runs in every configuration.
+  When DDA is off there is no adaptation-layer distance to report, so the
+  per-stage output is backbone → +MT (the `mt` stage) instead of
+  backbone → +DDA → +DDA+MT.
 * **Preprocessing is replaced wholesale.** The paper fills large gaps with
   the same-weekday historical average, small gaps by linear interpolation,
   and deletes+re-interpolates 3σ outliers. We use the four rules above
@@ -253,10 +266,11 @@ recorded here so the implementation is auditable.
   the text ("the BN Layer is *added* before the Adaptation layer… in
   adaptation"): the backbone trains without BN, and a fresh BN(256) is
   inserted when `adapt` begins.
-* **Evaluation is one direction per run.** The paper's groups average the
+* **Evaluation is one target per run.** The paper's groups average the
   two directions of each stretch pair (and its no-transfer baseline is a
-  single-source model); we run one explicit `--source-stretch` →
-  `--target-stretch` direction per invocation, with per-stage metrics.
+  single-source model); we score one explicit `--target-stretch` per
+  invocation — against the pooled source by default, or a single
+  `--source-stretch` under `--mode single` — with per-stage metrics.
   Looping over configurations is a deferred open item.
 * **All days, with day-type feature channels.** The paper restricts to
   workday data; we instead extend the per-step time features with
@@ -304,11 +318,14 @@ deviations), Adam lr 1e-4 / MSE / batch 64 / 100 epochs, GRU hidden 64,
 nonzero-estimate set with 5 survey days reported as mean ± std, and
 NRMSE/R² pooled over both ramps (Eqs. 6–7).
 
-Run via `scripts/train_ramp_flow_zhang.py --source-stretch <id> --target-stretch <id>`
-(same W&B/out-dir conventions as the GRU driver; writes `pair_manifest.json`
-with build params + array digests, `result.json` with the source↔target MMD
-distance and per-stage target metrics, and the post-DDA checkpoint).
-A pair sweep's results aggregate offline via `scripts/aggregate_zhang_pairs.py
+Run via `scripts/train_ramp_flow_zhang.py --stretch-ids <ids…> --target-stretch <id>`
+for the pooled-no-DDA default, or `--mode single --dda --source-stretch <id>`
+for the paper-faithful pipeline (same W&B/out-dir conventions as the GRU
+driver; writes `pair_manifest.json` with build params + per-source array
+digests, `result.json` with the source↔target MMD distance and per-stage
+target metrics, and the trained checkpoint — post-DDA when `--dda` is set,
+else the pooled backbone).
+A single-source `--dda` sweep's results aggregate offline via `scripts/aggregate_zhang_pairs.py
 --results-dir <sweep dir>`: `pairs.csv` plus per-metric (NRMSE/R²/NBIAS)
 plots against the **post-DDA** pair MMD — the DDA stage as a scatter, the
 DDA+MT stage as mean ± std error bars across survey days, with x-binned
@@ -351,6 +368,12 @@ arm's own training stretches.
 Reading the result: if `pooled` tracks the DDA arms flat across MMD, pooling
 subsumes DDA; if the no-DDA arms degrade with MMD while the DDA arms stay
 flat, the transfer machinery earns its keep.
+
+This experiment is what motivated the pooled-no-DDA **default** in
+`train_ramp_flow_zhang.py` (see the first deviation above): pooled-no-DDA came
+out ahead of single-source + DDA on target NRMSE mean and variance, so the
+deployment recipe pools sources and omits adaptation while keeping Model
+Transfer.
 
 **Open items (deferred by design)**: looping over many source/target
 configurations; source-selection rules (e.g. min-MMD); MT ratio-robustness

@@ -1,18 +1,23 @@
 #!/usr/bin/env python3
-"""Train + evaluate the Zhang 2024 estimator on one source->target stretch pair.
+"""Train + evaluate the Zhang 2024 estimator for a source -> target configuration.
 
-Faithful staged pipeline (Zhang et al. 2024, doi 10.1109/TITS.2023.3315693):
-the GRU backbone trains on the *source* stretch (early stopping on a seeded
-held-out fraction of source days), Deep Domain Adaptation fine-tunes against
-the *target* stretch's unlabeled mainline windows for a fixed number of
-epochs, and Model Transfer calibrates per-ramp amplitude scalars from one
-simulated Traffic-Survey day of the target's real ramp flows -- repeated over
-``--n-survey-days`` seeded random days with metrics reported as mean +/- std.
-NRMSE/R2 are reported after every stage (backbone -> +DDA -> +DDA+MT) so each
-component's contribution on the target is attributable. Per-epoch losses go
-to Weights & Biases (``WANDB_MODE=offline`` supported); the checkpoint,
-pair manifest (build params + array digests), and result.json land in
-``--out-dir`` (use a distinct one per source/target pair).
+By default the GRU backbone is trained on a **pool** of source stretches (all
+of ``--stretch-ids`` except ``--target-stretch``) and Deep Domain Adaptation is
+**skipped** -- the pooled-no-DDA recipe the 2x2 pooling experiment
+(``compare_zhang_pooling.py``) found beats the paper's faithful single-source +
+DDA on target NRMSE mean *and* variance. ``--mode single`` trains on one
+``--source-stretch`` instead, and ``--dda`` re-enables the Deep Domain
+Adaptation stage; ``--mode single --dda`` reproduces the paper-faithful pipeline
+(Zhang et al. 2024, doi 10.1109/TITS.2023.3315693).
+
+The backbone uses early stopping on a seeded held-out fraction of source days;
+Model Transfer then calibrates per-ramp amplitude scalars from one simulated
+Traffic-Survey day of the target's real ramp flows, repeated over
+``--n-survey-days`` seeded random days (metrics mean +/- std). NRMSE/R2 are
+reported after every stage so each component's contribution on the target is
+attributable. Per-epoch losses go to Weights & Biases (``WANDB_MODE=offline``
+supported); the checkpoint, manifest (build params + array digests), and
+result.json land in ``--out-dir``.
 """
 from __future__ import annotations
 
@@ -34,6 +39,7 @@ from transportation_models.utils.ramp_flow_estimation.zhang_features import (
     WINDOW_SIZE,
     ZhangSamples,
     build_stretch_samples,
+    concat_samples,
 )
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -96,11 +102,23 @@ def main(argv: list[str] | None = None) -> int:
                     help="A stretches.csv or a directory of them.")
     ap.add_argument("--timeseries-dir", type=Path,
                     default=constants.CALTRANS_VDS_TIMESERIES_DIRECTORY_PATH)
-    ap.add_argument("--source-stretch", required=True,
-                    help="Source stretch ID (namespaced, e.g. '880_N:3').")
+    ap.add_argument("--stretch-ids", nargs="+", required=True,
+                    help="Viable stretch IDs (namespaced, e.g. '880_N:3'); the "
+                         "pooled source is all of these except --target-stretch.")
     ap.add_argument("--target-stretch", required=True,
                     help="Target stretch ID; its ramp flows are used only for "
                          "the simulated Traffic Survey and for scoring.")
+    ap.add_argument("--source-stretch", default=None,
+                    help="Single-mode source stretch ID (required with "
+                         "--mode single; ignored when --mode pooled).")
+    ap.add_argument("--mode", choices=["pooled", "single"], default="pooled",
+                    help="pooled (default): train the backbone on all "
+                         "--stretch-ids minus the target. single: train on one "
+                         "--source-stretch.")
+    ap.add_argument("--dda", action="store_true",
+                    help="Run the Deep Domain Adaptation stage (default: "
+                         "skipped). '--mode single --dda' is the paper-faithful "
+                         "pipeline.")
     ap.add_argument("--pct-observed-threshold", type=float, default=50.0,
                     help="Mainline samples below this pct_observed are treated "
                          "as missing and filled (preprocessing rule 1).")
@@ -138,21 +156,35 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out-dir", type=Path, default=_REPO_ROOT / "scripts/output/zhang")
     args = ap.parse_args(argv)
 
+    if args.mode == "single":
+        if args.source_stretch is None:
+            ap.error("--mode single requires --source-stretch")
+        source_ids = [args.source_stretch]
+    else:
+        source_ids = [sid for sid in args.stretch_ids
+                      if sid != args.target_stretch]
+        if not source_ids:
+            ap.error("pooled source is empty (--stretch-ids minus --target-stretch)")
+
     stretches = load_stretches(args.stretches)
     build_kw = dict(pct_threshold=args.pct_observed_threshold,
                     window_size=args.window_size,
                     ramp_pct_floor=args.ramp_pct_floor,
                     weekdays_only=args.weekdays_only,
                     record_start=args.record_start, record_end=args.record_end)
-    src = build_stretch_samples(stretches, args.source_stretch,
-                                args.timeseries_dir, **build_kw)
-    tgt = build_stretch_samples(stretches, args.target_stretch,
-                                args.timeseries_dir, **build_kw)
-    for name, samples in (("source", src), ("target", tgt)):
-        if len(samples.r) == 0:
-            print(f"{name} stretch produced no samples")
+    samples: dict[str, ZhangSamples] = {}
+    for sid in source_ids + [args.target_stretch]:
+        if sid in samples:
+            continue
+        samples[sid] = build_stretch_samples(stretches, sid,
+                                             args.timeseries_dir, **build_kw)
+        if len(samples[sid].r) == 0:
+            print(f"stretch {sid} produced no samples")
             return 1
-    print(f"source {args.source_stretch}: {len(src.r)} windows over "
+    src = concat_samples([samples[sid] for sid in source_ids])
+    tgt = samples[args.target_stretch]
+    print(f"mode {args.mode}, DDA {'on' if args.dda else 'off'}; "
+          f"source {source_ids}: {len(src.r)} windows over "
           f"{len(np.unique(src.date))} days; "
           f"target {args.target_stretch}: {len(tgt.r)} windows over "
           f"{len(np.unique(tgt.date))} days")
@@ -165,7 +197,9 @@ def main(argv: list[str] | None = None) -> int:
     patience = None if args.no_early_stop else args.patience
     config = {
         "stretches": str(args.stretches), "timeseries_dir": str(args.timeseries_dir),
-        "source_stretch": args.source_stretch, "target_stretch": args.target_stretch,
+        "stretch_ids": args.stretch_ids, "target_stretch": args.target_stretch,
+        "mode": args.mode, "dda": args.dda,
+        "source_stretch": args.source_stretch, "source_stretches": source_ids,
         "pct_observed_threshold": args.pct_observed_threshold,
         "ramp_pct_floor": args.ramp_pct_floor, "window_size": args.window_size,
         "weekdays_only": args.weekdays_only,
@@ -177,14 +211,15 @@ def main(argv: list[str] | None = None) -> int:
         "lambda_mmd": args.lambda_mmd, "dda_epochs": args.dda_epochs,
         "model_seed": args.model_seed, "n_survey_days": args.n_survey_days,
         "survey_seed": args.survey_seed,
-        "source_digest": _samples_digest(src), "target_digest": _samples_digest(tgt),
+        "source_digests": {sid: _samples_digest(samples[sid]) for sid in source_ids},
+        "target_digest": _samples_digest(tgt),
     }
     args.out_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = args.out_dir / "pair_manifest.json"
     manifest_path.write_text(json.dumps(
         {**config, "n_source_rows": int(len(src.r)),
          "n_target_rows": int(len(tgt.r))}, indent=2) + "\n")
-    print(f"wrote pair manifest -> {manifest_path}")
+    print(f"wrote manifest -> {manifest_path}")
 
     run = wandb.init(project=args.wandb_project, config=config)
     est = ZhangEstimator(
@@ -231,20 +266,27 @@ def main(argv: list[str] | None = None) -> int:
           f"R2 {backbone_target['r2']:.4f}; "
           f"source<->target adaptation-layer MMD {mmd_backbone:.4f}")
 
-    # stage 2: Deep Domain Adaptation against the target's unlabeled mainline
-    est.adapt(
-        src.X[tr], src.r[tr], src.s[tr], tgt.X,
-        X_val=src.X[val], r_val=src.r[val], s_val=src.s[val],
-        log_fn=_stage_log("dda", ["est_loss", "mmd", "total_loss"]),
-    )
-    dda_target = flow_metrics(tgt.r, tgt.s, *est.predict_flows(tgt.X))
-    mmd_dda = est.pair_mmd(src.X, tgt.X)   # should shrink if DDA worked
-    _log_target_stage(1, "dda", dda_target, mmd_dda)
-    print(f"+DDA      target NRMSE {dda_target['nrmse']:.4f} "
-          f"R2 {dda_target['r2']:.4f}; "
-          f"source<->target adaptation-layer MMD {mmd_dda:.4f}")
+    # stage 2 (optional): Deep Domain Adaptation against the target's unlabeled
+    # mainline. Skipped by default -- the pooled backbone omits it.
+    dda_target, mmd_dda = None, None
+    if args.dda:
+        est.adapt(
+            src.X[tr], src.r[tr], src.s[tr], tgt.X,
+            X_val=src.X[val], r_val=src.r[val], s_val=src.s[val],
+            log_fn=_stage_log("dda", ["est_loss", "mmd", "total_loss"]),
+        )
+        dda_target = flow_metrics(tgt.r, tgt.s, *est.predict_flows(tgt.X))
+        mmd_dda = est.pair_mmd(src.X, tgt.X)   # should shrink if DDA worked
+        _log_target_stage(1, "dda", dda_target, mmd_dda)
+        print(f"+DDA      target NRMSE {dda_target['nrmse']:.4f} "
+              f"R2 {dda_target['r2']:.4f}; "
+              f"source<->target adaptation-layer MMD {mmd_dda:.4f}")
 
-    # stage 3: Model Transfer from one simulated Traffic-Survey day, repeated
+    # stage 3: Model Transfer from one simulated Traffic-Survey day, repeated.
+    # Labels/index fold onto whichever stage precedes it (backbone or +DDA).
+    mt_stage = "dda_mt" if args.dda else "mt"
+    mt_idx = 2 if args.dda else 1
+    mt_mmd = mmd_dda if args.dda else mmd_backbone   # MT is downstream of H_t
     survey_days = _survey_days(tgt.date, args.n_survey_days, args.survey_seed)
     per_day = []
     for day in survey_days:
@@ -254,27 +296,27 @@ def main(argv: list[str] | None = None) -> int:
         m = flow_metrics(tgt.r[held_out], tgt.s[held_out],
                          *est.predict_flows(tgt.X[held_out]))
         per_day.append({"survey_day": str(day), "h_r": h_r, "h_s": h_s, **m})
-        print(f"+DDA+MT   survey {day}: NRMSE {m['nrmse']:.4f} "
+        print(f"+MT       survey {day}: NRMSE {m['nrmse']:.4f} "
               f"R2 {m['r2']:.4f} (h_r {h_r:.3f}, h_s {h_s:.3f})")
     metric_keys = [k for k in per_day[0] if k != "survey_day"]
     mt_agg = _aggregate([{k: d[k] for k in metric_keys} for d in per_day])
-    # MT rescales the outputs downstream of H_t, so the pair MMD is unchanged
-    _log_target_stage(2, "dda_mt", mt_agg["mean"], mmd_dda)
-    wandb.log({"stage_idx": 2,
+    _log_target_stage(mt_idx, mt_stage, mt_agg["mean"], mt_mmd)
+    wandb.log({"stage_idx": mt_idx,
                **{f"target/{k}_std": v for k, v in mt_agg["std"].items()}})
-    print(f"+DDA+MT   target NRMSE {mt_agg['mean']['nrmse']:.4f} "
+    print(f"+MT       target NRMSE {mt_agg['mean']['nrmse']:.4f} "
           f"+/- {mt_agg['std']['nrmse']:.4f}, "
           f"R2 {mt_agg['mean']['r2']:.4f} +/- {mt_agg['std']['r2']:.4f} "
           f"over {len(per_day)} survey days")
 
     results = {
         "config": config,
-        "source_target_mmd": {"backbone": mmd_backbone, "dda": mmd_dda},
+        "source_target_mmd": {"backbone": mmd_backbone,
+                              **({"dda": mmd_dda} if args.dda else {})},
         "source_val_metrics": source_val,
         "target_metrics": {
             "backbone": backbone_target,
-            "dda": dda_target,
-            "dda_mt": {"per_survey_day": per_day, **mt_agg},
+            **({"dda": dda_target} if args.dda else {}),
+            mt_stage: {"per_survey_day": per_day, **mt_agg},
         },
         "wandb_run_id": run.id,
     }
@@ -282,16 +324,17 @@ def main(argv: list[str] | None = None) -> int:
     result_path.write_text(json.dumps(results, indent=2, default=str) + "\n")
     run.summary.update({
         "source_target_mmd_backbone": mmd_backbone,
-        "source_target_mmd_dda": mmd_dda,
+        **({"source_target_mmd_dda": mmd_dda} if args.dda else {}),
         **{f"source_val_{k}": v for k, v in source_val.items()},
         **{f"target_backbone_{k}": v for k, v in backbone_target.items()},
-        **{f"target_dda_{k}": v for k, v in dda_target.items()},
-        **{f"target_dda_mt_{k}_mean": v for k, v in mt_agg["mean"].items()},
-        **{f"target_dda_mt_{k}_std": v for k, v in mt_agg["std"].items()},
+        **({f"target_dda_{k}": v for k, v in dda_target.items()} if args.dda else {}),
+        **{f"target_{mt_stage}_{k}_mean": v for k, v in mt_agg["mean"].items()},
+        **{f"target_{mt_stage}_{k}_std": v for k, v in mt_agg["std"].items()},
     })
 
-    # checkpoint carries the post-DDA weights + the *last* survey day's MT
-    # scalars; every day's (h_r, h_s) is in result.json
+    # checkpoint carries the trained weights (post-DDA if run, else the pooled
+    # backbone) + the *last* survey day's MT scalars; every day's (h_r, h_s)
+    # is in result.json
     ckpt_path = args.out_dir / "zhang.pt"
     est.save(ckpt_path)
     artifact = wandb.Artifact("zhang-ramp-flow", type="model")
