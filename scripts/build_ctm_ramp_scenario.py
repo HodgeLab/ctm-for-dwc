@@ -98,9 +98,20 @@ def _ml_flow_veh_hr(vds_id: int, ts_dir: Path, *, start, end) -> np.ndarray:
 
 
 def _ml_arrays(vds_id: int, ts_dir: Path, grid: pd.DatetimeIndex) -> tuple:
-    """Return (flow_veh_hr, speed_mph, occ_pct) on grid, forward-filled."""
+    """Return (flow_veh_hr, speed_mph, occ_pct) on grid, gap-aware filled.
+
+    Every required temporal feature (flow, speed, occupancy) is gap-aware
+    filled on the full timeseries before windowing -- so the historical
+    average sees the widest history -- matching the treatment of the ramp
+    and mainline flow series. Training excludes windows with any unobserved
+    mainline sample (features.stretch_samples); at inference there is no such
+    fallback, so gaps are filled rather than dropped.
+    """
     df = pd.read_csv(ts_dir / f"{vds_id}.csv", parse_dates=[_TS])
-    a = df.set_index(_TS).reindex(grid).ffill()
+    for col in (_FLOW, _SPEED, _OCC):
+        if col in df.columns:
+            df = gap_aware_fill(df, flow_col=col, time_col=_TS)
+    a = df.set_index(_TS).reindex(grid)
     flow = a[_FLOW].to_numpy(dtype=float) * _SAMPLES_PER_HOUR
     speed = a[_SPEED].to_numpy(dtype=float)
     occ = a[_OCC].to_numpy(dtype=float) if _OCC in a.columns else np.zeros(len(grid))
