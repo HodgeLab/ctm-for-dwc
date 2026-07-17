@@ -198,7 +198,12 @@ def test_estimator_gru_estimates_absent_ramp(tmp_path):
 
     base, out_dir = _estimator_case(tmp_path)
     rng = np.random.default_rng(0)
-    X = rng.uniform(50, 150, size=(200, 18))
+    # window_size 3 -> 6*3 traffic features + [dow, hour, slot] = 21 columns.
+    traffic = rng.uniform(50, 150, size=(200, 18))
+    time_feats = np.column_stack([rng.integers(0, 7, 200),
+                                  rng.integers(0, 24, 200),
+                                  rng.integers(0, 12, 200)])
+    X = np.hstack([traffic, time_feats]).astype(float)
     est = GruEstimator(hidden_size=8, max_epochs=20, lr=1e-2, seed=0,
                        device="cpu").fit(
         X, np.full(200, 300.0), np.full(200, 240.0))
@@ -220,8 +225,11 @@ def test_estimator_kan_estimates_absent_ramp(tmp_path):
     rng = np.random.default_rng(0)
     q_up = rng.uniform(800.0, 1600.0, 200)
     q_down = q_up + 200.0
+    # window_size 1 -> 6 traffic features + [dow, hour, slot] = 9 columns.
     X = np.column_stack([q_up, np.full(200, 60.0), np.full(200, 0.05),
-                         q_down, np.full(200, 55.0), np.full(200, 0.06)])
+                         q_down, np.full(200, 55.0), np.full(200, 0.06),
+                         rng.integers(0, 7, 200), rng.integers(0, 24, 200),
+                         rng.integers(0, 12, 200)])
     alpha = np.full(200, 0.3)
     r, s = bounds.reconstruct_pair(alpha, q_up, q_down, 6000.0)
     kan = KanEstimator("rf", n_estimators=10, random_state=0).fit(

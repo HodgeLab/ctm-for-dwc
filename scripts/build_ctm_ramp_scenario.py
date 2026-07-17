@@ -119,7 +119,12 @@ def _conservation_flow(stretch: pd.Series, ts_dir: Path, *,
 
 def _build_feature_matrix(up_id: int, down_id: int, ts_dir: Path, *,
                            start, end, window_size: int) -> np.ndarray:
-    """Build (T, 6*window_size) GRU feature matrix for [start, end) in veh/hr."""
+    """Build (T, 6*window_size + 3) feature matrix for [start, end) in veh/hr.
+
+    Matches ``features.stretch_samples``: the per-lag [up/down x flow/speed/occ]
+    block followed by the three window-level time features
+    [day-of-week, hour, 5-min slot] at the prediction step ``t``.
+    """
     warmup_start = pd.Timestamp(start) - (window_size - 1) * _FIVE_MIN
     grid = pd.date_range(warmup_start, end, freq="5min", inclusive="left")
     up = _ml_arrays(up_id, ts_dir, grid)
@@ -131,6 +136,8 @@ def _build_feature_matrix(up_id: int, down_id: int, ts_dir: Path, *,
         for lag in range(window_size):
             j = i + lag
             feats += [up[0][j], up[1][j], up[2][j], dn[0][j], dn[1][j], dn[2][j]]
+        t = grid[i + window_size - 1]                # prediction step
+        feats += [t.dayofweek, t.hour, t.minute // 5]
         rows.append(feats)
     return np.array(rows, dtype=float)
 
