@@ -28,6 +28,17 @@ estimator predictions cover a stretch side's *total* ramp flow, so when an
 absent ramp shares its stretch side with measured detectors, their
 (gap-filled) flows are subtracted from the estimate before it is assigned.
 
+Warmup edge case (estimator path only). The GRU/Kan feature vector for the
+prediction step at ``--start`` needs its ``window_size - 1`` preceding lags,
+so ``_build_feature_matrix`` extends the mainline grid back by
+``(window_size - 1) * 5min`` before ``--start``. If the downloaded timeseries
+does not reach that far back, those earliest lags reindex to NaN (``gap_aware_fill``
+runs before the reindex and cannot invent rows outside the record), and the
+first ``window_size - 1`` estimator windows carry NaN features -- a warning is
+emitted. To avoid it, start the download at least ``(window_size - 1) * 5min``
+before ``--start``. Conservation and beta paths are unaffected: they only read
+the ``[start, end)`` grid, never before ``--start``.
+
 Aggregates per CTM cell and writes demand.csv + beta.csv at sim cadence,
 ready for ``simulate_ctm_corridor.py --demand --beta``.
 
@@ -140,6 +151,12 @@ def _build_feature_matrix(up_id: int, down_id: int, ts_dir: Path, *,
     grid = pd.date_range(warmup_start, end, freq="5min", inclusive="left")
     up = _ml_arrays(up_id, ts_dir, grid)
     dn = _ml_arrays(down_id, ts_dir, grid)
+    n_warmup = window_size - 1
+    if n_warmup and (np.isnan(up[0][:n_warmup]).any() or np.isnan(dn[0][:n_warmup]).any()):
+        print(f"  WARN: mainline {up_id}/{down_id} timeseries has no usable data "
+              f"for the {n_warmup * 5}-min warmup before {start}; the first "
+              f"{n_warmup} estimator window(s) carry NaN lag features. Start the "
+              "download earlier to avoid this.", file=sys.stderr)
     T = (pd.Timestamp(end) - pd.Timestamp(start)) // _FIVE_MIN
     rows = []
     for i in range(T):

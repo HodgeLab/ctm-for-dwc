@@ -16,6 +16,7 @@ _REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO / "scripts"))
 
 from build_ctm_ramp_scenario import (  # noqa: E402
+    _build_feature_matrix,
     _furthest_downstream_ml_id,
     _parse_stretch_ramp_ids,
     _subtract_measured_siblings,
@@ -153,6 +154,18 @@ def _estimator_case(tmp_path):
             "--start", str(_START), "--end", str(_END),
             "--dt-seconds", "300", "--out-dir", str(out_dir)]
     return base, out_dir
+
+
+def test_build_feature_matrix_warns_when_warmup_uncovered(tmp_path, capsys):
+    """Mainline data starting exactly at --start leaves the window_size-1
+    warmup lags uncovered; those windows carry NaN features and warn."""
+    ts_dir = tmp_path / "ts"; ts_dir.mkdir()
+    _write_mainline_csv(ts_dir / "100.csv", np.full(4, 100.0), start=_START)
+    _write_mainline_csv(ts_dir / "200.csv", np.full(4, 110.0), start=_START)
+    X = _build_feature_matrix(100, 200, ts_dir,
+                              start=_START, end=_END, window_size=3)
+    assert "warmup" in capsys.readouterr().err
+    assert np.isnan(X[0]).any()          # first window's earliest lags are NaN
 
 
 def test_estimator_none_zeros_absent_ramp(tmp_path, capsys):
