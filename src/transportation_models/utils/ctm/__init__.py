@@ -52,10 +52,12 @@ from .osm import (
 )
 from .results import SimulationResult
 from .ramp_flow import (
+    gap_aware_fill,
     historical_average_fill,
     persistence_fill,
     stochastic_historical_fill,
 )
+from .ramp_validation import ramp_fill_accuracy
 from .scenario import (
     FillStrategy,
     beta_from_off_ramp_vds,
@@ -64,9 +66,18 @@ from .scenario import (
     initial_state_from_vds,
 )
 from .validation import (
+    CorridorAggregates,
     CTMSIMValidation,
+    GEHResult,
+    QQCellSamples,
+    QQResult,
     compare_against_ctmsim,
     compare_against_historical,
+    compare_corridor_aggregates,
+    compute_flow_geh,
+    compute_qq_samples,
+    corridor_rmse_mape,
+    restrict_to_direct_tiebreak,
 )
 from .vds import (
     DEFAULT_PEMS_DIR,
@@ -122,9 +133,20 @@ __all__ = [
     "persistence_fill",
     "historical_average_fill",
     "stochastic_historical_fill",
+    "gap_aware_fill",
+    "ramp_fill_accuracy",
     "compare_against_historical",
+    "restrict_to_direct_tiebreak",
     "CTMSIMValidation",
     "compare_against_ctmsim",
+    "CorridorAggregates",
+    "compare_corridor_aggregates",
+    "GEHResult",
+    "compute_flow_geh",
+    "QQCellSamples",
+    "QQResult",
+    "compute_qq_samples",
+    "corridor_rmse_mape",
     "summarize_refs",
     "extract_route_number",
     "load_postmiles",

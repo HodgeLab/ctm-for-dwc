@@ -30,7 +30,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from transportation_models.utils.data_processing import PeMSDataProcessor
+from transportation_models.utils.data_processing import (
+    CalibrationCode,
+    PeMSDataProcessor,
+)
 
 
 # Ground-truth FD parameters used throughout this file.
@@ -280,11 +283,12 @@ def test_extract_recovers_all_five_fd_parameters(tmp_path):
     """
     proc = _minimal_processor(tmp_path)
     df = _triangular_fd_points(n=2000)
-    params = proc.extract_fundamental_diagram_params_from_timeseries(
+    params, code = proc.extract_fundamental_diagram_params_from_timeseries(
         timeseries_df=df,
         detector_id="0",
         make_plots=False,
     )
+    assert code == CalibrationCode.OK
     assert set(params) == {
         "Station ID", "capacity", "free_flow_speed",
         "congestion_wave_speed", "jam_density", "critical_density",
@@ -302,7 +306,7 @@ def test_extract_recovers_all_five_fd_parameters(tmp_path):
 def test_extract_returns_int_station_id(tmp_path):
     """`Station ID` is coerced to int -- downstream metadata join keys depend on it."""
     proc = _minimal_processor(tmp_path)
-    params = proc.extract_fundamental_diagram_params_from_timeseries(
+    params, _ = proc.extract_fundamental_diagram_params_from_timeseries(
         timeseries_df=_triangular_fd_points(n=2000),
         detector_id="42",
         make_plots=False,

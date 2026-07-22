@@ -26,6 +26,17 @@ demand and off-ramp split-ratio inputs the scenario needs; Step 8
 runs the simulation end-to-end; and Step 9 compares the result
 against historical PeMS observations to validate the fit.
 
+**Where assembled corridors live.** Running this pipeline produces
+per-corridor *case studies*, tracked in the repo under
+[`case_studies/`](../case_studies) (not `scripts/output/`) so that
+manual edits to `cells.csv` are version-controlled. Each case study is
+one corridor stretch named `{route}{dir}_{length}` (e.g. `I880N_10mi`)
+and holds the common corridor files (`cells.csv`, `freeway.csv`,
+`corridor.json`, plus GIS artifacts) alongside one subdirectory per
+simulation scenario (e.g. `no_ramps`, `histAve_ramps`, `persist_ramps`,
+`qp_ramps`), each carrying that run's outputs. Treat that directory as
+the source of assembled corridors for any downstream analysis.
+
 ## Table of Contents
 
 - [Step 1: Roadway --> Cell Mapping](#step-1-roadway----cell-mapping)
@@ -53,6 +64,7 @@ against historical PeMS observations to validate the fit.
   - [RMSE and MAPE](#rmse-and-mape)
   - [Output](#output)
   - [CLI](#cli-2)
+  - [Ramp gap-fill accuracy](#ramp-gap-fill-accuracy)
   - [CTMSIM ground-truth comparison](#ctmsim-ground-truth-comparison)
   - [Roadmap](#roadmap)
 - [CTM State Update Equations](#ctm-state-update-equations)
@@ -537,7 +549,12 @@ Specific aspects to consider:
   the rest of the pipeline (initial-state extraction, off-ramp
   split-ratio computation) continues to use `vds_id` so the cell's
   observed traffic data still comes from the physically nearest
-  detector.
+  detector. As of the `calibration_code` integration, Step 6 already
+  **auto-seeds** this redirect for cells whose detector outright
+  *failed* calibration (see Step 6, Stage 1) — so this manual step is
+  now mostly for cells whose detector calibrated "successfully" but to
+  a visibly poor FD, which the code can't catch. A manual `fd_vds_id`
+  always overrides the auto choice.
 * Ramp VDS assignments. A single cell can carry **multiple** ramp VDS
   ids if more than one physical ramp falls inside it (e.g. when two
   short on-ramps were merged into one cell). Put the ids in the
@@ -547,6 +564,13 @@ Specific aspects to consider:
   (`demand_from_ramp_vds` / `beta_from_off_ramp_vds`) both parse this
   via `parse_ramp_vds_ids` and **sum** the per-ramp capacities and
   flows into the cell's :math:`R_i`, :math:`d_i(k)`, or :math:`s_i(k)`.
+* Virtual ramp detectors. A physical ramp with **no PeMS detector at
+  all** gets a synthetic `v`-prefixed id (e.g. `v400001`) instead of a
+  real VDS id. Use the same id for the ramp in `cells.csv`
+  (`on_ramp_vds_id` / `off_ramp_vds_id`) and in the stretches CSV
+  (`on_ids` / `off_ids`), and keep ids unique across the whole
+  stretches file. See the Step 7 "Virtual ramp detectors" section for
+  how each consumer treats them.
 
 After making any manual adjustments, re-generate the derived artifacts
 (`cells.geojson`, `corridor_map.png`, `cell_layout.png`) from the
@@ -597,11 +621,32 @@ out entirely (or NaN) and the FD lookup uses `vds_id` for every cell
 just as before. Set it to the FD-source VDS only for the cells where
 the user wants to redirect the FD parameters.
 
+**Automatic FD redirect on calibration failure.** When the calibrated
+metadata carries a `calibration_code` column (Step 4 always writes
+one), assembly auto-seeds the `fd_vds_id` redirect that a Step-5
+reviewer used to do by hand. For any cell *without* a manual
+`fd_vds_id` whose `vds_id` failed calibration (`calibration_code != 0`,
+so its FD parameters are NaN), the FD lookup is redirected to the
+nearest **upstream** cleanly-calibrated detector (`calibration_code ==
+0`) — the same Dervisoglu upstream-inherit idea Step 2 applies to
+*missing* detectors, here applied to FD *quality*. The substitution
+never touches `vds_id` (so initial-state and split-ratio derivations
+still use the physically-nearest detector), a manually-set `fd_vds_id`
+always wins, and each redirect is reported via a `logging` warning
+(`cell idx: vds <bad> (code N) -> vds <substitute>`). This only
+*seeds* the override — Step 5's manual review still applies and can
+correct any auto-choice. A calibration table that predates the
+`calibration_code` column disables the redirect entirely, so the
+behavior is backward compatible.
+
 Cells whose effective FD-lookup id is NaN (both `vds_id` and
 `fd_vds_id` missing) raise a `ValueError` -- they need a calibrated
 FD before assembly proceeds, so the caller has to run Step 2's
 Dervisoglu upstream-inherit fallback or edit the cells table to
-point at a sensible VDS first.
+point at a sensible VDS first. A cell whose `vds_id` *failed*
+calibration and has no cleanly-calibrated detector anywhere upstream
+(and no manual `fd_vds_id`) likewise raises -- set `fd_vds_id`
+manually or extend the corridor upstream to include a good detector.
 
 ### Stage 2: Ramp capacity lookup
 
@@ -666,122 +711,103 @@ schema as `freeway_to_dataframe`'s output minus the `gamma` / `xi`
 columns (which fall back to the cell defaults).
 
 ## Step 7: Ramp Flow Estimation
-Implemented in `utils/ctm/ramp_flow.py` (gap fillers) and
-`utils/ctm/scenario.py` (`demand_from_ramp_vds` /
-`beta_from_off_ramp_vds`). End-to-end demo:
-`scripts/simulate_ctm_corridor.py --ramp-fill-strategy ...`.
+Implemented in `scripts/build_ctm_ramp_scenario.py`; writes the `demand.csv` / `beta.csv` that 
+`scripts/simulate_ctm_corridor.py --demand --beta` consumes.
 
-The fundamental issue with freeway ramps is that they typically
-suffer from a higher rate of VDS outages than mainline freeway
-segments do. As such, some method of estimating on-ramp demand and
-off-ramp split ratios from incomplete data is essential. Step 7
-implements this in two pieces: a **gap-filling layer** that takes a
-single ramp VDS's possibly-NaN 5-min timeseries and returns a fully
-populated one, and a **scenario-adapter layer** that calls the
-filler then wraps the result in the wide DataFrames
-`scenario_from_dataframes` expects.
+Ramp flows are required boundary conditions in the CTM; they determine the number of vehicles 
+entering or exiting the simulation at each cell in each timestep. We obtain ramp flows directly 
+from the PeMS timeseries data, which presents a challenge for simulation when the data are missing.
+There are two distinct ways in which data can be missing, which requires different estimation 
+treatment. We enumerate the two types of missing data as follows:
 
-Implementing the fillers as separable, swappable strategies lets us
-compare CTM simulation results under different estimation methods
-and pick the simplest one that matches reality.
+1. There are some ramps for which no VDS has been installed, and therefore historical flow data for
+the ramp is unavailable.
+2. In the ramps where VDSs have been installed, there may be gaps in the timeseries data.
 
-### Gap fillers (`utils/ctm/ramp_flow.py`)
+In either case, the missing data must be filled in with some kind of estimation, such that a 
+complete timeseries exists for the `demand` and `beta` calculations. The purpose of Step 7 is to
+perform this estimation.
 
-All three fillers share the signature::
+To handle the different cases, we follow the decision flowchart below. Each estimation strategy is discussed in detail.
 
-    fill(df, *, flow_col, time_col="timestamp", ...) -> pd.DataFrame
+![ramp_configs](ramp_estimation_decision_flowchart.png)
 
-They consume the **full downloaded timeseries** (not just the sim
-window) so the historical-average versions see the widest possible
-history when estimating statistics.
+### Historical Average & Persistence
+This strategy is used for all Type 2 scenarios; the specific method (historical average vs. persistence) is determined based on the duration of the gap in the timeseries data.
+If the gap is 1 or 2 samples, missing values are filled by persisting the most recent measurement.
+If the gap is longer, missing values are filled using the historical average for that particular (day-of-week, time-of-day) slot.
 
-* **Level 1 — `persistence_fill`**
-  Forward-fill NaN samples with the most recent known value. Best
-  for short outages where the underlying rate hasn't changed much.
-  Optional `max_gap_minutes=` keeps runs longer than the threshold
-  unfilled (persistence drifts further the longer the gap).
+### Flow conservation
+This strategy applies to a subset of Type 1 scenarios, depending on the configuration of the highway stretch which contains missing ramp flow data. Configurations are shown below.
 
-* **Level 2 — `historical_average_fill`**
-  For each `(weekday, time-of-day)` bin (7 × 288 = 2016 bins on a
-  5-min grid), compute the mean across all non-NaN samples in the
-  input. Fill NaN rows with the matching bin's mean. Bins with zero
-  non-NaN history leave the row NaN and emit a `RuntimeWarning`
-  listing the affected bins. Optional `history_df=` override lets a
-  caller supply a longer baseline than the input itself when needed.
+![ramp_configs](ramp_configurations.png)
 
-* **Level 2b — `stochastic_historical_fill`**
-  Same binning as Level 2 but draw each fill from
-  $\mathcal{N}(\mu, \sigma)$ of the bin, clip to $\ge 0$ (flow
-  can't be negative). Bins with fewer than 2 non-NaN samples have
-  no usable stddev and fall back to the deterministic mean. The
-  `seed=0` default makes runs reproducible; pass a different int for
-  a different reproducible sequence.
+If the highway stretch contains only one ramp (type (a) or (b)), then the missing ramp flow is fully-determined by conservation of flow:
 
-**Deferred — outage-duration-aware composition.** Pick filler by
-outage length (e.g. Level 1 for outages < 30 min, Level 2 for
-longer). This is a higher-order strategy that wraps the existing
-three; it can land later without changing the fillers themselves.
+$$ q_{up} + r = q_{down} + s $$
 
-### Scenario adapters (`utils/ctm/scenario.py`)
+We solve this equation for the missing ramp flow by setting whichever ramp is not present to 0 and using the mainline flow data, which we assume exists. If there are any gaps in the mainline flow, they are filled using historical average and persistence, following the same heuristic as described above.
 
-* **`demand_from_ramp_vds(cells_df, timeseries_dir, dt, *, start,
-  end, fill_strategy=None) -> pandas.DataFrame`**
-  Wide `T × N` on-ramp demand in veh/h. For each cell with
-  `on_ramp=True` *and* a non-NaN `on_ramp_vds_id`, load the ramp
-  VDS's 5-min timeseries, apply `fill_strategy` to the **whole CSV**
-  (before windowing — so historical-average stats see the widest
-  history), slice to `[start, end)`, and resample to sim cadence with
-  the same constant-hold (≤ 5 min) / hourly-aggregate (> 5 min) rule
-  as `inflow_from_vds`. Cells without an on-ramp, or with `on_ramp=True`
-  but no matched ramp VDS, produce no column — which
-  `scenario_from_dataframes` treats as zero demand.
-
-* **`beta_from_off_ramp_vds(cells_df, timeseries_dir, dt, *, start,
-  end, fill_strategy=None) -> pandas.DataFrame`**
-  Wide `T × N` off-ramp split ratio, unitless in $[0, 1)$. For each
-  cell with `off_ramp=True`, compute
-  $\beta_i(k) = s_i(k) / (f_i(k) + s_i(k))$
-  from the off-ramp VDS ($s_i$, taken from `off_ramp_vds_id`) and
-  the cell's *downstream* mainline VDS ($f_i$, taken from the next
-  cell's `vds_id`). Same windowing + resampling rule.
-
-  **Special cases:**
-
-  * *Tail off-ramp.* A cell with `off_ramp=True` at the corridor's
-    downstream end has no `i+1` to provide $f_i$; β is set to 0
-    for that cell and a `UserWarning` flags it as a no-op off-ramp.
-  * *Clipping to $[0, 1)$.* Raw ratios outside the interval get
-    clipped (often a sign of a mis-matched off-ramp / mainline VDS
-    pair). A `UserWarning` reports aggregate clipping stats — count
-    of values clipped below 0 vs. above 1, and the mean magnitude
-    of each — so spurious VDS pairings surface immediately.
-
-**Strict-default NaN handling.** With `fill_strategy=None` (the
-default), any NaN sample in the sim window raises — matching
-`inflow_from_vds`'s strict default. The user opts in to filling by
-passing a strategy.
+### Trained estimators
+The final scenario is the most difficult; we cannot rely on historical data from the ramps, nor can
+we rely on conservation of flow. For this scenario, we are currently investigating the best estimation method. The problem has been addressed previously in the literature by [Muralidharan and Horowitz 2009](https://doi.org/10.3141/2099-07), [Kan et al. 2021](https://doi.org/10.1109/TITS.2020.2989365), and [Zhang et al. 2024](https://doi.org/10.1109/TITS.2023.3315693). We are currently investigating the best method: a previously-published method, or a new method. Further details are in [ramp_flow_estimation_module.md](ramp_flow_estimation_module.md)
 
 ### CLI
 
-`scripts/simulate_ctm_corridor.py` gains `--ramp-fill-strategy
-{none,persistence,historical_average,stochastic_historical}`
-(default `none`). Precedence:
-
-1. If `--demand` / `--beta` wide CSV is given, use that.
-2. Else if `--ramp-fill-strategy != none`, call
-   `demand_from_ramp_vds` / `beta_from_off_ramp_vds` with the
-   chosen filler.
-3. Else default to zero columns (existing behavior).
+Ramp filling lives entirely in `scripts/build_ctm_ramp_scenario.py
+--estimator {none,gru,kan}`. Gap fill (short gaps persisted, longer gaps
+historical-averaged) and type-(a)/(b) conservation are always active; the
+`--estimator` choice governs only the absent type-(c) ramp pair (`none`
+gives those ramps zero flow — the no-ML baseline). The script generates an on-ramp demand and off-ramp split ratio profile for downstream simulation.
+`scripts/simulate_ctm_corridor.py` takes the resulting `--demand` /
+`--beta` CSVs; when they are omitted, every cell gets zero demand and
+zero split ratio (ramps are effectively ignored).
 
 ```
+python scripts/build_ctm_ramp_scenario.py \
+    --cells case_studies/I880N_10mi/cells.csv \
+    --stretches data/pems/stretches/880_N.csv \
+    --timeseries-dir data/pems/csv_files \
+    --estimator gru \
+    --start "2022-04-12 06:00" --end "2022-04-12 09:00" \
+    --dt-seconds 10
 python scripts/simulate_ctm_corridor.py \
     --freeway scripts/output/ctm_corridor/I_210_W/freeway.csv \
     --cells   scripts/output/ctm_corridor/I_210_W/cells.csv \
     --timeseries-dir data/pems/csv_files \
     --dt-seconds 10 \
     --start "2022-04-12 06:00" --end "2022-04-12 09:00" \
-    --ramp-fill-strategy historical_average
+    --demand case_studies/I880N_10mi/demand.csv \
+    --beta   case_studies/I880N_10mi/beta.csv
 ```
+
+### Virtual ramp detectors
+
+A ramp that physically exists but has **no PeMS detector** carries a
+synthetic `v`-prefixed id (e.g. `v400001`) in `cells.csv` and in the
+stretches CSV (see the Step 5 manual-edit conventions). There is no
+timeseries behind such an id, so each consumer handles it explicitly:
+
+* **Step 6 assembly** -- the id misses the ramp-calibration lookup and
+  the cell's ramp capacity stays NaN → :math:`R_i = \infty` /
+  :math:`S_i = \infty` (no-measurement → no-constraint).
+* **Fill-strategy adapters** (`demand_from_ramp_vds` /
+  `beta_from_off_ramp_vds`) -- there is nothing to gap-fill, so virtual
+  ids are **skipped with a `UserWarning`**: they contribute 0 demand,
+  and 0 to the off-ramp flow :math:`s_i` (though they still count for
+  the furthest-downstream mainline lookup). Estimating their flow needs
+  the offline scenario builder below.
+* **Offline scenario builder** (`scripts/build_ctm_ramp_scenario.py`) --
+  a virtual id is "VDS completely absent" by construction and dispatches
+  on the `config_type` of the stretch that lists it: conservation for
+  type (a)/(b), a CLI-passed estimator for type (c). Both estimates cover the stretch
+  side's **total** ramp flow, so when the virtual ramp shares its stretch
+  side with measured detectors, their historical-average-filled flows are
+  subtracted from the estimate (clipped at 0) before it is assigned --
+  otherwise the measured vehicles would enter the corridor twice.
+
+Keep virtual ids **unique across the stretches file**: the id→stretch
+map resolves duplicates silently to whichever stretch parses last.
 
 ## Step 8: Running a CTM Simulation
 End-to-end demo: `scripts/simulate_ctm_corridor.py`.
@@ -962,14 +988,11 @@ this path end-to-end against the dissertation's MATLAB output.
 
 All four PeMS → scenario adapters are now in place
 (`inflow_from_vds`, `initial_state_from_vds`, `demand_from_ramp_vds`,
-`beta_from_off_ramp_vds`), and `simulate_ctm_corridor.py`'s
-`--ramp-fill-strategy` exposes the three gap fillers end-to-end. The
+`beta_from_off_ramp_vds`), and `build_ctm_ramp_scenario.py --estimator
+{none,gru,kan}` wires always-on gap fill + type-(a)/(b) conservation with
+an optional GRU/Kan estimator for absent type-(c) pairs end-to-end. The
 remaining follow-ups are:
 
-* **Outage-duration-aware filler.** Pick Level 1 / Level 2 per gap
-  based on how long the outage is (e.g. persistence for < 30 min,
-  historical average for longer). This wraps the existing fillers
-  rather than replacing them; see Step 7.
 * **Standalone scenario CSV builder.** A thin
   `scripts/build_ctm_scenario.py` that bundles the four adapters
   against a `cells.csv` + the Step-3 timeseries directory and writes
@@ -1028,6 +1051,24 @@ with zero sample counts and NaN stats -- they're skipped rather than
 treated as an error, so a single missing assignment doesn't block
 the rest of the validation report.
 
+**Corridor-pooled error.** `corridor_rmse_mape(qq)` rolls the per-cell
+fit up to one RMSE and MAPE per quantity for the whole corridor by
+*pooling the residuals* across every direct/tiebreak cell (via
+`QQResult.pooled`) and applying the same definitions above -- not by
+averaging per-cell RMSEs, which would understate the true error. The
+CLI prints these two lines (flow and density) instead of per-cell
+median/mean/max.
+
+**Direct/tiebreak restriction (CLI).** `compare_against_historical`
+itself scores every cell with an assigned VDS (the microsim / DWPT
+paths rely on this). The corridor-validation CLI, however, first runs
+`restrict_to_direct_tiebreak(cells_df)` so density/flow RMSE/MAPE are
+scored on **one cell per unique `direct` / `direct_tiebreak` VDS** --
+the same basis as the corridor aggregates, GEH, and QQ. That helper
+returns a copy with `vds_id` blanked everywhere except the first cell
+of each unique direct/tiebreak VDS, so the remaining cells fall through
+the NaN-`vds_id` skip path; the shared function is unchanged.
+
 ### Output
 
 One row per cell, in cell-index order:
@@ -1048,26 +1089,177 @@ Users can sort by RMSE/MAPE to spot the worst-fitting cells, group
 by ramp presence to compare ramp vs no-ramp behavior, or pool across
 cells (`df.mean()`) to get corridor-wide aggregates.
 
+### Corridor aggregates: VMT and VHT
+
+`compare_corridor_aggregates(result, cells_df, timeseries_dir,
+station_metadata, *, start) -> CorridorAggregates` rolls the per-cell
+fit up to two corridor scalars — total **VMT** [veh·mi] and **VHT**
+[veh·h], sim vs observed — to answer "does the model reproduce
+aggregate corridor productivity?" rather than point fits.
+
+It is deliberately **not** the corridor-long VMT/VHT from
+`utils/ctm/metrics.py` (which sums *every* cell with its own cell
+length and on-ramp queues). Instead:
+
+* **One term per unique mainline VDS.** Only the cell whose
+  `vds_source` is `direct` or `direct_tiebreak` contributes; a VDS
+  spanning several cells is counted once, so observed flow/speed
+  aren't double-counted.
+* **Length from `station_metadata.csv`** (`Length`, keyed by `ID`),
+  used identically on both sides, so the comparison reflects
+  flow/density accuracy rather than geometry. A contributing VDS
+  absent from `station_metadata` is a hard error.
+
+Both sides share the same definitions:
+
+* `VMT = Σ ρ·v·L·dt` — the sim integrates `ρ·v` at native `dt` (the
+  eq. 4.12 VMT definition); the observed side uses `flow·L·dt₅`, which
+  is identical because observed `ρ·v ≡ flow` (observed density is
+  `flow / speed`).
+* `VHT = Σ ρ·L·dt` — sim density integrated at native `dt`; observed
+  `ρ = flow / speed`.
+
+For each VDS, a 5-min window with a NaN observed value is dropped from
+**both** sides of that metric (paired support), mirroring how the
+per-cell RMSE only scores against non-NaN observed samples. VMT uses
+flow validity, VHT uses density validity. `CorridorAggregates` carries
+`sim_vmt`, `obs_vmt`, `sim_vht`, `obs_vht`, `n_vds`, plus
+`vmt_pct_diff` / `vht_pct_diff` properties (`100·(sim−obs)/obs`).
+
+### GEH statistic
+
+`compute_flow_geh(result, cells_df, timeseries_dir, *, start) ->
+GEHResult` reports the GEH volume statistic for **flow** (GEH is a
+volume measure — it does not apply to density):
+
+```
+GEH = sqrt( 2·(M − C)² / (M + C) )
+```
+
+with `M` = sim and `C` = observed. GEH is computed on **hourly
+volumes**: the twelve 5-min samples in each clock-hour bin are summed
+into an hourly volume on both sides before the formula is applied,
+matching the magnitude the conventional `GEH < 5` acceptance rule is
+defined for. The window must therefore be a whole number of hours; the
+CLI skips GEH (with a warning) for sims that aren't.
+
+Like the corridor aggregates, only the **`direct` / `direct_tiebreak`**
+cell of each unique VDS contributes. An hour with any NaN observed
+5-min sample becomes a NaN hourly volume (incomplete count) and drops
+out of that cell's GEH.
+
+`GEHResult` carries:
+
+* `per_cell` — one row per direct/tiebreak cell: `cell`, `vds_id`,
+  `n_geh_hours`, `flow_geh_median`, `flow_geh_pct_under5` (share of that
+  cell's hours with GEH < 5).
+* `hourly_geh` — `(n_direct_cells, n_hours)` GEH matrix (NaN where the
+  observed hour was incomplete), rendered by `plot_geh_heatmap` as a
+  cell × hour heatmap (green ≤ 5, red above).
+* `corridor_pct_under5` / `n_geh_samples` — pooled share of all
+  `(cell, hour)` samples meeting GEH < 5.
+
+The CLI merges `flow_geh_median` / `flow_geh_pct_under5` into
+`validation.csv` (NaN for non-direct cells), adds them to the top-K
+worst-cell table, writes `geh_heatmap.png`, and prints the corridor
+pass-rate line.
+
 ### CLI
 
-`scripts/validate_ctm_corridor.py` consumes the per-quantity output
-CSVs that `simulate_ctm_corridor.py` writes (`density.csv` +
-`mainline_flow.csv`), reconstructs the sim density and flow arrays,
-runs `compare_against_historical`, and writes `validation.csv`
-alongside the sim outputs:
+`scripts/validate_ctm_corridor.py` loads the sim's `result.npz`, runs
+`compare_against_historical` (restricted to direct/tiebreak VDS, see
+above), the corridor aggregates, GEH, and QQ diagnostics, and writes
+**all artifacts to a `validation/` subdirectory of the sim dir**
+(override with `--out-dir`):
 
 ```
 python scripts/validate_ctm_corridor.py \
     --sim-dir scripts/output/ctm_corridor/I_210_W/sim \
     --cells   scripts/output/ctm_corridor/I_210_W/cells.csv \
     --timeseries-dir data/pems/csv_files \
+    --station-metadata data/pems/station_metadata.csv \
     --start "2022-04-12 06:00"
 ```
 
+The `validation/` directory holds `validation.csv` (per-cell stats +
+the two GEH columns), `geh_heatmap.png`, and the QQ plots
+(`{flow,density}_qq_pooled.png` and the per-cell `_residual` /
+`_twosample` grids).
+
 The script also prints a stdout summary: window, cell counts (total
-vs assigned VDS), corridor aggregates (median / mean / max of RMSE
-and MAPE for both density and flow), and the top-K worst-fitting
-cells by density RMSE (`--top-k`, default 5).
+vs scored), the corridor-pooled RMSE and MAPE for density and flow,
+the top-K worst-fitting cells by density RMSE (`--top-k`, default 5;
+with the two GEH columns appended), the corridor VMT/VHT aggregates
+(sim vs observed + percent diff) over the direct/tiebreak VDS, and the
+corridor GEH<5 pass-rate.
+`--station-metadata` defaults to `data/pems/station_metadata.csv`.
+
+### Ramp gap-fill accuracy
+
+The Step-7 fillers reconstruct on-ramp demand and off-ramp flow from
+ramp detectors that suffer frequent outages, and those reconstructed
+values feed the scenario directly -- yet the *real* gaps they fill have
+no ground truth to score against. `utils/ctm/ramp_validation.py`
+measures fill accuracy by **synthetic hold-out**: take the *known*
+(non-NaN) stretches of a ramp VDS series, blank fixed-length blocks of
+them, fill with each strategy, and compare the fill to the held-out
+truth. Errors are reported **stratified by gap length** -- the evidence
+needed to pick a filler per outage duration (and to settle the deferred
+outage-duration-aware composition in Step 7).
+
+The masking is a **fixed gap-length sweep**: for each length in
+`gap_lengths_min` (default 5/15/30/60/120 min), non-overlapping blocks
+of that length are laid down on a regular schedule (`gap_spacing_min`
+apart, starting one spacing in so persistence always has prior context)
+over fully-observed stretches. Each block is masked **in isolation** --
+one synthetic outage at a time on an otherwise-intact copy of the
+series -- so the historical-average fillers compute their
+per-(weekday, time-of-day) bin statistics from the series *minus only
+that one gap*, exactly the masked-stats regime production filling sees.
+
+Two entry points, both returning a `RampFillAccuracy` (a `per_vds` and a
+corridor-`pooled` DataFrame; pooled rolls residuals up across every ramp
+VDS per `(gap_length_min, strategy)`):
+
+* **`onramp_fill_accuracy(cells_df, timeseries_dir, ...)`** scores the
+  on-ramp flow series directly (the $d_i$ driver). A VDS set spanning
+  several cells is scored once.
+* **`offramp_split_accuracy(cells_df, timeseries_dir, ...)`** masks +
+  fills the off-ramp flow $s_i$, then reconstructs the split
+  $\beta_i = s_i / (f_i + s_i)$ against the *unmasked* downstream
+  mainline $f_i$ (cell $i{+}1$'s `vds_id`), exactly as
+  `beta_from_off_ramp_vds` forms it at sim time. The off-ramp and
+  mainline series are inner-joined on timestamp, so $\beta$ is scored
+  only where both detectors report. Error is reported in **both** flow
+  units (`flow_*` = the off-ramp $s$) and split units (`beta_*`).
+  Off-ramp cells at the corridor's downstream end (no $i{+}1$) are
+  skipped with a `UserWarning`.
+
+Each metrics row carries `<prefix>_n` (scored samples),
+`<prefix>_n_unfilled` (masked samples the filler left NaN -- e.g.
+persistence with no prior value, or a historical bin with no other
+history), and `<prefix>_rmse` / `<prefix>_mape` / `<prefix>_bias`
+(MAPE in %, skipping zero-truth samples; bias is mean signed
+$\text{fill} - \text{truth}$).
+
+**CLI.** `scripts/validate_ramp_flow.py` runs both surfaces off a
+`cells.csv` + the Step-3 timeseries directory, writes the per-VDS and
+pooled CSVs plus RMSE-vs-gap-length plots to
+`<cells parent>/ramp_validation/`, and prints the pooled tables:
+
+```
+python scripts/validate_ramp_flow.py \
+    --cells scripts/output/ctm_corridor/I_210_W/cells.csv \
+    --timeseries-dir data/pems/csv_files \
+    --gap-lengths 5,15,30,60,120
+```
+
+The headline read is the **crossover**: persistence typically wins at
+short gaps and degrades as the gap grows, while the historical-average
+fillers stay roughly flat with gap length -- so the pooled RMSE columns
+show persistence overtaking historical somewhere in the 30-120 min
+range, which is exactly the threshold the duration-aware composition
+would switch on.
 
 ### CTMSIM ground-truth comparison
 

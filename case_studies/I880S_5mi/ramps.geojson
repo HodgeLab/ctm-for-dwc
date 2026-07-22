@@ -1,0 +1,23 @@
+{
+"type": "FeatureCollection",
+"name": "ramps",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{ "type": "Feature", "properties": { "kind": "off", "postmile": 0.0, "mainline_node": 241328971, "ramp_terminus_node": 2196976146, "lanes": 1, "name": null }, "geometry": { "type": "Point", "coordinates": [ -122.2244149, 37.7718965 ] } },
+{ "type": "Feature", "properties": { "kind": "on", "postmile": 0.67486250009779425, "mainline_node": 678963606, "ramp_terminus_node": 53008231, "lanes": 1, "name": null }, "geometry": { "type": "Point", "coordinates": [ -122.2171499, 37.764122 ] } },
+{ "type": "Feature", "properties": { "kind": "off", "postmile": 1.1715555094455321, "mainline_node": 52984138, "ramp_terminus_node": 52984139, "lanes": 2, "name": null }, "geometry": { "type": "Point", "coordinates": [ -122.2120087, 37.7581928 ] } },
+{ "type": "Feature", "properties": { "kind": "on", "postmile": 1.8828827184082506, "mainline_node": 241331864, "ramp_terminus_node": 52984188, "lanes": 1, "name": null }, "geometry": { "type": "Point", "coordinates": [ -122.2045459, 37.7497568 ] } },
+{ "type": "Feature", "properties": { "kind": "off", "postmile": 2.4053780363112089, "mainline_node": 241335045, "ramp_terminus_node": 242127339, "lanes": 2, "name": null }, "geometry": { "type": "Point", "coordinates": [ -122.1991096, 37.7435353 ] } },
+{ "type": "Feature", "properties": { "kind": "on", "postmile": 2.7165213531975354, "mainline_node": 241335048, "ramp_terminus_node": 53058085, "lanes": 1, "name": null }, "geometry": { "type": "Point", "coordinates": [ -122.1958655, 37.7398345 ] } },
+{ "type": "Feature", "properties": { "kind": "on", "postmile": 2.9295582745736488, "mainline_node": 242106766, "ramp_terminus_node": 241784813, "lanes": 1, "name": null }, "geometry": { "type": "Point", "coordinates": [ -122.193665, 37.7372893 ] } },
+{ "type": "Feature", "properties": { "kind": "off", "postmile": 3.1735074432951378, "mainline_node": 242106767, "ramp_terminus_node": 242197026, "lanes": 1, "name": null }, "geometry": { "type": "Point", "coordinates": [ -122.1911025, 37.7343981 ] } },
+{ "type": "Feature", "properties": { "kind": "on", "postmile": 3.4156051072966052, "mainline_node": 242187653, "ramp_terminus_node": 343924935, "lanes": 1, "name": null }, "geometry": { "type": "Point", "coordinates": [ -122.1885308, 37.7315449 ] } },
+{ "type": "Feature", "properties": { "kind": "on", "postmile": 3.5431147439583706, "mainline_node": 242187655, "ramp_terminus_node": 12019346454, "lanes": 1, "name": null }, "geometry": { "type": "Point", "coordinates": [ -122.1872574, 37.7300005 ] } },
+{ "type": "Feature", "properties": { "kind": "off", "postmile": 4.3186439280975097, "mainline_node": 242414019, "ramp_terminus_node": 242443102, "lanes": 1, "name": null }, "geometry": { "type": "Point", "coordinates": [ -122.178853, 37.72096 ] } },
+{ "type": "Feature", "properties": { "kind": "on", "postmile": 4.5083998295458949, "mainline_node": 3374503918, "ramp_terminus_node": 3374503919, "lanes": 1, "name": null }, "geometry": { "type": "Point", "coordinates": [ -122.1766341, 37.71885 ] } },
+{ "type": "Feature", "properties": { "kind": "on", "postmile": 4.5997977522487172, "mainline_node": 1316702496, "ramp_terminus_node": 242440514, "lanes": 1, "name": null }, "geometry": { "type": "Point", "coordinates": [ -122.1755831, 37.7178211 ] } },
+{ "type": "Feature", "properties": { "kind": "off", "postmile": 5.0295002996884275, "mainline_node": 242465654, "ramp_terminus_node": 4306929026, "lanes": 1, "name": null }, "geometry": { "type": "Point", "coordinates": [ -122.1705393, 37.713058 ] } },
+{ "type": "Feature", "properties": { "kind": "off", "postmile": 5.2611409222691643, "mainline_node": 3701155819, "ramp_terminus_node": 3733468241, "lanes": 1, "name": null }, "geometry": { "type": "Point", "coordinates": [ -122.1673581, 37.7108432 ] } },
+{ "type": "Feature", "properties": { "kind": "on", "postmile": 5.4955727718601386, "mainline_node": 6347940589, "ramp_terminus_node": 5850987064, "lanes": 1, "name": null }, "geometry": { "type": "Point", "coordinates": [ -122.1641109, 37.7086268 ] } }
+]
+}

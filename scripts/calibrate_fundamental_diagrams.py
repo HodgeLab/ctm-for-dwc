@@ -40,10 +40,30 @@ Run from the repo root::
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 from pathlib import Path
 
 from transportation_models.utils.data_processing import PeMSDataProcessor
+
+
+def _enable_stdout_logging() -> None:
+    """Stream the data_processing logger's records to the terminal.
+
+    ``data_processing`` configures the root logger with a file handler only
+    (``include_stdout=False``), so its INFO/WARNING records never reach the
+    console. Attach a stdout StreamHandler so calibration progress and the
+    "0 rows survived the imputation threshold" warning are visible here.
+    """
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    )
+    logging.getLogger().addHandler(handler)
+
+    # The root logger runs at DEBUG, so matplotlib's noisy font-manager/backend
+    # DEBUG records would otherwise flood the terminal. Quiet them to WARNING.
+    logging.getLogger("matplotlib").setLevel(logging.WARNING)
 
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_ROOT = REPO / "data" / "pems"
@@ -58,6 +78,7 @@ def _parse_detectors(value: str | None) -> list[str] | None:
 
 
 def main() -> None:
+    _enable_stdout_logging()
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--root-directory", type=Path, default=DEFAULT_ROOT,
@@ -98,7 +119,23 @@ def main() -> None:
     )
     parser.add_argument(
         "--iqr-multiplier", type=float, default=1.0,
-        help="IQR-fence multiplier for the per-bin outlier rejector (default 1.0)",
+        help=("IQR-fence multiplier for the row-level outlier filter "
+              "(default 1.0, matching PeMSDataProcessor)"),
+    )
+    parser.add_argument(
+        "--bin-iqr-multiplier", type=float, default=1.0,
+        help=("IQR-fence multiplier for the per-bin congestion-branch filter "
+              "(default 1.0, matching PeMSDataProcessor)"),
+    )
+    parser.add_argument(
+        "--bin-size", type=int, default=10,
+        help=("number of points per congestion density bin (default 10, "
+              "matching PeMSDataProcessor)"),
+    )
+    parser.add_argument(
+        "--triangle-rtol", type=float, default=0.05,
+        help=("relative tolerance for the triangle-consistency validation "
+              "gate (default 0.05, matching PeMSDataProcessor)"),
     )
     parser.add_argument(
         "--make-plots", action="store_true",
@@ -147,6 +184,9 @@ def main() -> None:
     proc.calibrate_fundamental_diagrams(
         detectors=detectors,
         iqr_multiplier=args.iqr_multiplier,
+        bin_iqr_multiplier=args.bin_iqr_multiplier,
+        bin_size=args.bin_size,
+        triangle_rtol=args.triangle_rtol,
         make_plots=args.make_plots,
         saved_plot_dir=plots_dir,
         save_params=True,

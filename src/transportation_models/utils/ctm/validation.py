@@ -5,7 +5,11 @@ Two ground-truth sources are supported today:
 * **Historical PeMS** (:func:`compare_against_historical`) -- the field
   data the model is calibrated against. Compares sim density and
   mainline flow to the cell's assigned mainline VDS over the sim
-  window. RMSE/MAPE per cell.
+  window. RMSE/MAPE per cell, scored only at cells whose VDS
+  assignment reads an observed station directly (``vds_source`` of
+  ``direct`` / ``direct_tiebreak``); cells with an inherited
+  (``nearest_upstream``) or ``missing`` assignment are reported as
+  NaN rows.
 
 * **CTMSIM reference output** (:func:`compare_against_ctmsim`) -- the
   Kurzhanskiy 2007 / Aurora reference CSVs bundled under
@@ -15,8 +19,22 @@ Two ground-truth sources are supported today:
   Useful for regression-style validation of engine behavior against
   the canonical reference implementation.
 
-Both functions return RMSE and MAPE; MAPE skips zero-observed samples
-(undefined ratio).
+:func:`compare_against_historical` and :func:`compare_against_ctmsim`
+return RMSE and MAPE; MAPE skips zero-observed samples (undefined
+ratio).
+
+A third helper, :func:`compare_corridor_aggregates`, rolls the
+historical comparison up to two corridor scalars -- total VMT and VHT,
+sim vs observed -- computed once per *unique* mainline VDS (at its
+``direct`` / ``direct_tiebreak`` cell, with the station's
+``station_metadata`` length) rather than per cell. It answers "does the
+model reproduce aggregate corridor productivity?" as opposed to the
+per-cell point fits.
+
+A fourth, :func:`compute_flow_geh`, reports the **GEH** flow statistic
+(``sqrt(2*(M-C)^2/(M+C))`` on hourly volumes) at the same
+``direct`` / ``direct_tiebreak`` cells -- per-cell median + share with
+GEH < 5, plus the per-cell-per-hour matrix used for the heatmap.
 """
 
 from __future__ import annotations
@@ -36,6 +54,11 @@ _FIVE_MIN_S = 300.0
 _FIVE_MIN_H = 5.0 / 60.0
 _GRID_TOL = 1e-9
 
+# VDS-assignment sources that read an observed station directly (one VDS
+# per cell), as opposed to interpolated/propagated assignments. Every
+# historical comparison in this module scores on these only.
+_DIRECT_SOURCES = ("direct", "direct_tiebreak")
+
 
 def compare_against_historical(
     result: SimulationResult,
@@ -46,6 +69,12 @@ def compare_against_historical(
 ) -> pd.DataFrame:
     """Per-cell sim-vs-observed RMSE and MAPE for density and mainline flow.
 
+    Only cells whose ``vds_source`` is ``direct`` / ``direct_tiebreak``
+    are scored -- their VDS physically sits inside the cell. Cells with a
+    propagated (``nearest_upstream``) or ``missing`` assignment would be
+    judged against a detector somewhere else on the corridor, so they are
+    reported as NaN rows instead.
+
     Parameters
     ----------
     result : SimulationResult
@@ -53,10 +82,10 @@ def compare_against_historical(
         ``dt`` must evenly divide 5 minutes, and the sim horizon
         ``n_steps * dt`` must be a positive whole multiple of 5 minutes.
     cells_df : pandas.DataFrame
-        Step 1+2 ``cells.csv`` (must carry ``vds_id``, ``lanes``, and
-        ``vds_lanes``). Row count and order must match
-        ``result.freeway.cells``. Cells whose ``vds_id`` is NaN are
-        skipped.
+        Step 1+2 ``cells.csv`` (must carry ``vds_id``, ``vds_source``,
+        ``lanes``, and ``vds_lanes``). Row count and order must match
+        ``result.freeway.cells``. Cells whose ``vds_id`` is NaN or whose
+        ``vds_source`` is not direct/direct_tiebreak are skipped.
     timeseries_dir : Path or str
         Directory of per-VDS timeseries CSVs (one ``<vds_id>.csv``
         each), in the format ``PeMSExtractor`` writes.
@@ -75,8 +104,8 @@ def compare_against_historical(
         ============================= ============================================
         ``cell``                      cell index in ``result.freeway.cells``
         ``vds_id``                    mainline VDS used for observed data, or
-                                      ``<NA>`` if the cell had no assigned VDS
-                                      (skipped in stats)
+                                      ``<NA>`` if the cell had no direct
+                                      VDS assignment (skipped in stats)
         ``n_density_samples``         non-NaN observed density samples
         ``density_rmse``              RMSE [veh/mi] of (sim, observed) density
         ``density_mape``              MAPE [%] of (sim, observed) density
@@ -101,7 +130,8 @@ def compare_against_historical(
           observed density isn't directly comparable to sim density
           when the OSM-reported and PeMS-reported lane counts disagree).
     KeyError
-        ``cells_df`` is missing ``vds_id``, ``lanes``, or ``vds_lanes``.
+        ``cells_df`` is missing ``vds_id``, ``vds_source``, ``lanes``, or
+        ``vds_lanes``.
     """
     n_cells = result.freeway.n_cells
     if len(cells_df) != n_cells:
@@ -109,39 +139,27 @@ def compare_against_historical(
             f"cells_df has {len(cells_df)} rows but result.freeway has "
             f"{n_cells} cells; one row per cell is required."
         )
-    required = {"vds_id", "lanes", "vds_lanes"}
+    required = {"vds_id", "vds_source", "lanes", "vds_lanes"}
     missing = required - set(cells_df.columns)
     if missing:
         raise KeyError(
             f"cells_df is missing column(s): {sorted(missing)}. "
-            "vds_id / vds_lanes come from Step 2 (assign_vds_to_cells)."
+            "vds_id / vds_source / vds_lanes come from Step 2 "
+            "(assign_vds_to_cells)."
         )
 
-    # Resolve sim cadence vs 5-min cadence.
-    dt = result.freeway.dt
-    steps_per_5min = _exact_steps_per(_FIVE_MIN_H, dt, label="dt", grid="5 min")
-    horizon_steps = result.n_steps
-    n_5min = horizon_steps // steps_per_5min
-    if n_5min < 1 or n_5min * steps_per_5min != horizon_steps:
-        raise ValueError(
-            f"Sim horizon {horizon_steps} step(s) of dt={dt} h "
-            "must be a positive whole multiple of 5 minutes; got "
-            f"{horizon_steps * dt:.5f} h."
-        )
-
-    start = pd.Timestamp(start)
-    if abs((start - pd.Timestamp(0)).total_seconds() % _FIVE_MIN_S) > _GRID_TOL:
-        raise ValueError(
-            f"start={start} must align to PeMS's 5-min grid."
-        )
-    end = start + pd.Timedelta(seconds=n_5min * _FIVE_MIN_S)
+    # Resolve sim cadence vs 5-min cadence and the wallclock window.
+    steps_per_5min, n_5min, start, end = _resolve_window(result, start)
 
     # Lane-count contract (same as initial_state_from_vds): observed
     # density derived from a VDS with N lanes is only directly
     # comparable to a per-cell density on a cell with the same lane
     # count. Otherwise the user must reconcile the discrepancy in
     # cells.csv (typically by trusting the PeMS-reported value).
-    cells_with_vds = cells_df.dropna(subset=["vds_id"])
+    # Checked on the scored (direct) cells only.
+    cells_with_vds = cells_df[
+        cells_df["vds_source"].isin(_DIRECT_SOURCES)
+    ].dropna(subset=["vds_id"])
     mismatch_mask = (
         cells_with_vds["lanes"].astype(int)
         != cells_with_vds["vds_lanes"].astype(int)
@@ -170,31 +188,14 @@ def compare_against_historical(
     vds_cache: dict[int, pd.DataFrame] = {}
     for cell_idx, cell_row in enumerate(cells_df.itertuples(index=False)):
         vds_id_raw = cell_row.vds_id
-        if pd.isna(vds_id_raw):
+        if pd.isna(vds_id_raw) or cell_row.vds_source not in _DIRECT_SOURCES:
             rows.append(_nan_row(cell_idx, vds_id=pd.NA))
             continue
         vds_id = int(vds_id_raw)
-        if vds_id not in vds_cache:
-            vds_cache[vds_id] = pd.read_csv(
-                timeseries_dir / f"{vds_id}.csv", parse_dates=["timestamp"],
-            )
-        df = vds_cache[vds_id]
-        window = df.loc[
-            (df["timestamp"] >= start) & (df["timestamp"] < end)
-        ].sort_values("timestamp").reset_index(drop=True)
-        if len(window) != n_5min:
-            raise ValueError(
-                f"VDS {vds_id}: {len(window)} 5-min sample(s) in window "
-                f"[{start}, {end}); expected {n_5min} on a contiguous "
-                "5-min grid."
-            )
-        observed_flow = window["total_flow_[veh/5-min]"].to_numpy(
-            dtype=float,
-        ) * 12.0
-        with np.errstate(divide="ignore", invalid="ignore"):
-            observed_density = observed_flow / window[
-                "avg_speed_[mph]"
-            ].to_numpy(dtype=float)
+        observed_flow, observed_density = _load_observed_window(
+            timeseries_dir, vds_id, start=start, end=end,
+            n_5min=n_5min, cache=vds_cache,
+        )
 
         n_flow, flow_rmse, flow_mape = _rmse_mape(
             sim_flow_5min[cell_idx], observed_flow,
@@ -222,7 +223,637 @@ def compare_against_historical(
     )
 
 
+def restrict_to_direct_tiebreak(cells_df: pd.DataFrame) -> pd.DataFrame:
+    """Copy of ``cells_df`` keeping only the unique direct/tiebreak VDS.
+
+    Returns a copy in which ``vds_id`` is retained only at the *first*
+    cell whose ``vds_source`` is ``direct`` / ``direct_tiebreak`` for each
+    unique VDS; every other cell's ``vds_id`` is blanked to ``<NA>``.
+
+    :func:`compare_against_historical` now applies the direct-only
+    restriction itself, so this helper is no longer needed there; it
+    remains for consumers that need the one-cell-per-unique-VDS view of
+    ``cells.csv`` directly (e.g. ``scripts/build_ctm_qp_inputs.py``).
+
+    Raises
+    ------
+    KeyError
+        ``cells_df`` is missing ``vds_id`` or ``vds_source``.
+    """
+    missing = {"vds_id", "vds_source"} - set(cells_df.columns)
+    if missing:
+        raise KeyError(
+            f"cells_df is missing column(s): {sorted(missing)}. "
+            "vds_id / vds_source come from Step 2 (assign_vds_to_cells)."
+        )
+    out = cells_df.copy()
+    keep = np.zeros(len(out), dtype=bool)
+    seen: set[int] = set()
+    for pos, (vds_id, source) in enumerate(zip(out["vds_id"], out["vds_source"])):
+        if source in _DIRECT_SOURCES and pd.notna(vds_id) and int(vds_id) not in seen:
+            seen.add(int(vds_id))
+            keep[pos] = True
+    out.loc[~keep, "vds_id"] = pd.NA
+    return out
+
+
+# ---- Corridor aggregates --------------------------------------------------
+
+
+@dataclass
+class CorridorAggregates:
+    """Corridor-total VMT and VHT, sim vs observed, over the sim window.
+
+    Computed once per *unique* mainline VDS (at its ``direct`` /
+    ``direct_tiebreak`` cell), summing over the cells' direct VDS and the
+    window. ``n_vds`` is the number of unique VDS that contributed.
+
+    Attributes
+    ----------
+    sim_vmt, obs_vmt : float
+        Vehicle-miles traveled [veh*mi].
+    sim_vht, obs_vht : float
+        Vehicle-hours traveled [veh*h].
+    n_vds : int
+        Unique direct/tiebreak VDS summed.
+    """
+
+    sim_vmt: float
+    obs_vmt: float
+    sim_vht: float
+    obs_vht: float
+    n_vds: int
+
+    @property
+    def vmt_pct_diff(self) -> float:
+        """100 * (sim - obs) / obs for VMT; NaN if ``obs_vmt`` is 0."""
+        return _pct_diff(self.sim_vmt, self.obs_vmt)
+
+    @property
+    def vht_pct_diff(self) -> float:
+        """100 * (sim - obs) / obs for VHT; NaN if ``obs_vht`` is 0."""
+        return _pct_diff(self.sim_vht, self.obs_vht)
+
+
+def compare_corridor_aggregates(
+    result: SimulationResult,
+    cells_df: pd.DataFrame,
+    timeseries_dir: Union[Path, str],
+    station_metadata: pd.DataFrame,
+    *,
+    start: pd.Timestamp,
+) -> CorridorAggregates:
+    """Corridor-total VMT and VHT, sim vs observed PeMS, over the sim window.
+
+    Unlike the per-cell corridor-long metrics in :mod:`utils.ctm.metrics`
+    (which sum every cell with its own cell length and on-ramp queues),
+    this restricts to one term per *unique* mainline VDS -- the cell whose
+    ``vds_source`` is ``direct`` or ``direct_tiebreak`` -- and uses the
+    station's ``Length`` from ``station_metadata`` on both sides, so the
+    comparison reflects flow/density accuracy rather than geometry.
+
+    Both sides share the same definitions:
+
+    * ``VMT = sum rho * v * L * dt`` -- the sim integrates ``rho * v`` at
+      native ``dt`` (the eq. 4.12 VMT definition); the observed side uses
+      ``flow * L * dt_5min`` (identical, since observed ``rho * v == flow``
+      because observed density is ``flow / speed``).
+    * ``VHT = sum rho * L * dt`` -- sim density integrated at native
+      ``dt``; observed ``rho = flow / speed``.
+
+    For each VDS, a 5-min window with a NaN observed value is dropped from
+    *both* sides of that metric (paired support), mirroring how the
+    per-cell RMSE only scores sim against non-NaN observed samples. VMT
+    uses flow validity; VHT uses density validity.
+
+    Parameters
+    ----------
+    result : SimulationResult
+        Output of :func:`utils.ctm.engine.simulate`. Same ``dt`` /
+        horizon constraints as :func:`compare_against_historical`.
+    cells_df : pandas.DataFrame
+        Step 1+2 ``cells.csv``; must carry ``vds_id`` and ``vds_source``.
+        Row count and order must match ``result.freeway.cells``.
+    timeseries_dir : Path or str
+        Directory of per-VDS timeseries CSVs (``<vds_id>.csv``).
+    station_metadata : pandas.DataFrame
+        PeMS ``station_metadata.csv``; must carry ``ID`` (VDS id) and
+        ``Length`` [mi]. Supplies each VDS's segment length.
+    start : pandas.Timestamp
+        Wallclock time of the sim's first step; must align to the 5-min
+        grid.
+
+    Returns
+    -------
+    CorridorAggregates
+
+    Raises
+    ------
+    ValueError
+        Row-count mismatch, bad cadence/horizon, misaligned ``start``, or
+        a contributing VDS missing from ``station_metadata`` (hard error
+        -- no silent skip).
+    KeyError
+        ``cells_df`` missing ``vds_id`` / ``vds_source``, or
+        ``station_metadata`` missing ``ID`` / ``Length``.
+    """
+    n_cells = result.freeway.n_cells
+    if len(cells_df) != n_cells:
+        raise ValueError(
+            f"cells_df has {len(cells_df)} rows but result.freeway has "
+            f"{n_cells} cells; one row per cell is required."
+        )
+    missing = {"vds_id", "vds_source"} - set(cells_df.columns)
+    if missing:
+        raise KeyError(
+            f"cells_df is missing column(s): {sorted(missing)}. "
+            "vds_id / vds_source come from Step 2 (assign_vds_to_cells)."
+        )
+    meta_missing = {"ID", "Length"} - set(station_metadata.columns)
+    if meta_missing:
+        raise KeyError(
+            f"station_metadata is missing column(s): {sorted(meta_missing)}."
+        )
+
+    steps_per_5min, n_5min, start, end = _resolve_window(result, start)
+    timeseries_dir = Path(timeseries_dir)
+    length_by_vds = station_metadata.set_index("ID")["Length"]
+
+    # Post-step density aligned with speed (k = 0..T-1), same as metrics.py.
+    horizon = n_5min * steps_per_5min
+    rho = result.density[:, 1: horizon + 1]   # (n_cells, T)  rho_i(k+1)
+    speed = result.speed[:, :horizon]         # (n_cells, T)  V_i(k+1)
+    dt = result.freeway.dt
+
+    sim_vmt = obs_vmt = sim_vht = obs_vht = 0.0
+    seen: set[int] = set()
+    cache: dict[int, pd.DataFrame] = {}
+    for cell_idx, cell_row in enumerate(cells_df.itertuples(index=False)):
+        if cell_row.vds_source not in _DIRECT_SOURCES:
+            continue
+        vds_id = int(cell_row.vds_id)
+        if vds_id in seen:
+            continue
+        seen.add(vds_id)
+
+        if vds_id not in length_by_vds.index:
+            raise ValueError(
+                f"VDS {vds_id} (cell {cell_idx}, vds_source="
+                f"{cell_row.vds_source!r}) has no row in station_metadata; "
+                "cannot resolve its segment Length."
+            )
+        length = float(length_by_vds.loc[vds_id])
+
+        # Sim side: integrate rho*v and rho at native dt, bucketed into the
+        # n_5min windows so NaN-observed windows can be dropped pairwise.
+        rho_c = rho[cell_idx].reshape(n_5min, steps_per_5min)
+        flux_c = (rho[cell_idx] * speed[cell_idx]).reshape(n_5min, steps_per_5min)
+        sim_vmt_w = flux_c.sum(axis=1) * dt * length    # (n_5min,) veh*mi
+        sim_vht_w = rho_c.sum(axis=1) * dt * length     # (n_5min,) veh*h
+
+        observed_flow, observed_density = _load_observed_window(
+            timeseries_dir, vds_id, start=start, end=end,
+            n_5min=n_5min, cache=cache,
+        )
+        obs_vmt_w = observed_flow * _FIVE_MIN_H * length
+        obs_vht_w = observed_density * _FIVE_MIN_H * length
+
+        flow_valid = ~np.isnan(observed_flow)
+        density_valid = ~np.isnan(observed_density)
+        sim_vmt += sim_vmt_w[flow_valid].sum()
+        obs_vmt += obs_vmt_w[flow_valid].sum()
+        sim_vht += sim_vht_w[density_valid].sum()
+        obs_vht += obs_vht_w[density_valid].sum()
+
+    return CorridorAggregates(
+        sim_vmt=float(sim_vmt), obs_vmt=float(obs_vmt),
+        sim_vht=float(sim_vht), obs_vht=float(obs_vht),
+        n_vds=len(seen),
+    )
+
+
+# ---- GEH statistic --------------------------------------------------------
+
+
+_GEH_THRESHOLD = 5.0
+_FIVE_MIN_PER_HOUR = 12
+
+
+@dataclass
+class GEHResult:
+    """Per-cell flow GEH plus the hourly matrix for the heatmap.
+
+    GEH = ``sqrt(2*(M-C)^2 / (M+C))`` on *hourly volumes* (M = sim, C =
+    observed), computed once per unique ``direct`` / ``direct_tiebreak``
+    VDS, at each clock-hour bin in the window.
+
+    Attributes
+    ----------
+    per_cell : pandas.DataFrame
+        One row per direct/tiebreak cell (in cell-index order): ``cell``,
+        ``vds_id``, ``n_geh_hours`` (hours with a non-NaN observed
+        volume), ``flow_geh_median``, ``flow_geh_pct_under5`` (share of
+        those hours with GEH < 5).
+    hourly_geh : numpy.ndarray
+        ``(n_direct_cells, n_hours)`` GEH per cell per hour, NaN where the
+        observed hourly volume was incomplete. Rows align with
+        ``per_cell``; columns with ``hour_starts``.
+    hour_starts : pandas.DatetimeIndex
+        Start wallclock time of each hourly bin (heatmap x-axis).
+    corridor_pct_under5 : float
+        Share [%] of all non-NaN ``(cell, hour)`` GEH samples with
+        GEH < 5 (NaN if there were none).
+    n_geh_samples : int
+        Number of non-NaN ``(cell, hour)`` GEH samples pooled into
+        ``corridor_pct_under5``.
+    """
+
+    per_cell: pd.DataFrame
+    hourly_geh: np.ndarray
+    hour_starts: pd.DatetimeIndex
+    corridor_pct_under5: float
+    n_geh_samples: int
+
+
+def compute_flow_geh(
+    result: SimulationResult,
+    cells_df: pd.DataFrame,
+    timeseries_dir: Union[Path, str],
+    *,
+    start: pd.Timestamp,
+) -> GEHResult:
+    """Per-cell flow GEH on hourly volumes, at direct/tiebreak cells.
+
+    GEH is a volume-comparison statistic; it is applied to **flow only**
+    (not density) and to **hourly volumes** -- the twelve 5-min samples in
+    each clock-hour bin are summed into an hourly volume on both sides
+    before computing ``GEH = sqrt(2*(M-C)^2/(M+C))``. This matches the
+    magnitude the conventional ``GEH < 5`` acceptance criterion is
+    defined for.
+
+    As with :func:`compare_corridor_aggregates`, only the cell whose
+    ``vds_source`` is ``direct`` or ``direct_tiebreak`` contributes, and a
+    VDS spanning several cells is scored once.
+
+    An hour with any NaN observed 5-min sample yields a NaN hourly volume
+    (incomplete count) and is dropped from that cell's GEH.
+
+    Parameters
+    ----------
+    result, cells_df, timeseries_dir, start
+        As in :func:`compare_corridor_aggregates`, except ``cells_df``
+        needs only ``vds_id`` and ``vds_source``.
+
+    Returns
+    -------
+    GEHResult
+
+    Raises
+    ------
+    ValueError
+        Row-count mismatch, bad cadence, misaligned ``start``, or a window
+        that is not a whole number of hours (GEH needs whole-hour bins).
+    KeyError
+        ``cells_df`` missing ``vds_id`` / ``vds_source``.
+    """
+    n_cells = result.freeway.n_cells
+    if len(cells_df) != n_cells:
+        raise ValueError(
+            f"cells_df has {len(cells_df)} rows but result.freeway has "
+            f"{n_cells} cells; one row per cell is required."
+        )
+    missing = {"vds_id", "vds_source"} - set(cells_df.columns)
+    if missing:
+        raise KeyError(
+            f"cells_df is missing column(s): {sorted(missing)}. "
+            "vds_id / vds_source come from Step 2 (assign_vds_to_cells)."
+        )
+
+    steps_per_5min, n_5min, start, end = _resolve_window(result, start)
+    if n_5min % _FIVE_MIN_PER_HOUR != 0:
+        raise ValueError(
+            f"GEH needs a whole-hour window: the sim covers {n_5min} 5-min "
+            "sample(s), which is not a multiple of 12 (60 min)."
+        )
+    n_hours = n_5min // _FIVE_MIN_PER_HOUR
+    hour_starts = pd.DatetimeIndex(
+        [start + pd.Timedelta(hours=h) for h in range(n_hours)]
+    )
+    timeseries_dir = Path(timeseries_dir)
+
+    # Sim mainline flow averaged per 5-min window (veh/h), then per hour.
+    sim_flow_5min = result.mainline_flow[
+        :, : n_5min * steps_per_5min
+    ].reshape(n_cells, n_5min, steps_per_5min).mean(axis=2)
+
+    rows: list[dict] = []
+    hourly: list[np.ndarray] = []
+    seen: set[int] = set()
+    cache: dict[int, pd.DataFrame] = {}
+    for cell_idx, cell_row in enumerate(cells_df.itertuples(index=False)):
+        if cell_row.vds_source not in _DIRECT_SOURCES:
+            continue
+        vds_id = int(cell_row.vds_id)
+        if vds_id in seen:
+            continue
+        seen.add(vds_id)
+
+        observed_flow, _ = _load_observed_window(
+            timeseries_dir, vds_id, start=start, end=end,
+            n_5min=n_5min, cache=cache,
+        )
+        # Hourly volume [veh] = mean of the twelve 5-min veh/h rates in the
+        # bin. NaN propagates -> an incomplete hour is excluded.
+        sim_hourly = sim_flow_5min[cell_idx].reshape(n_hours, _FIVE_MIN_PER_HOUR).mean(axis=1)
+        obs_hourly = observed_flow.reshape(n_hours, _FIVE_MIN_PER_HOUR).mean(axis=1)
+
+        geh = _geh(sim_hourly, obs_hourly)
+        hourly.append(geh)
+        valid = ~np.isnan(geh)
+        n_valid = int(valid.sum())
+        rows.append({
+            "cell": cell_idx,
+            "vds_id": vds_id,
+            "n_geh_hours": n_valid,
+            "flow_geh_median": (
+                float(np.median(geh[valid])) if n_valid else float("nan")
+            ),
+            "flow_geh_pct_under5": (
+                100.0 * float(np.mean(geh[valid] < _GEH_THRESHOLD))
+                if n_valid else float("nan")
+            ),
+        })
+
+    per_cell = pd.DataFrame(
+        rows, columns=[
+            "cell", "vds_id", "n_geh_hours",
+            "flow_geh_median", "flow_geh_pct_under5",
+        ],
+    )
+    hourly_geh = (
+        np.vstack(hourly) if hourly else np.empty((0, n_hours), dtype=float)
+    )
+    pooled = hourly_geh[~np.isnan(hourly_geh)]
+    n_geh_samples = int(pooled.size)
+    corridor_pct_under5 = (
+        100.0 * float(np.mean(pooled < _GEH_THRESHOLD))
+        if n_geh_samples else float("nan")
+    )
+    return GEHResult(
+        per_cell=per_cell,
+        hourly_geh=hourly_geh,
+        hour_starts=hour_starts,
+        corridor_pct_under5=corridor_pct_under5,
+        n_geh_samples=n_geh_samples,
+    )
+
+
+# ---- QQ error-distribution samples ---------------------------------------
+
+
+@dataclass
+class QQCellSamples:
+    """Paired sim/observed 5-min samples for one direct/tiebreak VDS cell.
+
+    Each pair is on paired support: a 5-min window with a NaN observed
+    value is dropped from *both* sides of that quantity (flow validity for
+    flow, density validity for density), mirroring the per-cell RMSE
+    convention. Sim values are never NaN.
+
+    Attributes
+    ----------
+    cell : int
+        Cell index in ``result.freeway.cells``.
+    vds_id : int
+        The cell's direct/tiebreak mainline VDS.
+    flow_sim, flow_obs : numpy.ndarray
+        Paired mainline flow [veh/h]; length = non-NaN observed flow
+        windows.
+    density_sim, density_obs : numpy.ndarray
+        Paired density [veh/mi]; length = non-NaN observed density windows.
+    """
+
+    cell: int
+    vds_id: int
+    flow_sim: np.ndarray
+    flow_obs: np.ndarray
+    density_sim: np.ndarray
+    density_obs: np.ndarray
+
+
+@dataclass
+class QQResult:
+    """Per-cell paired samples for QQ error-distribution analysis.
+
+    Holds one :class:`QQCellSamples` per unique direct/tiebreak VDS, in
+    cell-index order. :meth:`pooled` concatenates a quantity's paired
+    arrays across all cells for the corridor-pooled plots.
+    """
+
+    per_cell: list[QQCellSamples]
+
+    def pooled(self, quantity: str) -> tuple[np.ndarray, np.ndarray]:
+        """Corridor-pooled ``(sim, obs)`` for ``"flow"`` or ``"density"``."""
+        if quantity not in ("flow", "density"):
+            raise ValueError(
+                f"quantity must be 'flow' or 'density'; got {quantity!r}."
+            )
+        sim_parts = [getattr(c, f"{quantity}_sim") for c in self.per_cell]
+        obs_parts = [getattr(c, f"{quantity}_obs") for c in self.per_cell]
+        if not sim_parts:
+            empty = np.empty(0, dtype=float)
+            return empty, empty
+        return np.concatenate(sim_parts), np.concatenate(obs_parts)
+
+
+def compute_qq_samples(
+    result: SimulationResult,
+    cells_df: pd.DataFrame,
+    timeseries_dir: Union[Path, str],
+    *,
+    start: pd.Timestamp,
+) -> QQResult:
+    """Collect paired sim/observed 5-min samples for QQ analysis.
+
+    Like :func:`compute_flow_geh`, this restricts to the cell whose
+    ``vds_source`` is ``direct`` or ``direct_tiebreak`` and scores a VDS
+    spanning several cells once. For each such cell it pairs the sim 5-min
+    flow/density against the observed PeMS window, dropping windows whose
+    observed value is NaN (flow validity for flow, density validity for
+    density). The paired arrays feed the Normal residual QQ (``sim - obs``)
+    and two-sample sim-vs-observed QQ plots.
+
+    Sim quantities use the same definitions as
+    :func:`compare_against_historical`: flow is the per-5-min window mean
+    of ``result.mainline_flow``; density is the instantaneous state at each
+    5-min boundary.
+
+    Parameters
+    ----------
+    result, cells_df, timeseries_dir, start
+        As in :func:`compute_flow_geh`; ``cells_df`` needs ``vds_id`` and
+        ``vds_source``.
+
+    Returns
+    -------
+    QQResult
+
+    Raises
+    ------
+    ValueError
+        Row-count mismatch, bad cadence/horizon, or misaligned ``start``.
+    KeyError
+        ``cells_df`` missing ``vds_id`` / ``vds_source``.
+    """
+    n_cells = result.freeway.n_cells
+    if len(cells_df) != n_cells:
+        raise ValueError(
+            f"cells_df has {len(cells_df)} rows but result.freeway has "
+            f"{n_cells} cells; one row per cell is required."
+        )
+    missing = {"vds_id", "vds_source"} - set(cells_df.columns)
+    if missing:
+        raise KeyError(
+            f"cells_df is missing column(s): {sorted(missing)}. "
+            "vds_id / vds_source come from Step 2 (assign_vds_to_cells)."
+        )
+
+    steps_per_5min, n_5min, start, end = _resolve_window(result, start)
+    timeseries_dir = Path(timeseries_dir)
+
+    sim_density_5min = result.density[:, : n_5min * steps_per_5min : steps_per_5min]
+    sim_flow_5min = result.mainline_flow[
+        :, : n_5min * steps_per_5min
+    ].reshape(n_cells, n_5min, steps_per_5min).mean(axis=2)
+
+    per_cell: list[QQCellSamples] = []
+    seen: set[int] = set()
+    cache: dict[int, pd.DataFrame] = {}
+    for cell_idx, cell_row in enumerate(cells_df.itertuples(index=False)):
+        if cell_row.vds_source not in _DIRECT_SOURCES:
+            continue
+        vds_id = int(cell_row.vds_id)
+        if vds_id in seen:
+            continue
+        seen.add(vds_id)
+
+        observed_flow, observed_density = _load_observed_window(
+            timeseries_dir, vds_id, start=start, end=end,
+            n_5min=n_5min, cache=cache,
+        )
+        flow_valid = ~np.isnan(observed_flow)
+        density_valid = ~np.isnan(observed_density)
+        per_cell.append(QQCellSamples(
+            cell=cell_idx,
+            vds_id=vds_id,
+            flow_sim=sim_flow_5min[cell_idx][flow_valid],
+            flow_obs=observed_flow[flow_valid],
+            density_sim=sim_density_5min[cell_idx][density_valid],
+            density_obs=observed_density[density_valid],
+        ))
+
+    return QQResult(per_cell=per_cell)
+
+
+def corridor_rmse_mape(qq: QQResult) -> dict[str, tuple[int, float, float]]:
+    """Corridor-pooled ``(n_samples, RMSE, MAPE)`` for flow and density.
+
+    Pools the paired sim/observed 5-min samples across every direct/
+    tiebreak cell (:meth:`QQResult.pooled`) and applies the same
+    definitions as the per-cell :func:`compare_against_historical`: RMSE
+    over all (non-NaN-observed) pooled samples, MAPE additionally
+    excluding zero-observed samples. This is the true corridor error --
+    one RMSE/MAPE over the pooled residuals, not an average of per-cell
+    RMSEs.
+
+    Returns a dict keyed by ``"flow"`` / ``"density"``; each value is
+    ``(n_samples, rmse, mape)`` with RMSE in the quantity's native unit
+    (flow veh/h, density veh/mi) and MAPE in %. Empty pools give
+    ``(0, nan, nan)``.
+    """
+    return {q: _rmse_mape(*qq.pooled(q)) for q in ("flow", "density")}
+
+
 # ---- Helpers --------------------------------------------------------------
+
+
+def _geh(modeled: np.ndarray, counted: np.ndarray) -> np.ndarray:
+    """Elementwise GEH = sqrt(2*(M-C)^2/(M+C)); 0 where M+C==0, NaN where NaN."""
+    m = np.asarray(modeled, dtype=float)
+    c = np.asarray(counted, dtype=float)
+    denom = m + c
+    with np.errstate(divide="ignore", invalid="ignore"):
+        geh = np.sqrt(2.0 * (m - c) ** 2 / denom)
+    return np.where(denom == 0.0, 0.0, geh)
+
+
+def _pct_diff(sim: float, obs: float) -> float:
+    return float("nan") if obs == 0.0 else 100.0 * (sim - obs) / obs
+
+
+def _pct_diff(sim: float, obs: float) -> float:
+    return float("nan") if obs == 0.0 else 100.0 * (sim - obs) / obs
+
+
+def _resolve_window(
+    result: SimulationResult, start: pd.Timestamp,
+) -> tuple[int, int, pd.Timestamp, pd.Timestamp]:
+    """Resolve sim cadence against the PeMS 5-min grid and the wallclock window.
+
+    Returns ``(steps_per_5min, n_5min, start, end)``. Raises
+    :class:`ValueError` if ``dt`` doesn't evenly divide 5 minutes, the
+    horizon isn't a positive whole multiple of 5 minutes, or ``start`` is
+    off the 5-min grid.
+    """
+    dt = result.freeway.dt
+    steps_per_5min = _exact_steps_per(_FIVE_MIN_H, dt, label="dt", grid="5 min")
+    horizon_steps = result.n_steps
+    n_5min = horizon_steps // steps_per_5min
+    if n_5min < 1 or n_5min * steps_per_5min != horizon_steps:
+        raise ValueError(
+            f"Sim horizon {horizon_steps} step(s) of dt={dt} h "
+            "must be a positive whole multiple of 5 minutes; got "
+            f"{horizon_steps * dt:.5f} h."
+        )
+
+    start = pd.Timestamp(start)
+    if abs((start - pd.Timestamp(0)).total_seconds() % _FIVE_MIN_S) > _GRID_TOL:
+        raise ValueError(f"start={start} must align to PeMS's 5-min grid.")
+    end = start + pd.Timedelta(seconds=n_5min * _FIVE_MIN_S)
+    return steps_per_5min, n_5min, start, end
+
+
+def _load_observed_window(
+    timeseries_dir: Path, vds_id: int, *,
+    start: pd.Timestamp, end: pd.Timestamp, n_5min: int,
+    cache: dict[int, pd.DataFrame],
+) -> tuple[np.ndarray, np.ndarray]:
+    """Load a VDS's ``[start, end)`` window as ``(flow_veh_h, density_veh_mi)``.
+
+    Flow is ``total_flow_[veh/5-min] * 12``; density is ``flow / avg_speed``.
+    Reads are memoized in ``cache``. Raises :class:`ValueError` unless the
+    window holds exactly ``n_5min`` contiguous 5-min samples.
+    """
+    if vds_id not in cache:
+        cache[vds_id] = pd.read_csv(
+            timeseries_dir / f"{vds_id}.csv", parse_dates=["timestamp"],
+        )
+    df = cache[vds_id]
+    window = df.loc[
+        (df["timestamp"] >= start) & (df["timestamp"] < end)
+    ].sort_values("timestamp").reset_index(drop=True)
+    if len(window) != n_5min:
+        raise ValueError(
+            f"VDS {vds_id}: {len(window)} 5-min sample(s) in window "
+            f"[{start}, {end}); expected {n_5min} on a contiguous "
+            "5-min grid."
+        )
+    observed_flow = window["total_flow_[veh/5-min]"].to_numpy(dtype=float) * 12.0
+    with np.errstate(divide="ignore", invalid="ignore"):
+        observed_density = observed_flow / window[
+            "avg_speed_[mph]"
+        ].to_numpy(dtype=float)
+    return observed_flow, observed_density
 
 
 def _exact_steps_per(grid_h: float, dt_h: float, *, label: str, grid: str) -> int:

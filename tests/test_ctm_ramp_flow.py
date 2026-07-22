@@ -14,6 +14,7 @@ import pandas as pd
 import pytest
 
 from transportation_models.utils.ctm.ramp_flow import (
+    gap_aware_fill,
     historical_average_fill,
     persistence_fill,
     stochastic_historical_fill,
@@ -209,3 +210,57 @@ def test_stochastic_fill_falls_back_to_mean_with_few_samples():
         out = stochastic_historical_fill(df, flow_col=FLOW_COL, seed=0)
     # With n=1 we have mean=50, stddev=NaN -> fallback to mean.
     assert out.loc[target_idx[1], FLOW_COL] == pytest.approx(50.0)
+
+
+# ---- gap_aware_fill ------------------------------------------------------
+
+# _diurnal_series gives each (weekday, tod) bin a distinct deterministic
+# value and consecutive samples differ by 5 (tod_min step), so a persisted
+# fill (== the neighbour) is always distinguishable from a historical-average
+# fill (== the sample's own original value).
+
+_INTERIOR = 3 * 288 + 100  # a sample in week 3, away from record edges
+
+
+def test_gap_aware_persists_one_sample_gap():
+    """A single-sample interior gap is forward-filled, not historical-averaged."""
+    df = _diurnal_series(n_weeks=4)
+    prev_val = df.loc[_INTERIOR - 1, FLOW_COL]
+    own_mean = df.loc[_INTERIOR, FLOW_COL]           # bin mean == original value
+    df.loc[_INTERIOR, FLOW_COL] = np.nan
+    out = gap_aware_fill(df, flow_col=FLOW_COL)
+    assert out.loc[_INTERIOR, FLOW_COL] == pytest.approx(prev_val)
+    assert prev_val != pytest.approx(own_mean)       # the two paths differ here
+
+
+def test_gap_aware_persists_two_sample_gap():
+    """A 2-sample interior gap is forward-filled from the last known value."""
+    df = _diurnal_series(n_weeks=4)
+    prev_val = df.loc[_INTERIOR - 1, FLOW_COL]
+    df.loc[_INTERIOR:_INTERIOR + 1, FLOW_COL] = np.nan
+    out = gap_aware_fill(df, flow_col=FLOW_COL)
+    np.testing.assert_allclose(
+        out.loc[_INTERIOR:_INTERIOR + 1, FLOW_COL].to_numpy(), prev_val)
+
+
+def test_gap_aware_historical_averages_long_gap():
+    """A 3-sample gap exceeds short_gap_max, so each row takes its bin mean
+    (== the original value here), not the pre-gap persistence value."""
+    df = _diurnal_series(n_weeks=4)
+    original = df[FLOW_COL].copy()
+    df.loc[_INTERIOR:_INTERIOR + 2, FLOW_COL] = np.nan
+    out = gap_aware_fill(df, flow_col=FLOW_COL)
+    np.testing.assert_allclose(
+        out.loc[_INTERIOR:_INTERIOR + 2, FLOW_COL].to_numpy(),
+        original.loc[_INTERIOR:_INTERIOR + 2].to_numpy())
+
+
+def test_gap_aware_leading_short_gap_falls_through_to_historical():
+    """A short gap at the record start has no prior value to persist, so it
+    falls through to the historical average instead of staying NaN."""
+    df = _diurnal_series(n_weeks=4)
+    original = df[FLOW_COL].copy()
+    df.loc[0:1, FLOW_COL] = np.nan
+    out = gap_aware_fill(df, flow_col=FLOW_COL)
+    np.testing.assert_allclose(
+        out.loc[0:1, FLOW_COL].to_numpy(), original.loc[0:1].to_numpy())

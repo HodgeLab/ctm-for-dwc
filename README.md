@@ -34,6 +34,8 @@ one-offs (run these, don't import them).
 | `utils/validation.py` | DataFrame structure/value checks and diagnostic plots. |
 | `utils/fetch_wandb_results.py` | Pull W&B runs into a DataFrame for analysis. |
 | `utils/logs.py` | `make_logger()` — timestamped file logger under `./logs/`. |
+| `utils/dwpt/` | DWPT demand module: CTM `VHT` → adapted mCONV → spatiotemporal charging demand (`E`). See `docs/dwpt_demand_module.md`. |
+| `utils/microsim/` | N-lane Newbolt modified-Gipps microsimulation (with lane-changing) used to validate the macroscopic DWPT pipeline (`gipps`, `lanechange`, `seeding`, `simulate`, `aggregate` (Edie), `charging`). See `docs/dwpt_validation_spec.md`. |
 
 Typical pipeline:
 
@@ -44,6 +46,26 @@ download_pems_data.py            # fetch raw PeMS data
   → model_prototyping.py         # train the GRU
   → analyze_vds_outages.py, plot_*   # analysis / QA
 ```
+
+### FD calibration outcome codes
+
+`calibrate_fundamental_diagrams.py` tags every detector with a
+`calibration_code` (int) + `calibration_status` (string) column in the
+calibrated metadata, so failed fits are flagged rather than silently dropped.
+Only `0` is a success; any non-zero code leaves the FD parameter columns NaN.
+The same scheme is mirrored onto `ramp_metadata_calibrated.csv`.
+
+| code | status | meaning |
+|---|---|---|
+| 0 | `ok` | params computed and passed validation |
+| 1 | `missing_timeseries` | timeseries CSV absent / unreadable |
+| 2 | `no_data_after_filter` | no rows survived the `pct_observed` threshold or the IQR filter |
+| 3 | `no_congestion_points` | too few points above the critical-density seed to fit the congestion branch (mainline only) |
+| 4 | `validation_failed` | fit rejected by `validate_fd_params` (non-positive speeds/capacity, `w ≥ v_f`, bad density ordering, or triangle inconsistency) |
+
+Validation strictness is tunable from the CLI: `--iqr-multiplier` (row-level
+outlier filter), `--bin-iqr-multiplier` and `--bin-size` (congestion-branch
+binning), and `--triangle-rtol` (triangle-consistency tolerance).
 
 ## Conventions
 

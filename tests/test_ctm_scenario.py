@@ -259,7 +259,9 @@ def test_inflow_raises_when_end_before_start(tmp_path):
 
 
 def _cells_df(rows: list[dict]) -> pd.DataFrame:
-    return pd.DataFrame(rows)
+    # vds_source defaults to "direct" (the case that enforces the lane-match
+    # contract); a row can override it to exercise the inherited-VDS branch.
+    return pd.DataFrame([{"vds_source": "direct", **r} for r in rows])
 
 
 def test_initial_state_when_lanes_match(tmp_path):
@@ -301,6 +303,24 @@ def test_initial_state_raises_when_lanes_mismatch(tmp_path):
         initial_state_from_vds(
             cells, tmp_path, at_time=pd.Timestamp("2022-01-01 12:00"),
         )
+
+
+def test_initial_state_tolerates_lane_mismatch_for_inherited_vds(tmp_path):
+    """A lane mismatch is only fatal when vds_source == 'direct'. An inherited
+    (e.g. upstream) VDS carries its own lane count, so lanes != vds_lanes is
+    expected and must not raise -- density uses flow/speed, not lanes."""
+    _write_vds_csv(
+        tmp_path / "100.csv", start=pd.Timestamp("2022-01-01 12:00"),
+        n_rows=2, flows_5min=np.array([100.0, 150.0]),
+        speeds_mph=np.array([60.0, 30.0]), station_id=100,
+    )
+    cells = _cells_df([
+        dict(vds_id=100, lanes=4, vds_lanes=3, vds_source="upstream"),
+    ])
+    rho = initial_state_from_vds(
+        cells, tmp_path, at_time=pd.Timestamp("2022-01-01 12:00"),
+    )
+    np.testing.assert_allclose(rho, [20.0])   # 1200 / 60, lanes ignored
 
 
 def test_initial_state_raises_on_missing_vds_id(tmp_path):
@@ -402,11 +422,13 @@ def test_demand_emits_columns_only_for_on_ramp_cells_with_a_vds(tmp_path):
         tmp_path / "900.csv", start=pd.Timestamp("2022-01-01 12:00"),
         n_rows=2, flows_5min=np.array([10.0, 20.0]),
     )
-    demand = demand_from_ramp_vds(
-        cells, tmp_path, dt=5.0 / 60.0,
-        start=pd.Timestamp("2022-01-01 12:00"),
-        end=pd.Timestamp("2022-01-01 12:10"),
-    )
+    # Cell 2 (on_ramp=True, NaN on_ramp_vds_id) is a silent no-op -> warn.
+    with pytest.warns(UserWarning, match="on_ramp=True but no on_ramp_vds_id"):
+        demand = demand_from_ramp_vds(
+            cells, tmp_path, dt=5.0 / 60.0,
+            start=pd.Timestamp("2022-01-01 12:00"),
+            end=pd.Timestamp("2022-01-01 12:10"),
+        )
     # Only cell 1 has on_ramp=True + a matched VDS.
     assert list(demand.columns) == [1]
     # 10 * 12 = 120 veh/h; 20 * 12 = 240 veh/h.
@@ -466,6 +488,16 @@ def test_demand_no_on_ramps_returns_empty_columns(tmp_path):
 # ---- beta_from_off_ramp_vds ----------------------------------------------
 
 
+def _stretches(off_vds_id, down_ml_id, *, pm_down: float = 1.0, dir: str = "N") -> pd.DataFrame:
+    """Minimal stretches_df with one stretch mapping off_vds_id to down_ml_id."""
+    return pd.DataFrame([{
+        "off_ids": str(off_vds_id),
+        "down_ml_id": down_ml_id,
+        "pm_down": pm_down,
+        "dir": dir,
+    }])
+
+
 def test_beta_computes_ratio_from_off_ramp_and_downstream_vds(tmp_path):
     """beta_i = s_i / (f_i + s_i) using off_ramp_vds_id and the i+1 cell's
     mainline vds_id."""
@@ -484,7 +516,7 @@ def test_beta_computes_ratio_from_off_ramp_and_downstream_vds(tmp_path):
         n_rows=2, flows_5min=np.array([90.0, 90.0]),
     )
     beta = beta_from_off_ramp_vds(
-        cells, tmp_path, dt=5.0 / 60.0,
+        cells, tmp_path, 5.0 / 60.0, _stretches(900, 200),
         start=pd.Timestamp("2022-01-01 12:00"),
         end=pd.Timestamp("2022-01-01 12:10"),
     )
@@ -501,9 +533,9 @@ def test_beta_tail_cell_emits_zero_with_warning(tmp_path):
         tmp_path / "900.csv", start=pd.Timestamp("2022-01-01 12:00"),
         n_rows=2, flows_5min=np.array([50.0, 50.0]),
     )
-    with pytest.warns(UserWarning, match="last cell"):
+    with pytest.warns(UserWarning, match="no downstream mainline"):
         beta = beta_from_off_ramp_vds(
-            cells, tmp_path, dt=5.0 / 60.0,
+            cells, tmp_path, 5.0 / 60.0, _stretches(900, pd.NA, pm_down=float("nan")),
             start=pd.Timestamp("2022-01-01 12:00"),
             end=pd.Timestamp("2022-01-01 12:10"),
         )
@@ -528,7 +560,7 @@ def test_beta_clips_to_unit_interval_with_warning(tmp_path):
     )
     with pytest.warns(UserWarning, match="clipping"):
         beta = beta_from_off_ramp_vds(
-            cells, tmp_path, dt=5.0 / 60.0,
+            cells, tmp_path, 5.0 / 60.0, _stretches(900, 200),
             start=pd.Timestamp("2022-01-01 12:00"),
             end=pd.Timestamp("2022-01-01 12:10"),
         )
@@ -539,10 +571,31 @@ def test_beta_clips_to_unit_interval_with_warning(tmp_path):
 def test_beta_no_off_ramps_returns_empty_columns(tmp_path):
     cells = _ramp_cells([dict(off_ramp=False, vds_id=100)])
     beta = beta_from_off_ramp_vds(
-        cells, tmp_path, dt=5.0 / 60.0,
+        cells, tmp_path, 5.0 / 60.0, pd.DataFrame(),
         start=pd.Timestamp("2022-01-01 12:00"),
         end=pd.Timestamp("2022-01-01 12:10"),
     )
+    assert beta.shape == (2, 0)
+
+
+def test_beta_warns_on_off_ramp_without_vds(tmp_path):
+    """off_ramp=True but NaN off_ramp_vds_id is a silent no-op -> warn.
+
+    Cell 0 is the off-ramp (not the tail, so the warning is the missing-VDS
+    one, not the last-cell one); cell 1 is a plain mainline cell.
+    """
+    cells = _ramp_cells([
+        dict(off_ramp=True, off_ramp_vds_id=pd.NA, vds_id=100),
+        dict(off_ramp=False, vds_id=101),
+    ])
+    with pytest.warns(
+        UserWarning, match="off_ramp=True but no off_ramp_vds_id"
+    ):
+        beta = beta_from_off_ramp_vds(
+            cells, tmp_path, 5.0 / 60.0, pd.DataFrame(),
+            start=pd.Timestamp("2022-01-01 12:00"),
+            end=pd.Timestamp("2022-01-01 12:10"),
+        )
     assert beta.shape == (2, 0)
 
 
@@ -613,10 +666,75 @@ def test_beta_sums_off_ramp_flows_then_takes_ratio(tmp_path):
         n_rows=2, flows_5min=np.array([90.0, 90.0]),
     )
     beta = beta_from_off_ramp_vds(
-        cells, tmp_path, dt=5.0 / 60.0,
+        cells, tmp_path, 5.0 / 60.0, _stretches("900;901", 200),
         start=pd.Timestamp("2022-01-01 12:00"),
         end=pd.Timestamp("2022-01-01 12:10"),
     )
     # s = 5 + 5 = 10 veh/5min => 120 veh/h; f = 90 veh/5min => 1080 veh/h.
     # beta = 120 / (1080 + 120) = 0.1.
     np.testing.assert_allclose(beta[0].to_numpy(), [0.1, 0.1])
+
+
+# ---- Virtual VDS ids (ramps absent from PeMS) ------------------------------
+
+
+def test_demand_skips_virtual_vds_ids_with_warning(tmp_path):
+    """Virtual ids (e.g. 'v400000') have no timeseries to fill: they are
+    dropped from the sum with a warning; a virtual-only cell gets no column
+    (zero demand)."""
+    cells = _ramp_cells([
+        dict(on_ramp=True, on_ramp_vds_id="900, v400000", vds_id=100),
+        dict(on_ramp=True, on_ramp_vds_id="v400001", vds_id=101),
+    ])
+    _write_vds_csv(
+        tmp_path / "900.csv", start=pd.Timestamp("2022-01-01 12:00"),
+        n_rows=2, flows_5min=np.array([10.0, 20.0]),
+    )
+    with pytest.warns(UserWarning, match="virtual on-ramp"):
+        demand = demand_from_ramp_vds(
+            cells, tmp_path, dt=5.0 / 60.0,
+            start=pd.Timestamp("2022-01-01 12:00"),
+            end=pd.Timestamp("2022-01-01 12:10"),
+        )
+    assert list(demand.columns) == [0]
+    np.testing.assert_allclose(demand[0].to_numpy(), [120.0, 240.0])
+
+
+def test_beta_excludes_virtual_off_ramp_ids_from_s_i(tmp_path):
+    """A virtual off-ramp id is excluded from s_i (warned) but still counts
+    for the furthest-downstream mainline lookup."""
+    cells = _ramp_cells([
+        dict(off_ramp=True, off_ramp_vds_id="900, v400000", vds_id=100),
+        dict(vds_id=200),
+    ])
+    _write_vds_csv(
+        tmp_path / "900.csv", start=pd.Timestamp("2022-01-01 12:00"),
+        n_rows=2, flows_5min=np.array([10.0, 10.0]),
+    )
+    _write_vds_csv(
+        tmp_path / "200.csv", start=pd.Timestamp("2022-01-01 12:00"),
+        n_rows=2, flows_5min=np.array([90.0, 90.0]),
+    )
+    with pytest.warns(UserWarning, match="virtual off-ramp"):
+        beta = beta_from_off_ramp_vds(
+            cells, tmp_path, 5.0 / 60.0, _stretches("900;v400000", 200),
+            start=pd.Timestamp("2022-01-01 12:00"),
+            end=pd.Timestamp("2022-01-01 12:10"),
+        )
+    assert list(beta.columns) == [0]
+    np.testing.assert_allclose(beta[0].to_numpy(), [0.1, 0.1])
+
+
+def test_beta_virtual_only_off_ramp_gets_no_column(tmp_path):
+    """off_ramp=True with only a virtual id -> no column (beta defaults 0)."""
+    cells = _ramp_cells([
+        dict(off_ramp=True, off_ramp_vds_id="v400000", vds_id=100),
+        dict(vds_id=200),
+    ])
+    with pytest.warns(UserWarning, match="virtual off-ramp"):
+        beta = beta_from_off_ramp_vds(
+            cells, tmp_path, 5.0 / 60.0, _stretches("v400000", 200),
+            start=pd.Timestamp("2022-01-01 12:00"),
+            end=pd.Timestamp("2022-01-01 12:10"),
+        )
+    assert beta.shape == (2, 0)

@@ -42,6 +42,7 @@ The assembly does three things:
 
 from __future__ import annotations
 
+import logging
 import re
 import warnings
 from dataclasses import dataclass
@@ -49,6 +50,8 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 # Output schema for assemble_freeway_table -- matches the required +
 # optional columns of utils.ctm.io.freeway_from_dataframe.
@@ -62,8 +65,22 @@ FREEWAY_COLUMNS: tuple[str, ...] = (
 _RAMP_LIST_SEP_RE = re.compile(r"[,;\s]+")
 
 
-def parse_ramp_vds_ids(value) -> list[int]:
-    """Parse a cells.csv ``*_ramp_vds_id`` cell value into a list of ints.
+def _parse_vds_token(token: str):
+    """Return int if ``token`` is a pure integer string, else return it as-is.
+
+    Allows cells.csv to carry synthetic/virtual VDS ids like ``'v400002'``
+    for ramps absent from the PeMS database; they pass through as strings,
+    KeyError gracefully in the calibration lookup, and leave the cell with
+    NaN (infinite) ramp capacity -- the correct fallback for unobserved ramps.
+    """
+    try:
+        return int(token)
+    except ValueError:
+        return token
+
+
+def parse_ramp_vds_ids(value) -> list:
+    """Parse a cells.csv ``*_ramp_vds_id`` cell value into a list of ids.
 
     Step 1+2 emits ``on_ramp_vds_id`` / ``off_ramp_vds_id`` as scalar
     Int64 (one VDS per cell), but a Step-5 manual edit can replace a
@@ -75,9 +92,11 @@ def parse_ramp_vds_ids(value) -> list[int]:
       * ``NaN`` / ``pd.NA`` / ``None`` -> ``[]`` (no ramp VDS).
       * A scalar int / numpy integer -> ``[int(value)]``.
       * A scalar float (e.g. ``900.0`` from a CSV) -> ``[int(value)]``.
-      * A string of one or more integer VDS ids separated by ``,``,
-        ``;``, or whitespace, optionally bracketed -- e.g.
-        ``"900;901"``, ``"900, 901"``, ``"[900, 901]"``.
+      * A string of one or more VDS ids separated by ``,``, ``;``, or
+        whitespace, optionally bracketed -- e.g. ``"900;901"``,
+        ``"900, 901"``, ``"[900, 901]"``, ``"v400002"``. Tokens that
+        cannot be parsed as integers are kept as strings (virtual/synthetic
+        VDS ids for ramps absent from PeMS).
       * An already-iterable list / tuple / ``numpy.ndarray`` /
         ``pandas.Series`` of integer-like values.
 
@@ -93,13 +112,48 @@ def parse_ramp_vds_ids(value) -> list[int]:
             cleaned = value.strip().strip("[](){}").strip()
             if not cleaned:
                 return []
-            return [int(p) for p in _RAMP_LIST_SEP_RE.split(cleaned) if p]
+            return [_parse_vds_token(p) for p in _RAMP_LIST_SEP_RE.split(cleaned) if p]
         # Numeric scalar.
         return [int(value)]
     # Iterable (list / tuple / ndarray / Series).
-    return [int(x) for x in value if not (
-        pd.api.types.is_scalar(x) and pd.isna(x)
-    )]
+    return [_parse_vds_token(str(x)) if isinstance(x, str) else int(x)
+            for x in value if not (
+                pd.api.types.is_scalar(x) and pd.isna(x)
+            )]
+
+
+def warn_presence_without_vds(
+    cells_df: pd.DataFrame, *, presence_col: str, vds_col: str,
+) -> None:
+    """Warn about cells flagged ``presence_col=True`` but carrying no ramp VDS.
+
+    A cell with ``on_ramp``/``off_ramp`` set to True but a NaN/empty
+    ``on_ramp_vds_id``/``off_ramp_vds_id`` (or a missing column entirely)
+    is silently modeled as having no ramp: assembly leaves its ramp
+    capacity NaN -> +inf, and the scenario derivation produces no
+    demand/split-ratio column so the cell defaults to demand = 0 /
+    beta = 0. That makes the presence flag a no-op, which is almost
+    always a cells.csv misconfiguration. Emit a :class:`UserWarning`
+    listing the affected cell indices so it doesn't pass unnoticed.
+    """
+    presence = cells_df[presence_col].to_numpy(dtype=bool)
+    raw = (
+        cells_df[vds_col] if vds_col in cells_df.columns
+        else [None] * len(cells_df)
+    )
+    unmatched = [
+        i for i, (has_ramp, value) in enumerate(zip(presence, raw))
+        if has_ramp and not parse_ramp_vds_ids(value)
+    ]
+    if unmatched:
+        warnings.warn(
+            f"{len(unmatched)} cell(s) have {presence_col}=True but no "
+            f"{vds_col} (NaN/empty/absent); they are modeled as having no "
+            "ramp (capacity unconstrained, demand/split-ratio 0), so the "
+            "flag has no effect. Affected cell indices (first 10): "
+            f"{unmatched[:10]}" + (" ..." if len(unmatched) > 10 else ""),
+            UserWarning, stacklevel=3,
+        )
 
 
 def assemble_freeway_table(
@@ -127,12 +181,25 @@ def assemble_freeway_table(
         nearest detector. This lets the Step-5 reviewer redirect a cell
         with a poorly-calibrated detector to a neighbor's FD without
         losing the "what's actually here" audit trail.
+
+        **Automatic FD redirect.** When ``calibrated_df`` carries a
+        ``calibration_code`` column (Step 4 always writes one), any cell
+        *without* a manual ``fd_vds_id`` whose ``vds_id`` failed
+        calibration (``calibration_code != 0``) has its FD lookup
+        redirected to the nearest **upstream** cleanly-calibrated detector
+        (``calibration_code == 0``) -- the same Dervisoglu upstream-inherit
+        idea Step 2 uses for *missing* detectors, applied here to FD
+        *quality*. Manual ``fd_vds_id`` overrides always win; the redirects
+        are reported via a ``logging`` warning. See
+        :func:`_redirect_uncalibrated_fd_ids`.
     calibrated_df : pandas.DataFrame
         Mainline FD calibration (``station_metadata_calibrated.csv``).
         Keyed on ``Station ID`` with columns ``capacity``,
         ``free_flow_speed``, ``congestion_wave_speed``, ``jam_density``,
-        ``critical_density``. ``capacity`` / ``jam_density`` /
-        ``critical_density`` are interpreted as **per-lane** quantities.
+        ``critical_density`` (per-lane), and -- for the automatic FD
+        redirect above -- ``calibration_code``. ``capacity`` /
+        ``jam_density`` / ``critical_density`` are interpreted as
+        **per-lane** quantities.
     ramp_calibrated_df : pandas.DataFrame, optional
         Ramp calibration (``ramp_metadata_calibrated.csv``). Keyed on
         ``Station ID`` with a ``ramp_capacity_[veh/hr]`` column. When
@@ -157,7 +224,10 @@ def assemble_freeway_table(
         If any cell has neither a ``vds_id`` nor an ``fd_vds_id``
         (``vds_source='missing'`` or NaN) -- those cells need a
         calibrated FD before assembly can proceed (see Step 2/4 docs
-        for the upstream-inherit fallback options).
+        for the upstream-inherit fallback options). Also raised when a
+        cell's ``vds_id`` failed calibration and there is no
+        cleanly-calibrated detector upstream to inherit an FD from (and
+        the cell has no manual ``fd_vds_id``).
     """
     _required_cells = {"length", "lanes", "on_ramp", "off_ramp", "vds_id"}
     missing = _required_cells - set(cells_df.columns)
@@ -177,6 +247,7 @@ def assemble_freeway_table(
         fd_override = pd.to_numeric(cells_df["fd_vds_id"], errors="coerce")
         fd_ids_raw = fd_override.fillna(vds_base)
     else:
+        fd_override = pd.Series(np.nan, index=cells_df.index)
         fd_ids_raw = vds_base
     if fd_ids_raw.isna().any():
         unresolved = cells_df.index[fd_ids_raw.isna()].to_list()
@@ -190,6 +261,14 @@ def assemble_freeway_table(
             "`assign_vds_to_cells` with the Dervisoglu upstream-inherit "
             "fallback (or pick a different VDS) before assembly."
         )
+
+    # Auto-redirect cells whose assigned detector failed calibration to the
+    # nearest upstream cleanly-calibrated detector (no-op without a
+    # calibration_code column or when every cell calibrated cleanly).
+    fd_ids_raw = _redirect_uncalibrated_fd_ids(
+        cells_df, calibrated_df,
+        vds_base=vds_base, fd_override=fd_override, fd_ids_raw=fd_ids_raw,
+    )
 
     fd_lookup = calibrated_df.set_index("Station ID")
     # Pull per-lane FD params for each cell's effective FD VDS.
@@ -209,7 +288,14 @@ def assemble_freeway_table(
     out["lanes"] = lanes.astype(int)
 
     # Ramp-capacity lookup. NaN ramp capacities pass through and become
-    # +inf in freeway_from_dataframe via the Cell default.
+    # +inf in freeway_from_dataframe via the Cell default. Flag any cell
+    # whose ramp flag is set but carries no VDS id -- a silent no-op.
+    warn_presence_without_vds(
+        cells_df, presence_col="on_ramp", vds_col="on_ramp_vds_id",
+    )
+    warn_presence_without_vds(
+        cells_df, presence_col="off_ramp", vds_col="off_ramp_vds_id",
+    )
     out["on_ramp_capacity"] = _ramp_capacity_column(
         cells_df, ramp_calibrated_df, vds_col="on_ramp_vds_id", presence_col="on_ramp",
     )
@@ -218,6 +304,120 @@ def assemble_freeway_table(
     )
 
     return out[list(FREEWAY_COLUMNS)]
+
+
+def _redirect_uncalibrated_fd_ids(
+    cells_df: pd.DataFrame,
+    calibrated_df: pd.DataFrame,
+    *,
+    vds_base: pd.Series,
+    fd_override: pd.Series,
+    fd_ids_raw: pd.Series,
+) -> pd.Series:
+    """Redirect badly-calibrated cells' FD lookup to a nearby good detector.
+
+    For each cell **without** a manual ``fd_vds_id`` override whose
+    physically-assigned ``vds_id`` failed calibration (``calibration_code
+    != 0`` in ``calibrated_df``), replace the effective FD-lookup id with
+    the ``vds_id`` of the nearest **upstream** cell whose detector
+    calibrated cleanly (``calibration_code == 0``). This mirrors Step 2's
+    Dervisoglu upstream-inherit fallback, but keys on FD *quality* rather
+    than detector *presence* -- the automatic seeding of ``fd_vds_id`` that
+    a Step-5 reviewer used to do by hand.
+
+    Manual ``fd_vds_id`` overrides win and are never touched. Cells whose
+    detector is absent from ``calibrated_df`` (no code at all) are left
+    as-is, preserving the prior behavior -- this function acts only on an
+    explicit non-OK ``calibration_code``.
+
+    Parameters
+    ----------
+    cells_df : pandas.DataFrame
+        Cells table, in upstream -> downstream row order.
+    calibrated_df : pandas.DataFrame
+        Mainline calibration; redirect is a no-op unless it carries a
+        ``calibration_code`` column.
+    vds_base : pandas.Series
+        Numeric ``vds_id`` per cell (the physically-assigned detector).
+    fd_override : pandas.Series
+        Numeric ``fd_vds_id`` per cell (NaN where unset); non-NaN rows are
+        manual overrides and left untouched.
+    fd_ids_raw : pandas.Series
+        Effective FD-lookup id after applying manual overrides (no NaN --
+        the caller has already raised on genuinely detector-less cells).
+
+    Returns
+    -------
+    pandas.Series
+        ``fd_ids_raw`` with badly-calibrated cells redirected. Returned
+        unchanged when ``calibrated_df`` has no ``calibration_code`` column
+        (e.g. an older calibrated metadata file), so behavior is fully
+        backward compatible.
+
+    Raises
+    ------
+    ValueError
+        If a badly-calibrated, non-overridden cell has no cleanly-calibrated
+        detector anywhere upstream to inherit a fundamental diagram from.
+    """
+    if "calibration_code" not in calibrated_df.columns:
+        return fd_ids_raw
+
+    code_by_id = calibrated_df.set_index("Station ID")["calibration_code"]
+
+    def _code(vds_float: float) -> Optional[int]:
+        """calibration_code for a VDS id, or None if the id is NaN or
+        absent from the calibration table."""
+        if pd.isna(vds_float):
+            return None
+        try:
+            code = code_by_id.loc[int(vds_float)]
+        except KeyError:
+            return None
+        return None if pd.isna(code) else int(code)
+
+    has_manual = fd_override.notna().to_numpy()
+    vds_vals = vds_base.to_numpy(dtype=float)
+    resolved = fd_ids_raw.to_numpy(dtype=float).copy()
+
+    last_good = np.nan  # vds_id of the nearest upstream cleanly-calibrated VDS
+    redirects: list[tuple[object, int, int, int]] = []
+    for i in range(len(cells_df)):
+        code_i = _code(vds_vals[i])
+        if code_i == 0:
+            last_good = vds_vals[i]
+        if has_manual[i] or code_i == 0 or code_i is None:
+            # Manual override wins; a clean detector needs no redirect; an
+            # absent code is outside this function's remit (left as-is).
+            continue
+        # code_i != 0: the assigned detector failed calibration.
+        label = cells_df.index[i]
+        if np.isnan(last_good):
+            raise ValueError(
+                f"Cell at row {label} has vds_id {int(vds_vals[i])} with "
+                f"calibration_code {code_i} (failed calibration) and no "
+                "cleanly-calibrated detector upstream to inherit a "
+                "fundamental diagram from. Set fd_vds_id for this cell "
+                "manually (Step 5), or extend the corridor upstream to "
+                "include a good detector."
+            )
+        resolved[i] = last_good
+        redirects.append((label, int(vds_vals[i]), code_i, int(last_good)))
+
+    if redirects:
+        preview = ", ".join(
+            f"cell {label}: vds {bad} (code {code}) -> vds {sub}"
+            for label, bad, code, sub in redirects[:10]
+        )
+        logger.warning(
+            "Auto-redirected FD lookup for %d cell(s) whose assigned "
+            "detector failed calibration (calibration_code != 0) to the "
+            "nearest upstream cleanly-calibrated detector: %s%s",
+            len(redirects), preview,
+            " ..." if len(redirects) > 10 else "",
+        )
+
+    return pd.Series(resolved, index=cells_df.index)
 
 
 def _ramp_capacity_column(
@@ -259,7 +459,7 @@ def _ramp_capacity_column(
     presence = cells_df[presence_col].to_numpy(dtype=bool)
     vds_ids_raw = cells_df[vds_col]
     capacities = np.full(n, np.nan, dtype=float)
-    partial_misses: list[tuple[int, list[int]]] = []
+    partial_misses: list[tuple[int, list]] = []
     for i, (has_ramp, raw) in enumerate(zip(presence, vds_ids_raw)):
         if not has_ramp:
             continue

@@ -6,12 +6,15 @@ Structural bounds (density, flow, queue, speed) are checked on a stress
 scenario chosen to exercise them.
 """
 
+from dataclasses import replace
+
 import numpy as np
 import pandas as pd
 import pytest
 
 from transportation_models.utils.ctm import examples, simulate
 from transportation_models.utils.ctm.model import Scenario
+from transportation_models.utils.ctm.results import SimulationResult
 
 
 # ---- fixtures (module-scoped: same trajectory shared across tests) ---------
@@ -194,3 +197,91 @@ def test_to_dataframes_time_index_uses_hours(empty_run):
     # State index covers [0, T*dt] in T+1 steps; flow index covers [0, (T-1)*dt].
     np.testing.assert_allclose(frames["density"].index.to_numpy(), res.time_state)
     np.testing.assert_allclose(frames["mainline_flow"].index.to_numpy(), res.time_flow)
+
+
+# ---- to_npz / from_npz round-trip ------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def ramp_run():
+    # Exercises on-ramp config (finite on_ramp_capacity, gamma/xi) alongside
+    # plain cells with the default inf capacity, so the freeway round-trip is
+    # tested on both ramp and no-ramp cells.
+    fwy = examples.metered_on_ramp_freeway()
+    scn = examples.metered_on_ramp_scenario(steps=120)
+    return simulate(fwy, scn)
+
+
+def test_to_npz_round_trips_arrays(ramp_run, tmp_path):
+    res = ramp_run
+    res.to_npz(tmp_path / "run.npz")
+    back = SimulationResult.from_npz(tmp_path / "run.npz")
+    for name in (
+        "density", "queue", "mainline_flow", "off_ramp",
+        "on_ramp", "speed", "boundary_inflow",
+    ):
+        np.testing.assert_array_equal(getattr(back, name), getattr(res, name))
+
+
+def test_to_npz_round_trips_freeway(ramp_run, tmp_path):
+    res = ramp_run
+    res.to_npz(tmp_path / "run.npz")
+    back = SimulationResult.from_npz(tmp_path / "run.npz")
+    assert back.freeway.dt == res.freeway.dt
+    assert back.n_cells == res.n_cells
+    # At least one on-ramp (finite cap) and one plain (inf cap) cell, so the
+    # inf-preservation and bool round-trip below are non-trivial.
+    assert any(c.on_ramp for c in res.freeway.cells)
+    assert any(not c.on_ramp for c in res.freeway.cells)
+    for orig, got in zip(res.freeway.cells, back.freeway.cells):
+        for field in (
+            "length", "q_max", "v_f", "w", "rho_jam", "rho_crit",
+            "on_ramp", "off_ramp", "on_ramp_capacity", "off_ramp_capacity",
+            "gamma", "xi",
+        ):
+            assert getattr(got, field) == getattr(orig, field), field
+
+
+def test_to_npz_round_trips_scenario(ramp_run, tmp_path):
+    res = ramp_run
+    res.to_npz(tmp_path / "run.npz")
+    back = SimulationResult.from_npz(tmp_path / "run.npz")
+    for name in ("rho0", "inflow", "demand", "beta", "q0"):
+        np.testing.assert_array_equal(
+            getattr(back.scenario, name), getattr(res.scenario, name)
+        )
+
+
+def test_simulate_leaves_start_unset(ramp_run):
+    # The engine works in step/hour terms from t=0 and has no notion of a
+    # wall-clock anchor; scripts stamp --start on afterward (the replace() in
+    # simulate_ctm_corridor.py). So a fresh run's start must be None.
+    assert ramp_run.start is None
+
+
+def test_to_npz_round_trips_start(ramp_run, tmp_path):
+    ts = pd.Timestamp("2023-06-01 06:00")
+    res = replace(ramp_run, start=ts)
+    res.to_npz(tmp_path / "run.npz")
+    back = SimulationResult.from_npz(tmp_path / "run.npz")
+    assert back.start == ts
+
+
+def test_npz_omits_start_when_unset(ramp_run, tmp_path):
+    # Backward compat: a result with no start must not write the meta key, and
+    # must reload as start=None (so pre-existing .npz files keep loading).
+    ramp_run.to_npz(tmp_path / "run.npz")
+    assert "meta__start" not in np.load(tmp_path / "run.npz")
+    assert SimulationResult.from_npz(tmp_path / "run.npz").start is None
+
+
+def test_from_npz_revalidates(ramp_run, tmp_path):
+    # A corrupted bundle (rho0 driven above jam density) must fail loudly on
+    # load rather than yield an invalid SimulationResult.
+    res = ramp_run
+    res.to_npz(tmp_path / "run.npz")
+    data = dict(np.load(tmp_path / "run.npz"))
+    data["scenario__rho0"] = data["scenario__rho0"] + 1e6
+    np.savez(tmp_path / "bad.npz", **data)
+    with pytest.raises(ValueError):
+        SimulationResult.from_npz(tmp_path / "bad.npz")

@@ -9,7 +9,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from transportation_models.utils.ctm import compare_against_historical
+from transportation_models.utils.ctm import (
+    QQCellSamples, QQResult, compare_against_historical, corridor_rmse_mape,
+    restrict_to_direct_tiebreak,
+)
 
 
 # ---- Fixture helpers -----------------------------------------------------
@@ -65,9 +68,11 @@ def _write_vds_csv(
     }).to_csv(path, index=False)
 
 
-def _cells_df(vds_ids: list[int], lanes: int = 3) -> pd.DataFrame:
+def _cells_df(vds_ids: list[int], lanes: int = 3,
+              vds_source: str = "direct") -> pd.DataFrame:
     return pd.DataFrame({
         "vds_id": vds_ids,
+        "vds_source": [vds_source] * len(vds_ids),
         "lanes": [lanes] * len(vds_ids),
         "vds_lanes": [lanes] * len(vds_ids),
     })
@@ -245,6 +250,7 @@ def test_cell_with_nan_vds_id_yields_nan_row(tmp_path):
     )
     cells = pd.DataFrame({
         "vds_id": [100, pd.NA],
+        "vds_source": ["direct", "missing"],
         "lanes": [3, 3],
         "vds_lanes": [3, 3],
     })
@@ -254,6 +260,32 @@ def test_cell_with_nan_vds_id_yields_nan_row(tmp_path):
     assert len(out) == 2
     assert out.iloc[1]["n_flow_samples"] == 0
     assert np.isnan(out.iloc[1]["flow_rmse"])
+
+
+def test_nearest_upstream_cells_are_not_scored(tmp_path):
+    """Cells with a propagated (nearest_upstream) VDS get NaN rows; their
+    lane mismatches are also exempt from the lanes contract."""
+    start = pd.Timestamp("2022-04-12 06:00")
+    n_5min = 3
+    _write_vds_csv(
+        tmp_path / "100.csv", start=start,
+        flows_5min=np.full(n_5min, 100.0),
+        speeds_mph=np.full(n_5min, 60.0),
+    )
+    result = _result_constant(
+        n_cells=2, n_5min=n_5min, steps_per_5min=30,
+        density=20.0, flow_veh_h=1200.0,
+    )
+    cells = pd.DataFrame({
+        "vds_id": [100, 100],                 # cell 1 inherits cell 0's VDS
+        "vds_source": ["direct", "nearest_upstream"],
+        "lanes": [3, 4],                      # mismatch only on the inherited cell
+        "vds_lanes": [3, 3],
+    })
+    out = compare_against_historical(result, cells, tmp_path, start=start)
+    assert out.iloc[0]["n_flow_samples"] == n_5min
+    assert out.iloc[1]["n_flow_samples"] == 0
+    assert pd.isna(out.iloc[1]["vds_id"])
 
 
 def test_caches_shared_vds_reads_once(tmp_path, monkeypatch):
@@ -287,6 +319,106 @@ def test_caches_shared_vds_reads_once(tmp_path, monkeypatch):
     assert n_calls["count"] == 1
 
 
+# ---- restrict_to_direct_tiebreak -----------------------------------------
+
+
+def test_restrict_keeps_unique_direct_and_tiebreak_blanks_others():
+    cells = pd.DataFrame({
+        "vds_id": [100, 200, 300, 400],
+        "vds_source": ["direct", "nearest_upstream", "direct_tiebreak", "missing"],
+        "lanes": [3, 3, 3, 3],
+    })
+    out = restrict_to_direct_tiebreak(cells)
+    # direct (100) and direct_tiebreak (300) kept; the rest blanked.
+    assert list(out["vds_id"].isna()) == [False, True, False, True]
+    assert out.loc[0, "vds_id"] == 100
+    assert out.loc[2, "vds_id"] == 300
+    # Other columns and row count are preserved.
+    assert list(out["lanes"]) == [3, 3, 3, 3]
+    assert len(out) == 4
+
+
+def test_restrict_dedups_repeated_vds_keeping_first():
+    cells = pd.DataFrame({
+        "vds_id": [100, 100, 200],
+        "vds_source": ["direct", "direct_tiebreak", "direct"],
+    })
+    out = restrict_to_direct_tiebreak(cells)
+    assert list(out["vds_id"].isna()) == [False, True, False]  # 2nd 100 dropped
+
+
+def test_restrict_does_not_mutate_input():
+    cells = pd.DataFrame({"vds_id": [100], "vds_source": ["nearest_upstream"]})
+    restrict_to_direct_tiebreak(cells)
+    assert cells.loc[0, "vds_id"] == 100  # original untouched
+
+
+def test_restrict_missing_vds_source_raises():
+    with pytest.raises(KeyError, match="vds_source"):
+        restrict_to_direct_tiebreak(pd.DataFrame({"vds_id": [100]}))
+
+
+def test_restricted_frame_scores_only_kept_cell(tmp_path):
+    """End-to-end: a restricted frame makes compare_against_historical score
+    only the unique direct/tiebreak cell; others become NaN rows."""
+    start = pd.Timestamp("2022-04-12 06:00")
+    n_5min = 3
+    _write_vds_csv(
+        tmp_path / "100.csv", start=start,
+        flows_5min=np.full(n_5min, 100.0), speeds_mph=np.full(n_5min, 60.0),
+    )
+    result = _result_constant(
+        n_cells=2, n_5min=n_5min, steps_per_5min=30,
+        density=20.0, flow_veh_h=1200.0,
+    )
+    cells = pd.DataFrame({
+        "vds_id": [100, 100],
+        "vds_source": ["direct", "nearest_upstream"],
+        "lanes": [3, 3], "vds_lanes": [3, 3],
+    })
+    out = compare_against_historical(
+        result, restrict_to_direct_tiebreak(cells), tmp_path, start=start,
+    )
+    assert out.iloc[0]["n_flow_samples"] == n_5min   # direct cell scored
+    assert out.iloc[1]["n_flow_samples"] == 0        # nearest_upstream skipped
+    assert np.isnan(out.iloc[1]["flow_rmse"])
+
+
+# ---- corridor_rmse_mape --------------------------------------------------
+
+
+def _qq_cell(cell, vds_id, flow_sim, flow_obs, density_sim, density_obs):
+    return QQCellSamples(
+        cell=cell, vds_id=vds_id,
+        flow_sim=np.array(flow_sim, float), flow_obs=np.array(flow_obs, float),
+        density_sim=np.array(density_sim, float),
+        density_obs=np.array(density_obs, float),
+    )
+
+
+def test_corridor_rmse_mape_pools_residuals_across_cells():
+    """Pooled flow residuals [120,120,0] over obs 1200; density [2,2,0]/20."""
+    qq = QQResult(per_cell=[
+        _qq_cell(0, 100, [1320, 1320], [1200, 1200], [22, 22], [20, 20]),
+        _qq_cell(2, 200, [1200], [1200], [20], [20]),
+    ])
+    errs = corridor_rmse_mape(qq)
+    fn, frmse, fmape = errs["flow"]
+    dn, drmse, dmape = errs["density"]
+    assert fn == 3 and dn == 3
+    assert frmse == pytest.approx((28800.0 / 3.0) ** 0.5)   # ~97.98
+    assert frmse == pytest.approx(97.9796, abs=1e-3)
+    assert fmape == pytest.approx(100.0 * 0.2 / 3.0)        # (0.1+0.1+0)/3
+    assert drmse == pytest.approx((8.0 / 3.0) ** 0.5)       # ~1.633
+    assert dmape == pytest.approx(100.0 * 0.2 / 3.0)
+
+
+def test_corridor_rmse_mape_empty_pool_is_nan():
+    errs = corridor_rmse_mape(QQResult(per_cell=[]))
+    assert errs["flow"][0] == 0
+    assert np.isnan(errs["flow"][1]) and np.isnan(errs["flow"][2])
+
+
 # ---- Error paths ---------------------------------------------------------
 
 
@@ -300,7 +432,8 @@ def test_lane_mismatch_raises_pointing_at_step_5(tmp_path):
         n_cells=1, n_5min=3, steps_per_5min=30,
         density=20.0, flow_veh_h=1200.0,
     )
-    cells = pd.DataFrame({"vds_id": [100], "lanes": [4], "vds_lanes": [3]})
+    cells = pd.DataFrame({"vds_id": [100], "vds_source": ["direct"],
+                          "lanes": [4], "vds_lanes": [3]})
     with pytest.raises(ValueError, match="lanes != vds_lanes"):
         compare_against_historical(result, cells, tmp_path, start=start)
 
@@ -363,6 +496,144 @@ def test_missing_vds_lanes_column_raises(tmp_path):
         compare_against_historical(
             result, cells, tmp_path, start=start,
         )
+
+
+# ---- compute_qq_samples --------------------------------------------------
+
+
+from transportation_models.utils.ctm import (  # noqa: E402
+    QQResult, compute_qq_samples,
+)
+
+
+def _cells_df_source(rows: list[tuple[int, str]]) -> pd.DataFrame:
+    """Build a cells_df with just vds_id + vds_source from (vds_id, source) rows."""
+    return pd.DataFrame({
+        "vds_id": [r[0] for r in rows],
+        "vds_source": [r[1] for r in rows],
+    })
+
+
+def test_qq_one_entry_per_unique_direct_vds(tmp_path):
+    """Only direct/tiebreak cells contribute, and a repeated VDS is scored
+    once -- at its first occurrence."""
+    start = pd.Timestamp("2022-04-12 06:00")
+    n_5min = 6
+    for vds in (100, 200):
+        _write_vds_csv(
+            tmp_path / f"{vds}.csv", start=start,
+            flows_5min=np.full(n_5min, 100.0),
+            speeds_mph=np.full(n_5min, 60.0), station_id=vds,
+        )
+    result = _result_constant(
+        n_cells=4, n_5min=n_5min, steps_per_5min=30,
+        density=20.0, flow_veh_h=1200.0,
+    )
+    cells = _cells_df_source([
+        (100, "direct"),
+        (300, "nearest"),          # non-direct -> skipped (and never loaded)
+        (200, "direct_tiebreak"),
+        (200, "direct"),           # duplicate VDS -> skipped
+    ])
+    qq = compute_qq_samples(result, cells, tmp_path, start=start)
+    assert isinstance(qq, QQResult)
+    assert [c.vds_id for c in qq.per_cell] == [100, 200]
+    # VDS 200's first appearance is cell index 2, not the later duplicate.
+    assert [c.cell for c in qq.per_cell] == [0, 2]
+
+
+def test_qq_pairs_drop_nan_observed_windows(tmp_path):
+    """A NaN observed window drops from both sides; sim is never NaN."""
+    start = pd.Timestamp("2022-04-12 06:00")
+    n_5min = 4
+    flows = np.array([100.0, np.nan, 100.0, 100.0])  # 3 valid windows
+    _write_vds_csv(
+        tmp_path / "100.csv", start=start,
+        flows_5min=flows, speeds_mph=np.full(n_5min, 60.0),
+    )
+    # Sim +10% on both quantities: flow 1320, density 22.
+    result = _result_constant(
+        n_cells=1, n_5min=n_5min, steps_per_5min=30,
+        density=22.0, flow_veh_h=1320.0,
+    )
+    qq = compute_qq_samples(
+        result, _cells_df_source([(100, "direct")]), tmp_path, start=start,
+    )
+    c = qq.per_cell[0]
+    assert c.flow_sim.size == 3 and c.flow_obs.size == 3
+    assert c.density_sim.size == 3 and c.density_obs.size == 3
+    assert np.isfinite(c.flow_obs).all() and np.isfinite(c.density_obs).all()
+    # Observed flow 1200, sim 1320 -> residual +120 throughout.
+    assert np.allclose(c.flow_obs, 1200.0)
+    assert np.allclose(c.flow_sim, 1320.0)
+    assert np.allclose(c.flow_sim - c.flow_obs, 120.0)
+    assert np.allclose(c.density_obs, 20.0)
+    assert np.allclose(c.density_sim, 22.0)
+
+
+def test_qq_pooled_concatenates_across_cells(tmp_path):
+    """pooled() concatenates each cell's paired arrays for one quantity."""
+    start = pd.Timestamp("2022-04-12 06:00")
+    n_5min = 5
+    for vds in (100, 200):
+        _write_vds_csv(
+            tmp_path / f"{vds}.csv", start=start,
+            flows_5min=np.full(n_5min, 100.0),
+            speeds_mph=np.full(n_5min, 60.0), station_id=vds,
+        )
+    result = _result_constant(
+        n_cells=2, n_5min=n_5min, steps_per_5min=30,
+        density=20.0, flow_veh_h=1200.0,
+    )
+    cells = _cells_df_source([(100, "direct"), (200, "direct")])
+    qq = compute_qq_samples(result, cells, tmp_path, start=start)
+    sim, obs = qq.pooled("flow")
+    assert sim.size == 2 * n_5min
+    assert obs.size == 2 * n_5min
+    assert np.allclose(sim, 1200.0)
+    assert np.allclose(obs, 1200.0)
+
+
+def test_qq_pooled_empty_when_no_direct_cells(tmp_path):
+    """No direct/tiebreak cell -> empty per_cell and empty pooled arrays."""
+    start = pd.Timestamp("2022-04-12 06:00")
+    result = _result_constant(
+        n_cells=1, n_5min=3, steps_per_5min=30,
+        density=20.0, flow_veh_h=1200.0,
+    )
+    cells = _cells_df_source([(100, "nearest")])
+    qq = compute_qq_samples(result, cells, tmp_path, start=start)
+    assert qq.per_cell == []
+    sim, obs = qq.pooled("density")
+    assert sim.size == 0 and obs.size == 0
+
+
+def test_qq_pooled_rejects_unknown_quantity(tmp_path):
+    start = pd.Timestamp("2022-04-12 06:00")
+    _write_vds_csv(
+        tmp_path / "100.csv", start=start,
+        flows_5min=np.full(3, 100.0), speeds_mph=np.full(3, 60.0),
+    )
+    result = _result_constant(
+        n_cells=1, n_5min=3, steps_per_5min=30,
+        density=20.0, flow_veh_h=1200.0,
+    )
+    qq = compute_qq_samples(
+        result, _cells_df_source([(100, "direct")]), tmp_path, start=start,
+    )
+    with pytest.raises(ValueError, match="flow.*density"):
+        qq.pooled("speed")
+
+
+def test_qq_missing_vds_source_column_raises(tmp_path):
+    start = pd.Timestamp("2022-04-12 06:00")
+    result = _result_constant(
+        n_cells=1, n_5min=3, steps_per_5min=30,
+        density=20.0, flow_veh_h=1200.0,
+    )
+    cells = pd.DataFrame({"vds_id": [100]})  # no vds_source
+    with pytest.raises(KeyError, match="vds_source"):
+        compute_qq_samples(result, cells, tmp_path, start=start)
 
 
 # ---- compare_against_ctmsim ----------------------------------------------

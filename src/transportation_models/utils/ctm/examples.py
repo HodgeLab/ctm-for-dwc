@@ -105,6 +105,58 @@ def four_cell_scenario(steps: int, *, r_4: float = 1200.0) -> Scenario:
     )
 
 
+def metered_on_ramp_freeway() -> Freeway:
+    """Two-cell freeway whose downstream on-ramp is capacity-limited.
+
+    Standard Kurzhanskiy 2007 FD (v_f = 60, w = 20, rho_crit = 100,
+    rho_jam = 400, q_max = 6000). Cell 0 has no ramps (it takes the upstream
+    boundary inflow); cell 1 carries an on-ramp with a finite capacity
+    ``R = 600 veh/h``. That finite ``R`` is what lets the on-ramp queue
+    (eq. 4.3) grow: when arrival demand exceeds ``R`` the admitted flow ``r``
+    is clipped to ``R`` and the surplus accumulates in the queue. The other
+    examples leave ``on_ramp_capacity`` at its default (inf), so their queues
+    stay pinned at zero.
+    """
+    return Freeway(
+        dt=1.0 / 120.0,
+        cells=[
+            Cell(length=1.0, q_max=6000.0, v_f=60.0, w=20.0, rho_jam=400.0,
+                 rho_crit=100.0),
+            Cell(length=1.0, q_max=6000.0, v_f=60.0, w=20.0, rho_jam=400.0,
+                 rho_crit=100.0, on_ramp=True, on_ramp_capacity=600.0),
+        ],
+    ).validate()
+
+
+def metered_on_ramp_scenario(steps: int) -> Scenario:
+    """Scenario that drives the metered on-ramp queue up, then drains it.
+
+    On-ramp demand at cell 1 is held at 1000 veh/h (above the 600 veh/h ramp
+    capacity) for the first half of the horizon, then dropped to 0 for the
+    second half. During the first half the queue grows at (1000 - 600)*dt
+    veh/step; during the second half it drains at 600*dt veh/step (the ramp
+    keeps admitting at capacity until the queue empties). Since the drain rate
+    exceeds the build rate, an equal-length second half fully empties the
+    queue. Boundary inflow is a modest 3000 veh/h so the mainline stays
+    uncongested and the cell's receiving room never binds -- isolating the
+    capacity mechanism (eq. 4.2) as the sole cause of the queue.
+
+    Starts from an empty freeway with an empty queue.
+    """
+    fwy = metered_on_ramp_freeway()
+    n = fwy.n_cells
+    demand = np.zeros((n, steps))
+    demand[1, : steps // 2] = 1000.0  # above R for the first half, then 0
+    return Scenario.build(
+        fwy,
+        steps=steps,
+        rho0=0.0,
+        inflow=3000.0,
+        demand=demand,
+        beta=0.0,
+    )
+
+
 def example_1_scenario(steps: int, start: str = "empty") -> Scenario:
     """Constant-demand scenario for Example 1.
 

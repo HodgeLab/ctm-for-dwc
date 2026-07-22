@@ -297,8 +297,19 @@ def main() -> None:
         ),
     )
     parser.add_argument(
-        "--vds-tiebreaker", choices=["midpoint", "lowest_id"], default="midpoint",
-        help="strategy when multiple VDSs land in one cell (default: midpoint)",
+        "--bearing-tolerance", type=float, default=60.0,
+        help=(
+            "max degrees an edge's bearing may deviate from --direction to "
+            "count as mainline (default: 60). Raise it (e.g. 90) for corridors "
+            "that curve sharply near a terminus, like I-880 swinging WNW into "
+            "the I-80 junction; too low silently truncates the corridor there."
+        ),
+    )
+    parser.add_argument(
+        "--vds-tiebreaker",
+        choices=["furthest_downstream", "midpoint", "lowest_id"],
+        default="furthest_downstream",
+        help="strategy when multiple VDSs land in one cell (default: furthest_downstream)",
     )
     parser.add_argument("--out-dir", type=Path, default=None,
                         help=f"output directory (default: {DEFAULT_OUT}/<ref>_<dir>)")
@@ -331,6 +342,7 @@ def main() -> None:
         graph,
         ref=args.ref,
         direction=direction,
+        bearing_tolerance=args.bearing_tolerance,
         pm_range=pm_range,
         postmiles=postmiles_arg,
     )

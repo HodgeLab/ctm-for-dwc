@@ -49,5 +49,6 @@ log_cli = true
 log_cli_level = "INFO"
 markers = [
     "network: hits a live external service (default-skip in CI; run with `pytest -m network`)",
+    "slow: long-running (e.g. end-to-end microsim validation; run with `pytest -m slow`)",
 ]
-addopts = "-m 'not network'"
+addopts = "-m 'not network and not slow'"

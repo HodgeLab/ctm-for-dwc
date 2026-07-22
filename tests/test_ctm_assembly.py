@@ -105,6 +105,28 @@ def test_assembly_carries_ramp_flags_through():
     assert out.iloc[1]["off_ramp"] == True
 
 
+def test_assembly_warns_when_ramp_flag_set_but_vds_missing():
+    """on_ramp/off_ramp=True with NaN ramp VDS id is a silent no-op -> warn."""
+    cells = _cells_df([
+        dict(length=0.5, lanes=3, vds_id=100, on_ramp=True,
+             on_ramp_vds_id=pd.NA),
+        dict(length=0.5, lanes=3, vds_id=100, off_ramp=True,
+             off_ramp_vds_id=pd.NA),
+    ])
+    cal = _calibrated_df([dict(**{
+        "Station ID": 100,
+        "capacity": 1800.0, "free_flow_speed": 60.0,
+        "congestion_wave_speed": 15.0,
+        "jam_density": 150.0, "critical_density": 30.0,
+    })])
+    with pytest.warns(UserWarning, match="on_ramp=True but no on_ramp_vds_id"):
+        out = assemble_freeway_table(cells, cal)
+    # The flag still passes through; capacity falls back to NaN -> +inf.
+    assert out.iloc[0]["on_ramp"] == True  # noqa: E712
+    assert np.isnan(out.iloc[0]["on_ramp_capacity"])
+    assert np.isnan(out.iloc[1]["off_ramp_capacity"])
+
+
 def test_ramp_capacity_lookup_uses_ramp_calibrated_table():
     """An on-ramp cell with a matched ramp VDS gets the calibrated capacity."""
     cells = _cells_df([
@@ -419,6 +441,93 @@ def test_fd_vds_id_set_when_vds_id_is_nan_resolves_for_fd_lookup():
     ])
     out = assemble_freeway_table(cells, _two_cal_rows())
     assert out.iloc[0]["q_max"] == pytest.approx(2200.0 * 3)
+
+
+# ---- Automatic FD redirect on calibration_code != 0 ----------------------
+
+
+def _coded_cal_rows() -> pd.DataFrame:
+    """Two stations: 100 cleanly calibrated (code 0), 200 failed (code 4)."""
+    return _calibrated_df([
+        dict(**{"Station ID": 100, "capacity": 1800.0,
+                "free_flow_speed": 60.0, "congestion_wave_speed": 15.0,
+                "jam_density": 150.0, "critical_density": 30.0,
+                "calibration_code": 0}),
+        dict(**{"Station ID": 200, "capacity": 2200.0,
+                "free_flow_speed": 65.0, "congestion_wave_speed": 16.0,
+                "jam_density": 170.0, "critical_density": 32.0,
+                "calibration_code": 4}),
+    ])
+
+
+def test_bad_vds_redirects_to_nearest_upstream_good_detector():
+    """A cell whose vds_id failed calibration inherits the FD of the nearest
+    upstream cleanly-calibrated detector."""
+    cells = _cells_df([
+        dict(length=0.5, lanes=3, vds_id=100),  # good
+        dict(length=0.5, lanes=2, vds_id=200),  # failed -> inherit 100
+    ])
+    out = assemble_freeway_table(cells, _coded_cal_rows())
+    # Row 1 redirected to station 100's per-lane FD, scaled by its own lanes=2.
+    assert out.iloc[1]["q_max"] == pytest.approx(1800.0 * 2)
+    assert out.iloc[1]["v_f"] == pytest.approx(60.0)
+    assert out.iloc[1]["rho_jam"] == pytest.approx(150.0 * 2)
+    # Row 0 keeps its own good FD.
+    assert out.iloc[0]["q_max"] == pytest.approx(1800.0 * 3)
+
+
+def test_manual_fd_vds_id_wins_over_auto_redirect():
+    """A manual fd_vds_id is authoritative even when vds_id failed calibration;
+    auto-redirect does not override it."""
+    cells = _cells_df([
+        dict(length=0.5, lanes=3, vds_id=100, fd_vds_id=pd.NA),
+        dict(length=0.5, lanes=3, vds_id=100, fd_vds_id=200),  # manual -> 200
+    ])
+    out = assemble_freeway_table(cells, _coded_cal_rows())
+    # Row 1 uses the manual override (station 200), not the auto pick (100).
+    assert out.iloc[1]["q_max"] == pytest.approx(2200.0 * 3)
+
+
+def test_good_vds_not_redirected():
+    """Cleanly-calibrated cells keep their own detector even when the table
+    carries calibration codes."""
+    cells = _cells_df([dict(length=0.5, lanes=3, vds_id=100)])
+    out = assemble_freeway_table(cells, _coded_cal_rows())
+    assert out.iloc[0]["q_max"] == pytest.approx(1800.0 * 3)
+
+
+def test_bad_vds_with_no_upstream_good_raises():
+    """A failed detector with no cleanly-calibrated detector upstream raises."""
+    cells = _cells_df([
+        dict(length=0.5, lanes=2, vds_id=200),  # failed, first cell
+        dict(length=0.5, lanes=3, vds_id=100),  # good, but downstream
+    ])
+    with pytest.raises(ValueError, match="no cleanly-calibrated detector upstream"):
+        assemble_freeway_table(cells, _coded_cal_rows())
+
+
+def test_redirect_emits_logging_warning(caplog):
+    """The redirect is reported via a logging warning naming the substitution."""
+    cells = _cells_df([
+        dict(length=0.5, lanes=3, vds_id=100),
+        dict(length=0.5, lanes=2, vds_id=200),
+    ])
+    with caplog.at_level("WARNING"):
+        assemble_freeway_table(cells, _coded_cal_rows())
+    assert "Auto-redirected FD lookup for 1 cell" in caplog.text
+    assert "vds 200 (code 4) -> vds 100" in caplog.text
+
+
+def test_absent_calibration_code_column_is_a_noop():
+    """Without a calibration_code column, behavior is unchanged: a cell whose
+    vds_id is absent from the table simply gets NaN FD params (no redirect)."""
+    cells = _cells_df([
+        dict(length=0.5, lanes=3, vds_id=100),
+        dict(length=0.5, lanes=3, vds_id=200),
+    ])
+    out = assemble_freeway_table(cells, _two_cal_rows())  # no calibration_code
+    assert out.iloc[0]["q_max"] == pytest.approx(1800.0 * 3)
+    assert out.iloc[1]["q_max"] == pytest.approx(2200.0 * 3)
 
 
 def test_both_vds_id_and_fd_vds_id_nan_raises():

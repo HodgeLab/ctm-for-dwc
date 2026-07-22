@@ -414,7 +414,7 @@ def project_vds_to_corridor(
 # ---- Layer 4c: assign_vds_to_cells ----------------------------------------
 
 
-_TIEBREAKER = Literal["midpoint", "highest_pm_observed", "lowest_id"]
+_TIEBREAKER = Literal["midpoint", "furthest_downstream", "highest_pm_observed", "lowest_id"]
 
 
 def assign_vds_to_cells(
@@ -438,6 +438,8 @@ def assign_vds_to_cells(
     3. If multiple, apply ``tiebreaker``:
 
        * ``"midpoint"`` -- VDS closest to the cell's pm midpoint (default).
+       * ``"furthest_downstream"`` -- VDS with the highest ``pm_cum``
+         (closest to the cell's downstream boundary).
        * ``"highest_pm_observed"`` -- highest ``pct_observed`` (not yet
          hooked up; falls back to midpoint until time-series data lands).
        * ``"lowest_id"`` -- smallest ``vds_id``, fully deterministic.
@@ -466,8 +468,10 @@ def assign_vds_to_cells(
         inheritance (downstream-assignment scheme: each detector's FD is
         assigned downstream until another detector is encountered);
         ``"none"`` leaves cells without a direct VDS marked as ``"missing"``.
-    tiebreaker : {"midpoint", "highest_pm_observed", "lowest_id"}, default "midpoint"
+    tiebreaker : {"midpoint", "furthest_downstream", "highest_pm_observed", "lowest_id"}, default "midpoint"
         How to pick when multiple VDSs land in the same cell.
+        ``"furthest_downstream"`` picks the VDS with the highest ``pm_cum``
+        (closest to the cell's downstream boundary).
     min_lane_match : bool, default False
         If True, prefer VDSs whose lane count matches the cell's ``lanes``
         column when present; falls back to lane-agnostic if no match.
@@ -754,6 +758,8 @@ def _apply_tiebreaker(
     """Pick a single row from ``candidates`` according to ``tiebreaker``."""
     if tiebreaker == "lowest_id":
         return candidates.loc[candidates["vds_id"].idxmin()]
+    if tiebreaker == "furthest_downstream":
+        return candidates.loc[candidates["pm_cum"].idxmax()]
     # "highest_pm_observed" is a planned hook: once Step-2 time-series quality
     # is plumbed through, switch on a ``pct_observed`` column when present.
     if tiebreaker == "highest_pm_observed" and "pct_observed" in candidates.columns:

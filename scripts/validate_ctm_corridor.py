@@ -1,21 +1,24 @@
 """Step 9: validate a CTM simulation result against historical PeMS data.
 
-Reads the per-quantity output CSVs that ``scripts/simulate_ctm_corridor.py``
-writes (``density.csv`` + ``mainline_flow.csv``), reconstructs the
-sim-side density and flow arrays, computes per-cell RMSE and MAPE
-against the historical 5-min PeMS samples over the same wallclock
-window, and writes a ``validation.csv`` with the per-cell stats.
+Loads the self-contained ``result.npz`` that
+``scripts/simulate_ctm_corridor.py`` writes (which carries the density
+and flow arrays, ``dt``, and the sim's wallclock ``start``), computes
+per-cell RMSE and MAPE against the historical 5-min PeMS samples over
+the same wallclock window, plus the corridor VMT/VHT aggregates, the
+GEH statistic, and QQ error-distribution diagnostics.
 
-Stats are summarized to stdout: corridor-wide median / mean / max of
-each metric and the top-K worst-fitting cells by density RMSE.
+All artifacts are written to a ``validation/`` subdirectory of the sim
+dir (override with ``--out-dir``): ``validation.csv`` (per-cell stats),
+``geh_heatmap.png``, and the QQ plots. Stats are also summarized to
+stdout: corridor-wide median / mean / max of each metric and the top-K
+worst-fitting cells by density RMSE.
 
 Run from the repo root::
 
     python scripts/validate_ctm_corridor.py \\
         --sim-dir scripts/output/ctm_corridor/I_210_W/sim \\
         --cells   scripts/output/ctm_corridor/I_210_W/cells.csv \\
-        --timeseries-dir data/pems/csv_files \\
-        --start "2022-04-12 06:00"
+        --timeseries-dir data/pems/csv_files
 """
 
 from __future__ import annotations
@@ -23,53 +26,63 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 
 import pandas as pd
 
-from transportation_models.utils.ctm import compare_against_historical
+from transportation_models.utils.ctm import (
+    compare_against_historical,
+    compare_corridor_aggregates,
+    compute_flow_geh,
+    compute_qq_samples,
+    corridor_rmse_mape,
+)
+from transportation_models.utils.ctm.plots import (
+    plot_geh_heatmap,
+    plot_qq_pooled,
+    plot_qq_percell,
+)
+from transportation_models.utils.ctm.results import SimulationResult
+from transportation_models.utils.ctm.validation import CorridorAggregates, GEHResult
 
 
-def _load_sim_arrays(sim_dir: Path) -> SimpleNamespace:
-    """Read density.csv + mainline_flow.csv into a minimal result-like wrapper.
+def resolve_start(
+    cli_start: pd.Timestamp | None, baked_start: pd.Timestamp | None,
+) -> pd.Timestamp:
+    """Pick the validation window's start: prefer the baked-in value.
 
-    Only the attributes :func:`compare_against_historical` reads are
-    populated: ``freeway.n_cells``, ``freeway.dt``, ``density``,
-    ``mainline_flow``, and ``n_steps``.
+    Falls back to ``--start`` for older npz files that predate
+    start-persistence. Raises :class:`ValueError` if neither is available or if
+    a given ``--start`` disagrees with the baked-in start.
     """
-    density_df = pd.read_csv(sim_dir / "density.csv", index_col=0)
-    flow_df = pd.read_csv(sim_dir / "mainline_flow.csv", index_col=0)
-    # CSVs are wide: time_h on the row index, cell indices on the columns.
-    # Validation wants (n_cells, T+1) / (n_cells, T) arrays.
-    density = density_df.to_numpy().T
-    mainline_flow = flow_df.to_numpy().T
-    # Derive sim dt from the time_h index of density (regularly spaced).
-    times = density_df.index.to_numpy()
-    if times.size < 2:
-        raise SystemExit(
-            f"density.csv has fewer than 2 rows -- cannot derive dt."
+    if cli_start is None and baked_start is None:
+        raise ValueError(
+            "result.npz has no persisted start; pass --start (or rebuild the "
+            "CTM with scripts/simulate_ctm_corridor.py to bake it in)."
         )
-    dt = float(times[1] - times[0])
-    n_cells = density.shape[0]
-    if mainline_flow.shape[0] != n_cells:
-        raise SystemExit(
-            f"density.csv has {n_cells} cells but mainline_flow.csv has "
-            f"{mainline_flow.shape[0]}; the two CSVs must come from the "
-            "same sim run."
+    if (
+        cli_start is not None and baked_start is not None
+        and cli_start != baked_start
+    ):
+        raise ValueError(
+            f"--start {cli_start} disagrees with the start baked into "
+            f"result.npz ({baked_start}); omit --start to use it."
         )
-    return SimpleNamespace(
-        freeway=SimpleNamespace(n_cells=n_cells, dt=dt),
-        density=density,
-        mainline_flow=mainline_flow,
-        n_steps=mainline_flow.shape[1],
-    )
+    return cli_start if cli_start is not None else baked_start
+
+
+def _fmt_nan(v: float) -> str:
+    """Format a float to 1 decimal, or ``-`` when NaN (non-direct cells)."""
+    return "-" if pd.isna(v) else f"{v:.1f}"
 
 
 def _print_summary(
     stats: pd.DataFrame, *,
     sim_dir: Path, cells_path: Path, ts_dir: Path,
     start: pd.Timestamp, dt: float, n_5min: int,
-    out_path: Path, top_k: int,
+    out_dir: Path, top_k: int,
+    aggregates: CorridorAggregates,
+    geh: GEHResult | None,
+    corridor_errors: dict[str, tuple[int, float, float]],
 ) -> None:
     """Tabular stdout summary: window, corridor aggregates, worst cells."""
     n_cells = len(stats)
@@ -83,25 +96,23 @@ def _print_summary(
     print(f"  sim dt        : {dt * 3600.0:.1f} s")
     end = start + pd.Timedelta(minutes=5 * n_5min)
     print(f"  window        : [{start}, {end})  ({n_5min} 5-min samples)")
-    print(f"  cells         : {n_cells} total, {n_with_vds} with assigned VDS")
+    print(
+        f"  cells         : {n_cells} total, {n_with_vds} scored "
+        "(unique direct/tiebreak VDS)"
+    )
 
     if valid.empty:
-        print("\n  No cells had an assigned VDS -- nothing to validate.")
+        print(
+            "\n  No direct/tiebreak VDS cells to score -- nothing to validate."
+        )
         return
 
-    def _fmt(series: pd.Series, fmt: str) -> str:
-        return (
-            f"median {fmt.format(series.median())}, "
-            f"mean {fmt.format(series.mean())}, "
-            f"max {fmt.format(series.max())}"
-        )
-
     print()
-    print("  Per-cell aggregates over cells with an assigned VDS:")
-    print(f"    density RMSE  [veh/mi]: {_fmt(valid['density_rmse'], '{:.2f}')}")
-    print(f"    density MAPE  [%]     : {_fmt(valid['density_mape'], '{:.1f}')}")
-    print(f"    flow    RMSE  [veh/h] : {_fmt(valid['flow_rmse'], '{:.0f}')}")
-    print(f"    flow    MAPE  [%]     : {_fmt(valid['flow_mape'], '{:.1f}')}")
+    fn, frmse, fmape = corridor_errors["flow"]
+    dn, drmse, dmape = corridor_errors["density"]
+    print("  Corridor-pooled error (over scored direct/tiebreak cells):")
+    print(f"    flow    RMSE {frmse:.0f} veh/h , MAPE {fmape:.1f}%  (n={fn})")
+    print(f"    density RMSE {drmse:.2f} veh/mi, MAPE {dmape:.1f}%  (n={dn})")
 
     k = min(top_k, len(valid))
     if k > 0:
@@ -109,26 +120,57 @@ def _print_summary(
         print(f"  Top {k} worst-fitting cells (by density RMSE):")
         worst = valid.nlargest(k, "density_rmse").reset_index(drop=True)
         # Compact column layout for readability.
-        display = worst[[
+        cols = [
             "cell", "vds_id",
             "density_rmse", "density_mape",
             "flow_rmse", "flow_mape",
-        ]].copy()
+        ]
+        if geh is not None:
+            cols += ["flow_geh_median", "flow_geh_pct_under5"]
+        display = worst[cols].copy()
         display["density_rmse"] = display["density_rmse"].map("{:.2f}".format)
         display["density_mape"] = display["density_mape"].map("{:.1f}".format)
         display["flow_rmse"] = display["flow_rmse"].map("{:.0f}".format)
         display["flow_mape"] = display["flow_mape"].map("{:.1f}".format)
+        if geh is not None:
+            display["flow_geh_median"] = display["flow_geh_median"].map(_fmt_nan)
+            display["flow_geh_pct_under5"] = (
+                display["flow_geh_pct_under5"].map(_fmt_nan)
+            )
         print(display.to_string(index=False))
 
     print()
-    print(f"  Wrote {out_path}")
+    print(
+        f"  Corridor aggregates (direct + tiebreak VDS, n={aggregates.n_vds}):"
+    )
+    print(
+        f"    VMT [veh*mi]: sim {aggregates.sim_vmt:,.0f}, "
+        f"observed {aggregates.obs_vmt:,.0f}, "
+        f"diff {aggregates.vmt_pct_diff:+.1f}%"
+    )
+    print(
+        f"    VHT [veh*h] : sim {aggregates.sim_vht:,.0f}, "
+        f"observed {aggregates.obs_vht:,.0f}, "
+        f"diff {aggregates.vht_pct_diff:+.1f}%"
+    )
+
+    if geh is not None and geh.n_geh_samples > 0:
+        print()
+        print(
+            f"    flow GEH<5  : {geh.corridor_pct_under5:.0f}% of "
+            f"{geh.n_geh_samples} cell-hour samples "
+            "(hourly volumes, direct + tiebreak VDS)"
+        )
+
+    print()
+    print(f"  Wrote validation artifacts to {out_dir}")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--sim-dir", required=True, type=Path,
-        help=("Directory containing density.csv + mainline_flow.csv "
+        help=("Directory containing result.npz "
               "(output of scripts/simulate_ctm_corridor.py)."),
     )
     parser.add_argument(
@@ -141,14 +183,25 @@ def main() -> None:
         help="Directory of Step-3 per-VDS timeseries CSVs.",
     )
     parser.add_argument(
-        "--start", required=True, type=pd.Timestamp,
-        help=("Wallclock time of the sim's first step (k=0). Must align "
-              "to the PeMS 5-min grid."),
+        "--start", default=None, type=pd.Timestamp,
+        help=("Wallclock time of the sim's first step (k=0). Optional: "
+              "defaults to the start baked into result.npz. Only needed "
+              "for older result.npz files that predate start-persistence; "
+              "if given, must match the baked-in start. Must align to the "
+              "PeMS 5-min grid."),
     )
     parser.add_argument(
-        "--out", default=None, type=Path,
-        help=("Destination for the per-cell validation CSV. "
-              "Defaults to <sim-dir>/validation.csv."),
+        "--station-metadata", default=Path("data/pems/station_metadata.csv"),
+        type=Path,
+        help=("PeMS station_metadata.csv (needs ID and Length columns); "
+              "supplies each direct VDS's segment length for the corridor "
+              "VMT/VHT aggregates. Defaults to data/pems/station_metadata.csv."),
+    )
+    parser.add_argument(
+        "--out-dir", default=None, type=Path,
+        help=("Directory for all validation artifacts (validation.csv, "
+              "geh_heatmap.png, the QQ plots). "
+              "Defaults to <sim-dir>/validation."),
     )
     parser.add_argument(
         "--top-k", default=5, type=int,
@@ -156,29 +209,88 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    print(f"loading sim arrays from {args.sim_dir}", file=sys.stderr)
-    result = _load_sim_arrays(args.sim_dir)
+    print(f"loading result.npz from {args.sim_dir}", file=sys.stderr)
+    result = SimulationResult.from_npz(args.sim_dir / "result.npz")
     cells = pd.read_csv(args.cells)
 
+    try:
+        start = resolve_start(args.start, result.start)
+    except ValueError as e:
+        parser.error(str(e))
+
     stats = compare_against_historical(
-        result, cells, args.timeseries_dir, start=args.start,
+        result, cells, args.timeseries_dir, start=start,
     )
+    station_metadata = pd.read_csv(args.station_metadata)
+    aggregates = compare_corridor_aggregates(
+        result, cells, args.timeseries_dir, station_metadata, start=start,
+    )
+
+    # GEH needs whole-hour windows; skip it (rather than fail the whole
+    # report) for sims that don't cover an integer number of hours.
+    try:
+        geh = compute_flow_geh(result, cells, args.timeseries_dir, start=start)
+    except ValueError as e:
+        print(f"  skipping GEH: {e}", file=sys.stderr)
+        geh = None
+    if geh is not None:
+        stats = stats.merge(
+            geh.per_cell[["cell", "flow_geh_median", "flow_geh_pct_under5"]],
+            on="cell", how="left",
+        )
+
     n_5min = (
         stats.loc[stats["n_flow_samples"] > 0, "n_flow_samples"].max()
         if (stats["n_flow_samples"] > 0).any() else 0
     )
 
-    out_path = args.out if args.out is not None else args.sim_dir / "validation.csv"
-    out_path = out_path.resolve()
-    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_dir = (
+        args.out_dir if args.out_dir is not None else args.sim_dir / "validation"
+    )
+    out_dir = out_dir.resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / "validation.csv"
     stats.to_csv(out_path, index=False)
+
+    if geh is not None and geh.hourly_geh.shape[0] > 0:
+        heatmap_path = out_dir / "geh_heatmap.png"
+        plot_geh_heatmap(
+            geh.hourly_geh,
+            row_labels=[
+                f"cell {int(c)} (VDS {int(v)})"
+                for c, v in zip(geh.per_cell["cell"], geh.per_cell["vds_id"])
+            ],
+            hour_starts=geh.hour_starts,
+            title="Flow GEH by direct/tiebreak cell and hour",
+            out_path=heatmap_path,
+        )
+
+    # QQ error-distribution diagnostics: per quantity, a corridor-pooled
+    # figure (Normal residual QQ + two-sample sim-vs-obs QQ) plus per-cell
+    # faceted grids for each diagnostic.
+    qq = compute_qq_samples(result, cells, args.timeseries_dir, start=start)
+    corridor_errors = corridor_rmse_mape(qq)
+    if qq.per_cell:
+        for quantity in ("flow", "density"):
+            pooled_path = out_dir / f"{quantity}_qq_pooled.png"
+            plot_qq_pooled(qq, quantity=quantity, out_path=pooled_path)
+            for diagnostic, suffix in (
+                ("residual", "residual"), ("two_sample", "twosample"),
+            ):
+                percell_path = out_dir / f"{quantity}_qq_percell_{suffix}.png"
+                plot_qq_percell(
+                    qq, quantity=quantity, diagnostic=diagnostic,
+                    out_path=percell_path,
+                )
 
     print()
     _print_summary(
         stats, sim_dir=args.sim_dir, cells_path=args.cells,
-        ts_dir=args.timeseries_dir, start=args.start,
+        ts_dir=args.timeseries_dir, start=start,
         dt=result.freeway.dt, n_5min=int(n_5min),
-        out_path=out_path, top_k=args.top_k,
+        out_dir=out_dir, top_k=args.top_k,
+        aggregates=aggregates, geh=geh,
+        corridor_errors=corridor_errors,
     )
 
 
