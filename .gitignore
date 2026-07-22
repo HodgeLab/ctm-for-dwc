@@ -238,3 +238,5 @@ case_studies/*/qp_inputs
 case_studies/*/qp_ramps
 case_studies/*/GRU_ramps
 case_studies/*/project.qgz
+case_studies/*/gru_estimator
+case_studies/*/no_estimator
