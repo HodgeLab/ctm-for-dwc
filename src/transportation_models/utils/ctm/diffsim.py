@@ -96,9 +96,16 @@ def step(
         recv_down = inf.reshape(1)
     # Off-ramp-capacity term (beta_bar/beta)*S restricts f_i so the beta fraction
     # matches S. Guards avoid 0/0 and 0*inf: beta<=0 -> inf (no restriction),
-    # beta>=1 -> 0 (all flow exits via off-ramp).
+    # beta>=1 -> 0 (all flow exits via off-ramp). Where S is unbounded (the common
+    # no-capacity off-ramp) offcap is a *constant* inf, not beta*inf -- so this
+    # masked term never backprops 0*inf = NaN into beta (the whole reason a
+    # torch reimplementation is needed and the numpy engine can stay as-is).
     safe_beta = torch.where(beta > 0.0, beta, torch.ones_like(beta))
-    offcap_general = beta_bar / safe_beta * S
+    s_is_inf = torch.isinf(S)
+    safe_S = torch.where(s_is_inf, torch.zeros_like(S), S)
+    offcap_general = torch.where(
+        s_is_inf, inf.expand_as(S), beta_bar / safe_beta * safe_S,
+    )
     offcap = torch.where(
         beta <= 0.0,
         inf.expand_as(beta),
@@ -135,4 +142,68 @@ def step(
         on_ramp=r,
         speed=speed,
         boundary_inflow=boundary_inflow,
+    )
+
+
+class TorchTrajectory(NamedTuple):
+    """Torch counterpart of :class:`results.SimulationResult`'s trajectory arrays.
+
+    State arrays (``density``, ``queue``) carry the initial values at column 0
+    and post-step values at columns ``1..T``; flow/speed arrays are ``(n, T)``.
+    """
+
+    density: Tensor          # (n_cells, T+1) [veh/mi]
+    queue: Tensor            # (n_cells, T+1) [veh]
+    mainline_flow: Tensor    # (n_cells, T) [veh/h]
+    off_ramp: Tensor         # (n_cells, T) [veh/h]
+    on_ramp: Tensor          # (n_cells, T) [veh/h]
+    speed: Tensor            # (n_cells, T) [mi/h]
+    boundary_inflow: Tensor  # (T,) [veh/h]
+
+
+def simulate(
+    params: TorchParams,
+    dt: float,
+    rho0: Tensor,
+    q0: Tensor,
+    demand: Tensor,
+    beta: Tensor,
+    inflow: Tensor,
+) -> TorchTrajectory:
+    """Loop :func:`step` over the horizon; differentiable w.r.t. ``demand``/``beta``.
+
+    Mirrors :func:`engine.simulate`. ``demand`` and ``beta`` are ``(n_cells, T)``,
+    ``inflow`` is ``(T,)``, ``rho0``/``q0`` are ``(n_cells,)``. Inputs are trusted
+    (no validation) so the unroll stays cheap; build them from a validated
+    :class:`~.model.Scenario` upstream.
+
+    The unroll is a plain Python loop building the full autograd graph. For long
+    horizons wrap :func:`step` in ``torch.utils.checkpoint`` to bound BPTT memory
+    (a scaling concern for the optimizer, not this primitive).
+    """
+    T = inflow.shape[0]
+    rho, q = rho0, q0
+    densities = [rho0]
+    queues = [q0]
+    flows, offs, ons, speeds, binflows = [], [], [], [], []
+    for k in range(T):
+        res = step(params, dt, rho, q, demand[:, k], beta[:, k], inflow[k])
+        rho, q = res.rho, res.queue
+        densities.append(rho)
+        queues.append(q)
+        flows.append(res.mainline_flow)
+        offs.append(res.off_ramp)
+        ons.append(res.on_ramp)
+        speeds.append(res.speed)
+        binflows.append(res.boundary_inflow)
+
+    stack_t = lambda xs: torch.stack(xs, dim=1)  # (n_cells, len) # noqa: E731
+    return TorchTrajectory(
+        density=stack_t(densities),
+        queue=stack_t(queues),
+        mainline_flow=stack_t(flows),
+        off_ramp=stack_t(offs),
+        on_ramp=stack_t(ons),
+        speed=stack_t(speeds),
+        boundary_inflow=torch.stack(binflows),
     )
