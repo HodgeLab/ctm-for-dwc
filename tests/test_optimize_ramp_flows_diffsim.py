@@ -114,3 +114,30 @@ def test_ramp_inputs_are_block_constant(tmp_path):
         col = pd.read_csv(bundle / f"{name}.csv")[str(cell)].to_numpy()
         blocks = col.reshape(_N5MIN, _SP5)
         assert np.allclose(blocks, blocks[:, [0]]), f"{name} varies within a 5-min block"
+
+
+def test_early_stopping_halts_before_max_iters(tmp_path):
+    """Early stopping triggers on loss plateau and restores the best iterate."""
+    bundle, *_ = _write_synthetic_bundle(tmp_path)
+    report = optimize_bundle(bundle, iters=5000, patience=30, min_delta=1e-2)
+    assert report["stopped_early"] is True
+    assert report["iters_run"] < 5000
+    assert report["best_iter"] <= report["iters_run"]
+    assert np.isfinite(report["density_rmse"]) and np.isfinite(report["flow_rmse"])
+
+
+def test_no_early_stopping_runs_all_iters(tmp_path):
+    bundle, *_ = _write_synthetic_bundle(tmp_path)
+    report = optimize_bundle(bundle, iters=50, patience=None)
+    assert report["stopped_early"] is False
+    assert report["iters_run"] == 50
+
+
+def test_log_fn_receives_progress_rows(tmp_path):
+    """The W&B seam: log_fn fires every log_every iters with the metric keys."""
+    bundle, *_ = _write_synthetic_bundle(tmp_path)
+    rows = []
+    optimize_bundle(bundle, iters=10, log_every=1, log_fn=rows.append)
+    assert len(rows) == 10
+    assert set(rows[0]) == {"iter", "loss", "density_rmse", "flow_rmse"}
+    assert rows[0]["iter"] == 0 and rows[-1]["iter"] == 9

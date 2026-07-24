@@ -22,6 +22,12 @@ Consumes the bundle from `build_ctm_qp_inputs.py` (now including
 `observed_flow.csv`); writes the same wide `demand.csv` / `beta.csv` the QP
 solver and `simulate_ctm_corridor.py` use, plus `optimize_report.json`.
 
+Logs per-iteration loss / density_rmse / flow_rmse to Weights & Biases
+(project `ramp-flow-estimation`, `WANDB_MODE=offline` honored; `--no-wandb` to
+disable) so hyperparameter sweeps are inspectable, and early-stops on the loss
+(relative `--min-delta` improvement over `--patience` iters) with best-iterate
+restore so a sweep run doesn't burn iterations after it converges.
+
     python scripts/optimize_ramp_flows_diffsim.py \
         --bundle case_studies/I880N_5mi/qp_inputs \
         --init-demand case_studies/I880N_5mi/histAve_ramps/demand.csv \
@@ -33,6 +39,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -81,12 +88,21 @@ def optimize_bundle(
     w_rho: float = 1.0,
     w_flow: float = 1.0,
     beta_init: float = 0.05,
+    patience: int | None = None,
+    min_delta: float = 1e-4,
     log_every: int = 0,
+    log_fn: Callable[[dict], None] | None = None,
     out_dir: Path | None = None,
 ) -> dict:
     """Optimize ramp demand/beta to fit mainline density+flow; write the CSVs.
 
-    Returns a report dict (also written to ``optimize_report.json``).
+    ``patience`` (iters without a ``min_delta`` *relative* loss improvement)
+    enables early stopping with best-iterate restore; ``None`` runs all
+    ``iters`` and uses the final iterate. ``log_fn`` receives a per-iteration
+    metrics dict (``iter``/``loss``/``density_rmse``/``flow_rmse``) every
+    ``log_every`` iters -- the W&B seam, kept out of this function so it stays
+    import-light and testable. Returns a report dict (also written to
+    ``optimize_report.json``).
     """
     bundle = Path(bundle)
     out_dir = Path(out_dir) if out_dir is not None else bundle
@@ -124,10 +140,10 @@ def optimize_bundle(
     param_groups, demand_param, beta_logit = [], None, None
     if len(on_idx):
         demand_param = torch.tensor(d0[meta["on_ramp_cells"]], dtype=torch.float64, requires_grad=True)
-        param_groups.append({"params": [demand_param], "lr": lr_demand})
+        param_groups.append({"name": "demand", "params": [demand_param], "lr": lr_demand})
     if len(off_idx):
         beta_logit = torch.logit(to_t(b0[meta["off_ramp_cells"]])).requires_grad_(True)
-        param_groups.append({"params": [beta_logit], "lr": lr_beta})
+        param_groups.append({"name": "beta", "params": [beta_logit], "lr": lr_beta})
     if not param_groups:
         raise SystemExit("bundle has no on- or off-ramp cells; nothing to optimize.")
     opt = torch.optim.Adam(param_groups)
@@ -153,17 +169,56 @@ def optimize_bundle(
         lf_ = ((sim_flow5 - obs_flow) ** 2 * mask_flow).sum() / mask_flow.sum()
         return lr_, lf_
 
+    def snapshot():
+        s = {}
+        if demand_param is not None:
+            s["demand"] = demand_param.detach().clone()
+        if beta_logit is not None:
+            s["beta"] = beta_logit.detach().clone()
+        return s
+
+    early_stop = patience is not None
+    best_loss, best_state, best_iter, since_improve = float("inf"), None, -1, 0
+    stopped_early, iters_run = False, iters
     for it in range(iters):
         opt.zero_grad()
         demand, beta = build_inputs()
         traj = diffsim.simulate(params, dt_h, rho0, q0, demand, beta, inflow)
         mse_rho, mse_flow = masked_terms(traj)
         loss = w_rho * mse_rho / rho_scale**2 + w_flow * mse_flow / flow_scale**2
+        cur = loss.item()
+
+        # Best-iterate tracking uses the loss at the *current* (pre-step) params,
+        # so the snapshot matches the reported value.
+        if early_stop:
+            if cur < best_loss * (1.0 - min_delta):
+                best_loss, best_iter, since_improve = cur, it, 0
+                best_state = snapshot()
+            else:
+                since_improve += 1
+
+        if log_every and (it % log_every == 0 or it == iters - 1):
+            row = {"iter": it, "loss": cur,
+                   "density_rmse": mse_rho.sqrt().item(),
+                   "flow_rmse": mse_flow.sqrt().item()}
+            if log_fn is not None:
+                log_fn(row)
+            print(f"  iter {it:5d}  loss {cur:.6g}  "
+                  f"rmse_rho {row['density_rmse']:.4g}  rmse_flow {row['flow_rmse']:.4g}")
+
         loss.backward()
         opt.step()
-        if log_every and (it % log_every == 0 or it == iters - 1):
-            print(f"  iter {it:5d}  loss {loss.item():.6g}  "
-                  f"rmse_rho {mse_rho.sqrt().item():.4g}  rmse_flow {mse_flow.sqrt().item():.4g}")
+
+        if early_stop and since_improve >= patience:
+            stopped_early, iters_run = True, it + 1
+            break
+
+    if early_stop and best_state is not None:  # restore the best iterate
+        with torch.no_grad():
+            if demand_param is not None:
+                demand_param.copy_(best_state["demand"])
+            if beta_logit is not None:
+                beta_logit.copy_(best_state["beta"])
 
     with torch.no_grad():
         demand, beta = build_inputs()
@@ -179,6 +234,11 @@ def optimize_bundle(
 
     report = {
         "iters": iters,
+        "iters_run": iters_run,
+        "stopped_early": stopped_early,
+        "best_iter": best_iter if early_stop else iters_run - 1,
+        "patience": patience,
+        "min_delta": min_delta,
         "n_on_ramp_cells": int(len(on_idx)),
         "n_off_ramp_cells": int(len(off_idx)),
         "density_rmse": float(mse_rho.sqrt()),   # veh/mi, scored cells, 5-min grid
@@ -214,21 +274,61 @@ def main() -> None:
     p.add_argument("--w-flow", type=float, default=1.0)
     p.add_argument("--beta-init", type=float, default=0.05,
                    help="Off-ramp beta initial value when --init-beta is absent.")
-    p.add_argument("--log-every", type=int, default=100)
+    p.add_argument("--patience", type=int, default=200,
+                   help="Early-stop after this many iters without a --min-delta "
+                        "relative loss improvement (--no-early-stop disables).")
+    p.add_argument("--no-early-stop", action="store_true")
+    p.add_argument("--min-delta", type=float, default=1e-4,
+                   help="Min relative loss improvement that resets patience.")
+    p.add_argument("--log-every", type=int, default=25)
+    p.add_argument("--wandb-project", default="ramp-flow-estimation")
+    p.add_argument("--wandb-name", default=None)
+    p.add_argument("--no-wandb", action="store_true", help="Disable W&B logging.")
     p.add_argument("--out-dir", type=Path, default=None, help="Default: the bundle dir.")
     args = p.parse_args()
+
+    patience = None if args.no_early_stop else args.patience
+
+    log_fn, run = None, None
+    if not args.no_wandb:
+        import wandb
+        config = {
+            "bundle": str(args.bundle), "iters": args.iters,
+            "lr_demand": args.lr_demand, "lr_beta": args.lr_beta,
+            "rho_scale": args.rho_scale, "flow_scale": args.flow_scale,
+            "w_rho": args.w_rho, "w_flow": args.w_flow, "beta_init": args.beta_init,
+            "patience": patience, "min_delta": args.min_delta,
+            "init_demand": str(args.init_demand) if args.init_demand else None,
+            "init_beta": str(args.init_beta) if args.init_beta else None,
+        }
+        run = wandb.init(project=args.wandb_project, name=args.wandb_name, config=config)
+        log_fn = lambda row: wandb.log(  # noqa: E731
+            {k: v for k, v in row.items() if k != "iter"}, step=row["iter"])
 
     report = optimize_bundle(
         args.bundle, init_demand=args.init_demand, init_beta=args.init_beta,
         iters=args.iters, lr_demand=args.lr_demand, lr_beta=args.lr_beta,
         rho_scale=args.rho_scale, flow_scale=args.flow_scale,
         w_rho=args.w_rho, w_flow=args.w_flow, beta_init=args.beta_init,
-        log_every=args.log_every, out_dir=args.out_dir,
+        patience=patience, min_delta=args.min_delta,
+        log_every=args.log_every, log_fn=log_fn, out_dir=args.out_dir,
     )
+
+    if run is not None:
+        run.summary.update({
+            "density_rmse": report["density_rmse"], "flow_rmse": report["flow_rmse"],
+            "final_loss": report["final_loss"], "best_iter": report["best_iter"],
+            "iters_run": report["iters_run"], "stopped_early": report["stopped_early"],
+        })
+        run.finish()
+
+    stop_note = (f"early-stopped at iter {report['iters_run']} (best {report['best_iter']})"
+                 if report["stopped_early"] else f"ran {report['iters_run']} iters")
     print(
         f"\nOptimized ramp flows written to {args.out_dir or args.bundle}\n"
         f"  cells         : {report['n_on_ramp_cells']} on-ramp, "
         f"{report['n_off_ramp_cells']} off-ramp\n"
+        f"  {stop_note}\n"
         f"  density RMSE  : {report['density_rmse']:.4g} veh/mi (scored cells, 5-min)\n"
         f"  flow RMSE     : {report['flow_rmse']:.4g} veh/h\n"
         f"  final loss    : {report['final_loss']:.6g}"
