@@ -266,12 +266,14 @@ def main() -> None:
     p.add_argument("--init-beta", type=Path, default=None,
                    help="Wide beta.csv to initialize from (else beta-init at off-ramps).")
     p.add_argument("--iters", type=int, default=2000)
-    p.add_argument("--lr-demand", type=float, default=20.0)
-    p.add_argument("--lr-beta", type=float, default=0.1)
-    p.add_argument("--rho-scale", type=float, default=50.0)
-    p.add_argument("--flow-scale", type=float, default=2000.0)
-    p.add_argument("--w-rho", type=float, default=1.0)
-    p.add_argument("--w-flow", type=float, default=1.0)
+    # Underscore aliases so a W&B sweep (which emits --lr_demand=...) drives the
+    # same flags the repo writes with hyphens.
+    p.add_argument("--lr-demand", "--lr_demand", dest="lr_demand", type=float, default=20.0)
+    p.add_argument("--lr-beta", "--lr_beta", dest="lr_beta", type=float, default=0.1)
+    p.add_argument("--rho-scale", "--rho_scale", dest="rho_scale", type=float, default=50.0)
+    p.add_argument("--flow-scale", "--flow_scale", dest="flow_scale", type=float, default=2000.0)
+    p.add_argument("--w-rho", "--w_rho", dest="w_rho", type=float, default=1.0)
+    p.add_argument("--w-flow", "--w_flow", dest="w_flow", type=float, default=1.0)
     p.add_argument("--beta-init", type=float, default=0.05,
                    help="Off-ramp beta initial value when --init-beta is absent.")
     p.add_argument("--patience", type=int, default=200,
@@ -305,13 +307,19 @@ def main() -> None:
         log_fn = lambda row: wandb.log(  # noqa: E731
             {k: v for k, v in row.items() if k != "iter"}, step=row["iter"])
 
+    # In a sweep every trial reads the one shared bundle but must write to its
+    # own dir, or the trials clobber each other (and the bundle's own CSVs).
+    out_dir = args.out_dir
+    if out_dir is None and run is not None:
+        out_dir = args.bundle / "sweep_runs" / run.id
+
     report = optimize_bundle(
         args.bundle, init_demand=args.init_demand, init_beta=args.init_beta,
         iters=args.iters, lr_demand=args.lr_demand, lr_beta=args.lr_beta,
         rho_scale=args.rho_scale, flow_scale=args.flow_scale,
         w_rho=args.w_rho, w_flow=args.w_flow, beta_init=args.beta_init,
         patience=patience, min_delta=args.min_delta,
-        log_every=args.log_every, log_fn=log_fn, out_dir=args.out_dir,
+        log_every=args.log_every, log_fn=log_fn, out_dir=out_dir,
     )
 
     if run is not None:
@@ -325,7 +333,7 @@ def main() -> None:
     stop_note = (f"early-stopped at iter {report['iters_run']} (best {report['best_iter']})"
                  if report["stopped_early"] else f"ran {report['iters_run']} iters")
     print(
-        f"\nOptimized ramp flows written to {args.out_dir or args.bundle}\n"
+        f"\nOptimized ramp flows written to {out_dir or args.bundle}\n"
         f"  cells         : {report['n_on_ramp_cells']} on-ramp, "
         f"{report['n_off_ramp_cells']} off-ramp\n"
         f"  {stop_note}\n"
