@@ -15,6 +15,12 @@ Bundle contents (written to ``--out-dir``):
 * ``inflow.csv``           -- ``k, inflow`` upstream boundary [veh/h], length T.
 * ``observed_density.csv`` -- ``cell, m_5min, rho_obs`` for direct/tiebreak
                               cells only, NaN samples dropped.
+* ``observed_flow.csv``    -- ``cell, m_5min, flow_obs`` [veh/h], same cells/
+                              masking as observed_density. Unused by the QP
+                              (density-only objective); consumed by the
+                              differentiable forward-sim optimizer, whose loss
+                              also matches mainline flow (Step 7 Level 3,
+                              docs/ramp_flow_estimation_module.md).
 * ``meta.json``            -- dt, horizon, 5-min stride, ramp structure +
                               capacities, direct/tiebreak cells, gamma/xi.
 
@@ -140,15 +146,19 @@ def build_bundle(
     ]
     cache: dict[int, pd.DataFrame] = {}
     obs_rows: list[dict] = []
+    flow_rows: list[dict] = []
     for cell_idx in scored_cells:
         vds_id = int(restricted["vds_id"].iloc[cell_idx])
-        _flow, density = _load_observed_window(
+        flow, density = _load_observed_window(
             timeseries_dir, vds_id, start=start, end=end,
             n_5min=n_5min, cache=cache,
         )
         for m, rho_obs in enumerate(density):
             if not np.isnan(rho_obs):
                 obs_rows.append({"cell": cell_idx, "m_5min": m, "rho_obs": rho_obs})
+        for m, flow_obs in enumerate(flow):
+            if not np.isnan(flow_obs):
+                flow_rows.append({"cell": cell_idx, "m_5min": m, "flow_obs": flow_obs})
 
     # Ramp structure + capacities, keyed by cell index (None == no bound/inf).
     on_ramp_cells, off_ramp_cells = [], []
@@ -172,6 +182,9 @@ def build_bundle(
     pd.DataFrame(
         obs_rows, columns=["cell", "m_5min", "rho_obs"],
     ).to_csv(out_dir / "observed_density.csv", index=False)
+    pd.DataFrame(
+        flow_rows, columns=["cell", "m_5min", "flow_obs"],
+    ).to_csv(out_dir / "observed_flow.csv", index=False)
 
     meta = {
         "dt_s": dt_s,
@@ -191,6 +204,7 @@ def build_bundle(
         "off_ramp_capacity": {str(k): v for k, v in off_cap.items()},
         "direct_tiebreak_cells": scored_cells,
         "n_observed_samples": len(obs_rows),
+        "n_observed_flow_samples": len(flow_rows),
     }
     (out_dir / "meta.json").write_text(json.dumps(meta, indent=2))
     return meta
