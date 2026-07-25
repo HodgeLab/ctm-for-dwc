@@ -75,6 +75,20 @@ def _observed_grid(path: Path, value_col: str, n_cells: int, n_5min: int):
     return obs, mask
 
 
+def _masked_mape(sim, obs, mask):
+    """MAPE [%] over observed (mask=1) *and* non-zero samples (repo convention).
+
+    The zero-observed denominator is guarded (``safe_obs``) so the excluded
+    ``obs == 0`` entries never form ``|sim|/0 * 0 = 0 * inf = NaN`` in the sum.
+    """
+    valid = mask * (obs != 0.0).to(mask.dtype)
+    denom = valid.sum()
+    if denom.item() == 0:
+        return torch.tensor(float("nan"), dtype=sim.dtype)
+    safe_obs = torch.where(obs != 0.0, obs, torch.ones_like(obs))
+    return (torch.abs(sim - obs) / torch.abs(safe_obs) * valid).sum() / denom * 100.0
+
+
 def optimize_bundle(
     bundle: Path,
     *,
@@ -99,10 +113,10 @@ def optimize_bundle(
     ``patience`` (iters without a ``min_delta`` *relative* loss improvement)
     enables early stopping with best-iterate restore; ``None`` runs all
     ``iters`` and uses the final iterate. ``log_fn`` receives a per-iteration
-    metrics dict (``iter``/``loss``/``density_rmse``/``flow_rmse``) every
-    ``log_every`` iters -- the W&B seam, kept out of this function so it stays
-    import-light and testable. Returns a report dict (also written to
-    ``optimize_report.json``).
+    metrics dict (``iter``/``loss``/``density_rmse``/``flow_rmse``/
+    ``density_mape``/``flow_mape``) every ``log_every`` iters -- the W&B seam,
+    kept out of this function so it stays import-light and testable. Returns a
+    report dict (also written to ``optimize_report.json``).
     """
     bundle = Path(bundle)
     out_dir = Path(out_dir) if out_dir is not None else bundle
@@ -162,12 +176,14 @@ def optimize_bundle(
             beta = zeros_nt.index_copy(0, off_idx, b_step)
         return demand, beta
 
-    def masked_terms(traj):
+    def masked_metrics(traj):
         sim_rho5 = traj.density[:, : n_5min * sp5 : sp5]
         sim_flow5 = traj.mainline_flow[:, : n_5min * sp5].reshape(n, n_5min, sp5).mean(dim=2)
-        lr_ = ((sim_rho5 - obs_rho) ** 2 * mask_rho).sum() / mask_rho.sum()
-        lf_ = ((sim_flow5 - obs_flow) ** 2 * mask_flow).sum() / mask_flow.sum()
-        return lr_, lf_
+        mse_rho = ((sim_rho5 - obs_rho) ** 2 * mask_rho).sum() / mask_rho.sum()
+        mse_flow = ((sim_flow5 - obs_flow) ** 2 * mask_flow).sum() / mask_flow.sum()
+        mape_rho = _masked_mape(sim_rho5, obs_rho, mask_rho)
+        mape_flow = _masked_mape(sim_flow5, obs_flow, mask_flow)
+        return mse_rho, mse_flow, mape_rho, mape_flow
 
     def snapshot():
         s = {}
@@ -184,7 +200,7 @@ def optimize_bundle(
         opt.zero_grad()
         demand, beta = build_inputs()
         traj = diffsim.simulate(params, dt_h, rho0, q0, demand, beta, inflow)
-        mse_rho, mse_flow = masked_terms(traj)
+        mse_rho, mse_flow, mape_rho, mape_flow = masked_metrics(traj)
         loss = w_rho * mse_rho / rho_scale**2 + w_flow * mse_flow / flow_scale**2
         cur = loss.item()
 
@@ -200,11 +216,14 @@ def optimize_bundle(
         if log_every and (it % log_every == 0 or it == iters - 1):
             row = {"iter": it, "loss": cur,
                    "density_rmse": mse_rho.sqrt().item(),
-                   "flow_rmse": mse_flow.sqrt().item()}
+                   "flow_rmse": mse_flow.sqrt().item(),
+                   "density_mape": mape_rho.item(),
+                   "flow_mape": mape_flow.item()}
             if log_fn is not None:
                 log_fn(row)
             print(f"  iter {it:5d}  loss {cur:.6g}  "
-                  f"rmse_rho {row['density_rmse']:.4g}  rmse_flow {row['flow_rmse']:.4g}")
+                  f"rmse_rho {row['density_rmse']:.4g}  rmse_flow {row['flow_rmse']:.4g}  "
+                  f"mape_rho {row['density_mape']:.3g}%  mape_flow {row['flow_mape']:.3g}%")
 
         loss.backward()
         opt.step()
@@ -223,7 +242,7 @@ def optimize_bundle(
     with torch.no_grad():
         demand, beta = build_inputs()
         traj = diffsim.simulate(params, dt_h, rho0, q0, demand, beta, inflow)
-        mse_rho, mse_flow = masked_terms(traj)
+        mse_rho, mse_flow, mape_rho, mape_flow = masked_metrics(traj)
         demand_np = demand.numpy()
         beta_np = beta.numpy()
 
@@ -243,6 +262,8 @@ def optimize_bundle(
         "n_off_ramp_cells": int(len(off_idx)),
         "density_rmse": float(mse_rho.sqrt()),   # veh/mi, scored cells, 5-min grid
         "flow_rmse": float(mse_flow.sqrt()),     # veh/h
+        "density_mape": float(mape_rho),         # %, non-zero observed samples
+        "flow_mape": float(mape_flow),           # %
         "final_loss": float(w_rho * mse_rho / rho_scale**2 + w_flow * mse_flow / flow_scale**2),
         "lr_demand": lr_demand,
         "lr_beta": lr_beta,
@@ -325,6 +346,7 @@ def main() -> None:
     if run is not None:
         run.summary.update({
             "density_rmse": report["density_rmse"], "flow_rmse": report["flow_rmse"],
+            "density_mape": report["density_mape"], "flow_mape": report["flow_mape"],
             "final_loss": report["final_loss"], "best_iter": report["best_iter"],
             "iters_run": report["iters_run"], "stopped_early": report["stopped_early"],
         })
@@ -339,6 +361,8 @@ def main() -> None:
         f"  {stop_note}\n"
         f"  density RMSE  : {report['density_rmse']:.4g} veh/mi (scored cells, 5-min)\n"
         f"  flow RMSE     : {report['flow_rmse']:.4g} veh/h\n"
+        f"  density MAPE  : {report['density_mape']:.3g} %\n"
+        f"  flow MAPE     : {report['flow_mape']:.3g} %\n"
         f"  final loss    : {report['final_loss']:.6g}"
     )
 

@@ -81,9 +81,10 @@ def test_optimizer_recovers_ramps_and_output_roundtrips(tmp_path):
 
     report = optimize_bundle(bundle, iters=500)
 
-    # (1) density + flow fit (the objective).
+    # (1) density + flow fit (the objective), reported as RMSE and MAPE.
     assert report["density_rmse"] < 1e-2, report
     assert report["flow_rmse"] < 1.0, report
+    assert report["density_mape"] < 1.0 and report["flow_mape"] < 1.0, report
     assert (bundle / "optimize_report.json").exists()
 
     # (3) written CSVs round-trip through the real simulator ...
@@ -139,5 +140,6 @@ def test_log_fn_receives_progress_rows(tmp_path):
     rows = []
     optimize_bundle(bundle, iters=10, log_every=1, log_fn=rows.append)
     assert len(rows) == 10
-    assert set(rows[0]) == {"iter", "loss", "density_rmse", "flow_rmse"}
+    assert set(rows[0]) == {"iter", "loss", "density_rmse", "flow_rmse",
+                            "density_mape", "flow_mape"}
     assert rows[0]["iter"] == 0 and rows[-1]["iter"] == 9
