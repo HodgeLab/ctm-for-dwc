@@ -240,3 +240,4 @@ case_studies/*/GRU_ramps
 case_studies/*/project.qgz
 case_studies/*/gru_estimator
 case_studies/*/no_estimator
+case_studies/*/diff_forward_sim
