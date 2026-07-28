@@ -231,13 +231,5 @@ data/pems/
 # Simulation case studies
 # We want to track changes to simulation parameters (e.g., cells.csv, freeway.csv), 
 # but not any results from specific scenario runs.
-case_studies/*/no_ramps
-case_studies/*/histAve_ramps
-case_studies/*/persist_ramps
-case_studies/*/qp_inputs
-case_studies/*/qp_ramps
-case_studies/*/GRU_ramps
 case_studies/*/project.qgz
-case_studies/*/gru_estimator
-case_studies/*/no_estimator
-case_studies/*/diff_forward_sim
+case_studies/*/output
