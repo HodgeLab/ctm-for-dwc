@@ -755,6 +755,95 @@ def compute_qq_samples(
     return QQResult(per_cell=per_cell)
 
 
+@dataclass
+class ObservedGrid:
+    """Measured-PeMS 5-min space-time grids for direct/tiebreak VDS cells.
+
+    ``flow`` and ``density`` are ``(n_rows, n_5min)`` with one row per
+    unique direct/tiebreak VDS (in cell-index order) and one column per
+    5-min window over the sim's wallclock horizon. Invalid samples are
+    NaN. ``row_labels`` annotate the rows; ``times`` are the window-start
+    timestamps.
+    """
+
+    row_labels: list[str]
+    times: pd.DatetimeIndex
+    flow: np.ndarray
+    density: np.ndarray
+
+
+def compute_observed_grid(
+    result: SimulationResult,
+    cells_df: pd.DataFrame,
+    timeseries_dir: Union[Path, str],
+    *,
+    start: pd.Timestamp,
+) -> ObservedGrid:
+    """Collect measured-PeMS flow/density 5-min grids over the sim window.
+
+    Like :func:`compute_qq_samples`, restricts to the cell whose
+    ``vds_source`` is ``direct`` or ``direct_tiebreak`` and reads each VDS
+    once. For each such cell it loads the observed 5-min flow [veh/h] and
+    density [veh/mi] over the sim's wallclock ``[start, end)`` window,
+    stacking them into ``(n_rows, n_5min)`` grids for space-time heatmaps.
+
+    Parameters
+    ----------
+    result, cells_df, timeseries_dir, start
+        As in :func:`compute_qq_samples`.
+
+    Returns
+    -------
+    ObservedGrid
+    """
+    n_cells = result.freeway.n_cells
+    if len(cells_df) != n_cells:
+        raise ValueError(
+            f"cells_df has {len(cells_df)} rows but result.freeway has "
+            f"{n_cells} cells; one row per cell is required."
+        )
+    missing = {"vds_id", "vds_source"} - set(cells_df.columns)
+    if missing:
+        raise KeyError(
+            f"cells_df is missing column(s): {sorted(missing)}. "
+            "vds_id / vds_source come from Step 2 (assign_vds_to_cells)."
+        )
+
+    _, n_5min, start, end = _resolve_window(result, start)
+    timeseries_dir = Path(timeseries_dir)
+    times = pd.date_range(start, periods=n_5min, freq="5min")
+
+    row_labels: list[str] = []
+    flow_rows: list[np.ndarray] = []
+    density_rows: list[np.ndarray] = []
+    seen: set[int] = set()
+    cache: dict[int, pd.DataFrame] = {}
+    for cell_idx, cell_row in enumerate(cells_df.itertuples(index=False)):
+        if cell_row.vds_source not in _DIRECT_SOURCES:
+            continue
+        vds_id = int(cell_row.vds_id)
+        if vds_id in seen:
+            continue
+        seen.add(vds_id)
+
+        observed_flow, observed_density = _load_observed_window(
+            timeseries_dir, vds_id, start=start, end=end,
+            n_5min=n_5min, cache=cache,
+        )
+        row_labels.append(f"cell {cell_idx} (VDS {vds_id})")
+        flow_rows.append(observed_flow)
+        density_rows.append(observed_density)
+
+    shape = (len(flow_rows), n_5min)
+    flow = np.vstack(flow_rows) if flow_rows else np.empty(shape, dtype=float)
+    density = (
+        np.vstack(density_rows) if density_rows else np.empty(shape, dtype=float)
+    )
+    return ObservedGrid(
+        row_labels=row_labels, times=times, flow=flow, density=density,
+    )
+
+
 def corridor_rmse_mape(qq: QQResult) -> dict[str, tuple[int, float, float]]:
     """Corridor-pooled ``(n_samples, RMSE, MAPE)`` for flow and density.
 

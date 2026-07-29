@@ -9,7 +9,9 @@ GEH statistic, and QQ error-distribution diagnostics.
 
 All artifacts are written to a ``validation/`` subdirectory of the sim
 dir (override with ``--out-dir``): ``validation.csv`` (per-cell stats),
-``geh_heatmap.png``, and the QQ plots. Stats are also summarized to
+``geh_heatmap.png``, ``pems_flow_heatmap.png`` /
+``pems_density_heatmap.png`` (measured space-time heatmaps), and the QQ
+plots. Stats are also summarized to
 stdout: corridor-wide median / mean / max of each metric and the top-K
 worst-fitting cells by density RMSE.
 
@@ -33,11 +35,13 @@ from transportation_models.utils.ctm import (
     compare_against_historical,
     compare_corridor_aggregates,
     compute_flow_geh,
+    compute_observed_grid,
     compute_qq_samples,
     corridor_rmse_mape,
 )
 from transportation_models.utils.ctm.plots import (
     plot_geh_heatmap,
+    plot_measured_heatmap,
     plot_qq_pooled,
     plot_qq_percell,
 )
@@ -200,7 +204,7 @@ def main() -> None:
     parser.add_argument(
         "--out-dir", default=None, type=Path,
         help=("Directory for all validation artifacts (validation.csv, "
-              "geh_heatmap.png, the QQ plots). "
+              "geh_heatmap.png, the PeMS measured heatmaps, the QQ plots). "
               "Defaults to <sim-dir>/validation."),
     )
     parser.add_argument(
@@ -265,23 +269,32 @@ def main() -> None:
             out_path=heatmap_path,
         )
 
+    # Measured-PeMS space-time heatmaps: direct/tiebreak cell x 5-min window
+    # of the observed flow and density.
+    obs_grid = compute_observed_grid(result, cells, args.timeseries_dir, start=start)
+    if obs_grid.row_labels:
+        plot_measured_heatmap(
+            obs_grid.flow, row_labels=obs_grid.row_labels, times=obs_grid.times,
+            title="Measured PeMS flow by direct/tiebreak cell and 5-min window",
+            cbar_label="flow [veh/h]", out_path=out_dir / "pems_flow_heatmap.png",
+        )
+        plot_measured_heatmap(
+            obs_grid.density, row_labels=obs_grid.row_labels, times=obs_grid.times,
+            title="Measured PeMS density by direct/tiebreak cell and 5-min window",
+            cbar_label="density [veh/mi]",
+            out_path=out_dir / "pems_density_heatmap.png",
+        )
+
     # QQ error-distribution diagnostics: per quantity, a corridor-pooled
-    # figure (Normal residual QQ + two-sample sim-vs-obs QQ) plus per-cell
-    # faceted grids for each diagnostic.
+    # two-sample sim-vs-obs QQ plus a per-cell faceted grid.
     qq = compute_qq_samples(result, cells, args.timeseries_dir, start=start)
     corridor_errors = corridor_rmse_mape(qq)
     if qq.per_cell:
         for quantity in ("flow", "density"):
             pooled_path = out_dir / f"{quantity}_qq_pooled.png"
             plot_qq_pooled(qq, quantity=quantity, out_path=pooled_path)
-            for diagnostic, suffix in (
-                ("residual", "residual"), ("two_sample", "twosample"),
-            ):
-                percell_path = out_dir / f"{quantity}_qq_percell_{suffix}.png"
-                plot_qq_percell(
-                    qq, quantity=quantity, diagnostic=diagnostic,
-                    out_path=percell_path,
-                )
+            percell_path = out_dir / f"{quantity}_qq_percell.png"
+            plot_qq_percell(qq, quantity=quantity, out_path=percell_path)
 
     print()
     _print_summary(
