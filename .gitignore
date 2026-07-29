@@ -233,3 +233,4 @@ data/pems/
 # but not any results from specific scenario runs.
 case_studies/*/project.qgz
 case_studies/*/output
+case_studies/cross_study
