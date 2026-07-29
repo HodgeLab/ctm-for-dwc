@@ -23,8 +23,8 @@ corridor:
    :meth:`SimulationResult.to_dataframes` returns) plus a
    self-contained ``result.npz`` (:meth:`SimulationResult.to_npz`, the
    input the DWPT demand pipeline reloads), plus a
-   ``summary.txt`` with horizon totals and four figures matching the
-   ``run_ctm_ctmsim_demo`` style:
+   ``summary.txt`` with horizon totals and the simulation's runtime and
+   peak RSS, and four figures matching the ``run_ctm_ctmsim_demo`` style:
 
       * ``flow_contour.png``      space-time heatmap of mainline flow
       * ``density_contour.png``   space-time heatmap of density
@@ -45,7 +45,9 @@ Run from the repo root::
 from __future__ import annotations
 
 import argparse
+import resource
 import sys
+import time
 from dataclasses import replace
 from pathlib import Path
 
@@ -67,6 +69,16 @@ from transportation_models.utils.ctm.plots import (
     plot_flow_density_contour,
     plot_per_cell_metrics,
 )
+
+
+def _peak_rss_mb() -> float:
+    """Process peak resident memory [MB] so far (RUSAGE_SELF high-water mark).
+
+    ``ru_maxrss`` is a monotonic high-water mark, reported in bytes on
+    macOS and kilobytes on Linux; normalize both to MB.
+    """
+    ru = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return ru / (1024 ** 2) if sys.platform == "darwin" else ru / 1024
 
 
 def _load_wide(
@@ -227,8 +239,12 @@ def main() -> None:
         rho0=rho0, q0=0.0,
     )
 
-    # 6. Run.
+    # 6. Run. Time and measure the simulation's peak RSS here, before the
+    # downstream CSV/plot allocations, so the numbers reflect the sim alone.
+    t0 = time.perf_counter()
     result = replace(simulate(freeway, scenario), start=args.start)
+    sim_wall_s = time.perf_counter() - t0
+    sim_peak_rss_mb = _peak_rss_mb()
     metrics = compute_metrics(result)
 
     # 7. Write per-quantity CSVs + summary.
@@ -331,6 +347,10 @@ def main() -> None:
         f"  corridor travel time (eq. 4.9):",
         f"    mean across horizon = {metrics.travel_time.mean() * 60:7.3f}  min",
         f"    max  across horizon = {metrics.travel_time.max() * 60:7.3f}  min",
+        "",
+        f"  simulation compute cost:",
+        f"    runtime  = {sim_wall_s:8.3f}  s",
+        f"    peak RSS = {sim_peak_rss_mb:8.1f}  MB",
     ]
     summary = "\n".join(summary_lines) + "\n"
     (out_dir / "summary.txt").write_text(summary)
