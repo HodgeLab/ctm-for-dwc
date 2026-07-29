@@ -759,14 +759,14 @@ def compute_qq_samples(
 class ObservedGrid:
     """Measured-PeMS 5-min space-time grids for direct/tiebreak VDS cells.
 
-    ``flow`` and ``density`` are ``(n_rows, n_5min)`` with one row per
+    ``flow`` and ``density`` are ``(n_cells, n_5min)`` with one row per
     unique direct/tiebreak VDS (in cell-index order) and one column per
     5-min window over the sim's wallclock horizon. Invalid samples are
-    NaN. ``row_labels`` annotate the rows; ``times`` are the window-start
-    timestamps.
+    NaN. ``cell_labels`` annotate the cells (with the VDS absolute
+    postmile); ``times`` are the window-start timestamps.
     """
 
-    row_labels: list[str]
+    cell_labels: list[str]
     times: pd.DatetimeIndex
     flow: np.ndarray
     density: np.ndarray
@@ -776,6 +776,7 @@ def compute_observed_grid(
     result: SimulationResult,
     cells_df: pd.DataFrame,
     timeseries_dir: Union[Path, str],
+    station_metadata: pd.DataFrame,
     *,
     start: pd.Timestamp,
 ) -> ObservedGrid:
@@ -785,12 +786,16 @@ def compute_observed_grid(
     ``vds_source`` is ``direct`` or ``direct_tiebreak`` and reads each VDS
     once. For each such cell it loads the observed 5-min flow [veh/h] and
     density [veh/mi] over the sim's wallclock ``[start, end)`` window,
-    stacking them into ``(n_rows, n_5min)`` grids for space-time heatmaps.
+    stacking them into ``(n_cells, n_5min)`` grids for space-time heatmaps.
 
     Parameters
     ----------
     result, cells_df, timeseries_dir, start
         As in :func:`compute_qq_samples`.
+    station_metadata : pandas.DataFrame
+        PeMS ``station_metadata.csv``; must carry ``ID`` (VDS id) and
+        ``Abs_PM`` (Caltrans absolute postmile). Supplies each VDS's
+        absolute postmile for the cell labels.
 
     Returns
     -------
@@ -808,12 +813,18 @@ def compute_observed_grid(
             f"cells_df is missing column(s): {sorted(missing)}. "
             "vds_id / vds_source come from Step 2 (assign_vds_to_cells)."
         )
+    meta_missing = {"ID", "Abs_PM"} - set(station_metadata.columns)
+    if meta_missing:
+        raise KeyError(
+            f"station_metadata is missing column(s): {sorted(meta_missing)}."
+        )
+    abs_pm_by_vds = station_metadata.set_index("ID")["Abs_PM"]
 
     _, n_5min, start, end = _resolve_window(result, start)
     timeseries_dir = Path(timeseries_dir)
     times = pd.date_range(start, periods=n_5min, freq="5min")
 
-    row_labels: list[str] = []
+    cell_labels: list[str] = []
     flow_rows: list[np.ndarray] = []
     density_rows: list[np.ndarray] = []
     seen: set[int] = set()
@@ -830,7 +841,10 @@ def compute_observed_grid(
             timeseries_dir, vds_id, start=start, end=end,
             n_5min=n_5min, cache=cache,
         )
-        row_labels.append(f"cell {cell_idx} (VDS {vds_id})")
+        abs_pm = abs_pm_by_vds.get(vds_id, float("nan"))
+        label = f"cell {cell_idx} (VDS {vds_id}"
+        label += f", PM {float(abs_pm):.2f})" if pd.notna(abs_pm) else ")"
+        cell_labels.append(label)
         flow_rows.append(observed_flow)
         density_rows.append(observed_density)
 
@@ -840,7 +854,7 @@ def compute_observed_grid(
         np.vstack(density_rows) if density_rows else np.empty(shape, dtype=float)
     )
     return ObservedGrid(
-        row_labels=row_labels, times=times, flow=flow, density=density,
+        cell_labels=cell_labels, times=times, flow=flow, density=density,
     )
 
 

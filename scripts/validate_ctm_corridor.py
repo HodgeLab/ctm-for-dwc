@@ -269,18 +269,29 @@ def main() -> None:
             out_path=heatmap_path,
         )
 
-    # Measured-PeMS space-time heatmaps: direct/tiebreak cell x 5-min window
+    # Measured-PeMS space-time heatmaps: time (y) x direct/tiebreak cell (x)
     # of the observed flow and density.
-    obs_grid = compute_observed_grid(result, cells, args.timeseries_dir, start=start)
-    if obs_grid.row_labels:
+    obs_grid = compute_observed_grid(
+        result,
+        cells,
+        args.timeseries_dir,
+        station_metadata,
+        start=start,
+    )
+    if obs_grid.cell_labels:
         plot_measured_heatmap(
-            obs_grid.flow, row_labels=obs_grid.row_labels, times=obs_grid.times,
-            title="Measured PeMS flow by direct/tiebreak cell and 5-min window",
-            cbar_label="flow [veh/h]", out_path=out_dir / "pems_flow_heatmap.png",
+            obs_grid.flow,
+            cell_labels=obs_grid.cell_labels,
+            times=obs_grid.times,
+            title="Measured PeMS Flow",
+            cbar_label="flow [veh/h]",
+            out_path=out_dir / "pems_flow_heatmap.png",
         )
         plot_measured_heatmap(
-            obs_grid.density, row_labels=obs_grid.row_labels, times=obs_grid.times,
-            title="Measured PeMS density by direct/tiebreak cell and 5-min window",
+            obs_grid.density,
+            cell_labels=obs_grid.cell_labels,
+            times=obs_grid.times,
+            title="Measured PeMS Density",
             cbar_label="density [veh/mi]",
             out_path=out_dir / "pems_density_heatmap.png",
         )

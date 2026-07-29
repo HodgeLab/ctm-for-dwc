@@ -30,7 +30,7 @@ extracted one.
   metrics summed over the horizon, per cell.
 * :func:`plot_geh_heatmap`           -- direct/tiebreak cell x hour
   heatmap of the flow GEH statistic.
-* :func:`plot_measured_heatmap`      -- direct/tiebreak cell x 5-min
+* :func:`plot_measured_heatmap`      -- time x direct/tiebreak cell
   space-time heatmap of a measured PeMS quantity (flow, density).
 * :func:`plot_qq_pooled`             -- corridor-pooled two-sample
   sim-vs-observed QQ for one quantity.
@@ -363,35 +363,43 @@ def plot_geh_heatmap(
 
 
 def plot_measured_heatmap(
-    grid: np.ndarray, *,
-    row_labels: list[str], times: pd.DatetimeIndex,
-    title: str, cbar_label: str, out_path: Path,
+    grid: np.ndarray,
+    *,
+    cell_labels: list[str],
+    times: pd.DatetimeIndex,
+    title: str,
+    cbar_label: str,
+    out_path: Path,
     cmap: str = "viridis",
 ) -> None:
-    """Space-time heatmap of a measured PeMS quantity (rows x 5-min columns).
+    """Space-time heatmap of a measured PeMS quantity (time y, cell x).
 
-    ``grid`` is ``(n_rows, n_cols)`` with one row per direct/tiebreak VDS
-    cell and one column per 5-min window; NaN cells (invalid observed
-    sample) render blank. ``row_labels`` annotate each row; ``times``
-    labels the x-axis at each window start.
+    ``grid`` is ``(n_cells, n_5min)`` with one row per direct/tiebreak VDS
+    cell and one column per 5-min window; it is shown transposed so time
+    runs down the y-axis and cell index across the x-axis. NaN samples
+    render blank. ``cell_labels`` annotate the x-axis; ``times`` label the
+    y-axis at each whole hour.
     """
-    n_rows, n_cols = grid.shape
+
+    data = grid.T  # (n_5min, n_cells): time down rows, cells across columns
+    n_times, n_cells = data.shape
     fig, ax = plt.subplots(
-        figsize=(min(14, 2 + 0.5 * n_cols), 1.5 + 0.4 * n_rows)
+        figsize=(min(16, 2 + 0.6 * n_cells), min(16, 2 + 0.12 * n_times))
     )
     cmap_obj = plt.get_cmap(cmap).copy()
     cmap_obj.set_bad("lightgrey")
-    masked = np.ma.masked_invalid(grid)
+    masked = np.ma.masked_invalid(data)
     mesh = ax.imshow(
         masked, aspect="auto", cmap=cmap_obj, interpolation="nearest",
     )
-    ax.set_yticks(range(n_rows))
-    ax.set_yticklabels(row_labels)
-    ax.set_xticks(range(n_cols))
-    ax.set_xticklabels(
-        [t.strftime("%H:%M") for t in times], rotation=90, fontsize=8,
-    )
-    ax.set_xlabel("5-min window start")
+    ax.set_xticks(range(n_cells))
+    ax.set_xticklabels(cell_labels, rotation=90, fontsize=8)
+    ax.set_xlabel("observed cells")
+    # Tick the time axis at whole hours to avoid an overcrowded 5-min axis.
+    hour_idx = [i for i, t in enumerate(times) if t.minute == 0]
+    ax.set_yticks(hour_idx)
+    ax.set_yticklabels([times[i].strftime("%H:%M") for i in hour_idx])
+    ax.set_ylabel("time")
     ax.set_title(title)
     fig.colorbar(mesh, ax=ax, label=cbar_label)
     fig.tight_layout()
