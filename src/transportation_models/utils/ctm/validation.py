@@ -757,45 +757,48 @@ def compute_qq_samples(
 
 @dataclass
 class ObservedGrid:
-    """Measured-PeMS 5-min space-time grids for direct/tiebreak VDS cells.
+    """Measured-PeMS space-time grids that mirror the simulation contours.
 
-    ``flow`` and ``density`` are ``(n_cells, n_5min)`` with one row per
-    unique direct/tiebreak VDS (in cell-index order) and one column per
-    5-min window over the sim's wallclock horizon. Invalid samples are
-    NaN. ``cell_labels`` annotate the cells (with the VDS absolute
-    postmile); ``times`` are the window-start timestamps.
+    ``flow`` [veh/h] and ``density`` [veh/mi] are ``(n_5min, n_cells)``
+    (time down rows, cells across columns) so they render with the same
+    :func:`utils.ctm.plots.plot_flow_density_contour` as the sim's
+    ``flow_contour``/``density_contour`` -- same distance x-axis, same
+    time-in-hours y-axis. Cells with no direct/tiebreak VDS (and invalid
+    observed samples) are NaN, so measured coverage shows against the full
+    corridor. ``pm_edges`` (length ``n_cells + 1``) and ``horizon_h`` are
+    the x/y extents the contour plotter needs; ``n_direct_cells`` is how
+    many cells carry data.
     """
 
-    cell_labels: list[str]
-    times: pd.DatetimeIndex
     flow: np.ndarray
     density: np.ndarray
+    pm_edges: np.ndarray
+    horizon_h: float
+    n_direct_cells: int
 
 
 def compute_observed_grid(
     result: SimulationResult,
     cells_df: pd.DataFrame,
     timeseries_dir: Union[Path, str],
-    station_metadata: pd.DataFrame,
     *,
     start: pd.Timestamp,
 ) -> ObservedGrid:
-    """Collect measured-PeMS flow/density 5-min grids over the sim window.
+    """Collect measured-PeMS flow/density space-time grids over the sim window.
 
-    Like :func:`compute_qq_samples`, restricts to the cell whose
-    ``vds_source`` is ``direct`` or ``direct_tiebreak`` and reads each VDS
-    once. For each such cell it loads the observed 5-min flow [veh/h] and
-    density [veh/mi] over the sim's wallclock ``[start, end)`` window,
-    stacking them into ``(n_cells, n_5min)`` grids for space-time heatmaps.
+    Builds full-corridor ``(n_5min, n_cells)`` grids so the measured
+    heatmaps line up cell-for-cell with the simulation contours. Each cell
+    whose ``vds_source`` is ``direct`` or ``direct_tiebreak`` is filled
+    with its VDS's observed 5-min flow [veh/h] and density [veh/mi] over
+    the sim's wallclock ``[start, end)`` window (VDS reads are memoized, so
+    several cells sharing one VDS repeat its column); every other cell is
+    left NaN.
 
     Parameters
     ----------
     result, cells_df, timeseries_dir, start
-        As in :func:`compute_qq_samples`.
-    station_metadata : pandas.DataFrame
-        PeMS ``station_metadata.csv``; must carry ``ID`` (VDS id) and
-        ``Abs_PM`` (Caltrans absolute postmile). Supplies each VDS's
-        absolute postmile for the cell labels.
+        As in :func:`compute_qq_samples`. ``cells_df`` also needs
+        ``pm_start`` / ``pm_end`` for the distance x-axis.
 
     Returns
     -------
@@ -807,54 +810,40 @@ def compute_observed_grid(
             f"cells_df has {len(cells_df)} rows but result.freeway has "
             f"{n_cells} cells; one row per cell is required."
         )
-    missing = {"vds_id", "vds_source"} - set(cells_df.columns)
+    missing = {"vds_id", "vds_source", "pm_start", "pm_end"} - set(cells_df.columns)
     if missing:
         raise KeyError(
             f"cells_df is missing column(s): {sorted(missing)}. "
             "vds_id / vds_source come from Step 2 (assign_vds_to_cells)."
         )
-    meta_missing = {"ID", "Abs_PM"} - set(station_metadata.columns)
-    if meta_missing:
-        raise KeyError(
-            f"station_metadata is missing column(s): {sorted(meta_missing)}."
-        )
-    abs_pm_by_vds = station_metadata.set_index("ID")["Abs_PM"]
 
     _, n_5min, start, end = _resolve_window(result, start)
     timeseries_dir = Path(timeseries_dir)
-    times = pd.date_range(start, periods=n_5min, freq="5min")
 
-    cell_labels: list[str] = []
-    flow_rows: list[np.ndarray] = []
-    density_rows: list[np.ndarray] = []
-    seen: set[int] = set()
+    flow = np.full((n_5min, n_cells), np.nan)
+    density = np.full((n_5min, n_cells), np.nan)
+    n_direct_cells = 0
     cache: dict[int, pd.DataFrame] = {}
     for cell_idx, cell_row in enumerate(cells_df.itertuples(index=False)):
         if cell_row.vds_source not in _DIRECT_SOURCES:
             continue
         vds_id = int(cell_row.vds_id)
-        if vds_id in seen:
-            continue
-        seen.add(vds_id)
-
         observed_flow, observed_density = _load_observed_window(
             timeseries_dir, vds_id, start=start, end=end,
             n_5min=n_5min, cache=cache,
         )
-        abs_pm = abs_pm_by_vds.get(vds_id, float("nan"))
-        label = f"cell {cell_idx} (VDS {vds_id}"
-        label += f", PM {float(abs_pm):.2f})" if pd.notna(abs_pm) else ")"
-        cell_labels.append(label)
-        flow_rows.append(observed_flow)
-        density_rows.append(observed_density)
+        flow[:, cell_idx] = observed_flow
+        density[:, cell_idx] = observed_density
+        n_direct_cells += 1
 
-    shape = (len(flow_rows), n_5min)
-    flow = np.vstack(flow_rows) if flow_rows else np.empty(shape, dtype=float)
-    density = (
-        np.vstack(density_rows) if density_rows else np.empty(shape, dtype=float)
-    )
+    pm_edges = np.concatenate([
+        cells_df["pm_start"].to_numpy(dtype=float),
+        [float(cells_df["pm_end"].iloc[-1])],
+    ])
+    horizon_h = n_5min * _FIVE_MIN_H
     return ObservedGrid(
-        cell_labels=cell_labels, times=times, flow=flow, density=density,
+        flow=flow, density=density, pm_edges=pm_edges,
+        horizon_h=horizon_h, n_direct_cells=n_direct_cells,
     )
 
 

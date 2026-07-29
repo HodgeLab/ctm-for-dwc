@@ -40,8 +40,8 @@ from transportation_models.utils.ctm import (
     corridor_rmse_mape,
 )
 from transportation_models.utils.ctm.plots import (
+    plot_flow_density_contour,
     plot_geh_heatmap,
-    plot_measured_heatmap,
     plot_qq_pooled,
     plot_qq_percell,
 )
@@ -269,30 +269,36 @@ def main() -> None:
             out_path=heatmap_path,
         )
 
-    # Measured-PeMS space-time heatmaps: time (y) x direct/tiebreak cell (x)
-    # of the observed flow and density.
+    # Measured-PeMS space-time heatmaps, rendered with the same contour
+    # plotter (and viridis/magma colormaps) as the sim's flow/density
+    # contours so the two are directly comparable. Measured coverage shows
+    # against the full corridor; cells with no VDS are blank.
     obs_grid = compute_observed_grid(
         result,
         cells,
         args.timeseries_dir,
-        station_metadata,
         start=start,
     )
-    if obs_grid.cell_labels:
-        plot_measured_heatmap(
+    if obs_grid.n_direct_cells:
+        end = start + pd.Timedelta(hours=obs_grid.horizon_h)
+        plot_flow_density_contour(
             obs_grid.flow,
-            cell_labels=obs_grid.cell_labels,
-            times=obs_grid.times,
-            title="Measured PeMS Flow",
+            title=f"Measured PeMS flow ({start} -> {end})",
             cbar_label="flow [veh/h]",
+            cmap="viridis",
+            horizon_h=obs_grid.horizon_h,
+            pm_edges=obs_grid.pm_edges,
+            y_label="time from sim start [h]",
             out_path=out_dir / "pems_flow_heatmap.png",
         )
-        plot_measured_heatmap(
+        plot_flow_density_contour(
             obs_grid.density,
-            cell_labels=obs_grid.cell_labels,
-            times=obs_grid.times,
-            title="Measured PeMS Density",
+            title=f"Measured PeMS density ({start} -> {end})",
             cbar_label="density [veh/mi]",
+            cmap="magma",
+            horizon_h=obs_grid.horizon_h,
+            pm_edges=obs_grid.pm_edges,
+            y_label="time from sim start [h]",
             out_path=out_dir / "pems_density_heatmap.png",
         )
 
