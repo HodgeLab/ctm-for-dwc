@@ -306,6 +306,7 @@ def main() -> None:
             cbar_label="density [veh/mi]", cmap="magma",
             horizon_h=horizon_h, pm_edges=pm_edges,
             y_label="time from sim start [h]",
+            vmax=300.0,
             out_path=out_dir / "density_contour.png",
         )
 
