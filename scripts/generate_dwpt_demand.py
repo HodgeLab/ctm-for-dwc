@@ -1,8 +1,10 @@
 """Generate DWPT demand from CTM simulation.
 
 Builds a DWPT corridor from a CTM simulation result and CLI-supplied corridor specs, calculates
-DWPT demand at every timestamp and Rx pad position, and writes two plots and a summary of results.
-Plots are the corridor power-vs-position profile and the demand space-time heatmap.
+DWPT demand at every timestamp and Rx pad position, and writes five plots and a summary of results.
+Plots are the corridor power-vs-position profile, the demand space-time heatmap, the
+corridor-aggregate load timeseries, the instantaneous load profile at peak, and the
+corridor-aggregate load duration curve.
 
 Run from the repo root:
     python scripts/generate_dwpt_demand.py \\
@@ -64,6 +66,11 @@ def main() -> None:
         help="DWPT EV fraction [0,1]"
     )
     parser.add_argument(
+        "--segment-m", type=float, default=20.0,
+        help=("Segment width (meters) for aggregating the instantaneous "
+              "peak load profile. Defaults to 20."),
+    )
+    parser.add_argument(
         "--out-dir", type=Path, default=None,
         help=("Output directory for DWPT demand profile. "
               "Defaults to <ctm-result-dir>"),
@@ -105,6 +112,18 @@ def main() -> None:
     plots.plot_demand_heatmap(
         demand, dt_h=result.freeway.dt, out_path=out_dir / "dwpt_demand_heatmap.png",
     )
+    plots.plot_aggregate_timeseries(
+        demand, dt_h=result.freeway.dt,
+        out_path=out_dir / "dwpt_aggregate_timeseries.png",
+    )
+    plots.plot_peak_load_profile(
+        demand, dt_h=result.freeway.dt, segment_m=args.segment_m,
+        out_path=out_dir / "dwpt_peak_load_profile.png",
+    )
+    plots.plot_load_duration_curve(
+        demand, dt_h=result.freeway.dt,
+        out_path=out_dir / "dwpt_load_duration_curve.png",
+    )
 
     summary_lines = [
         "=== DWPT Demand Generation Summary ===",
@@ -135,6 +154,9 @@ def main() -> None:
     print(f"Wrote {out_dir}/")
     print("  dwpt_P_y.png")
     print("  dwpt_demand_heatmap.png")
+    print("  dwpt_aggregate_timeseries.png")
+    print("  dwpt_peak_load_profile.png")
+    print("  dwpt_load_duration_curve.png")
     print("  dwpt_summary.txt")
 
 
