@@ -192,10 +192,21 @@ def _strategy_colors(strategies: list[str]) -> dict[str, str]:
     return {s: palette(i % 10) for i, s in enumerate(sorted(set(strategies)))}
 
 
-def _distance_styles(distances: list[float]) -> dict[float, str]:
-    """Line style per distance for the QQ overlay."""
+def _distance_colors(distances: list[float]) -> dict[float, str]:
+    """Color per distance along viridis, light (short) to dark (long)."""
     uniq = sorted(set(distances))
-    return {d: _QQ_LINESTYLES[i % len(_QQ_LINESTYLES)] for i, d in enumerate(uniq)}
+    cmap = plt.get_cmap("viridis")
+    if len(uniq) == 1:
+        return {uniq[0]: cmap(0.5)}
+    return {
+        d: cmap(i / (len(uniq) - 1)) for i, d in enumerate(uniq)
+    }
+
+
+def _strategy_styles(strategies: list[str]) -> dict[str, str]:
+    """Line style per ramp strategy for the QQ overlay."""
+    uniq = sorted(set(strategies))
+    return {s: _QQ_LINESTYLES[i % len(_QQ_LINESTYLES)] for i, s in enumerate(uniq)}
 
 
 def main() -> None:
@@ -245,14 +256,15 @@ def main() -> None:
             strategy_colors=strategy_colors,
         )
 
-    distance_styles = _distance_styles(summary["distance_mi"].tolist())
+    distance_colors = _distance_colors(summary["distance_mi"].tolist())
+    strategy_styles = _strategy_styles(summary["ramp_strategy"].tolist())
     for quantity, curves in (
         ("flow", flow_curves), ("density", density_curves),
     ):
         plot_qq_cross_study(
             curves, quantity=quantity,
             out_path=out_dir / f"{quantity}_qq.png",
-            strategy_colors=strategy_colors, distance_styles=distance_styles,
+            distance_colors=distance_colors, strategy_styles=strategy_styles,
         )
 
     print()
