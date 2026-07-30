@@ -211,11 +211,28 @@ def main() -> None:
         "--top-k", default=5, type=int,
         help="How many worst-fitting cells to list in the stdout summary.",
     )
+    parser.add_argument(
+        "--drop-first-cell", action=argparse.BooleanOptionalAction, default=True,
+        help=("Exclude the upstream-most cell (index 0) from every scored "
+              "statistic (RMSE/MAPE, GEH, QQ, corridor aggregates) and from "
+              "the measured PeMS heatmaps -- its density is an inflated "
+              "upstream-boundary artifact. On by default; pass "
+              "--no-drop-first-cell to score it too."),
+    )
     args = parser.parse_args()
 
     print(f"loading result.npz from {args.sim_dir}", file=sys.stderr)
     result = SimulationResult.from_npz(args.sim_dir / "result.npz")
     cells = pd.read_csv(args.cells)
+
+    # Excluding the upstream boundary cell (index 0) from every scored
+    # statistic: mark it non-direct so all the validation functions -- which
+    # score only direct/tiebreak VDS cells -- skip it, while every other
+    # cell keeps its original index. (The measured PeMS heatmaps drop its
+    # column separately below.) ``cells`` feeds only the validation calls
+    # from here on, so mutating it in place is safe.
+    if args.drop_first_cell:
+        cells.loc[cells.index[0], "vds_source"] = "dropped_first_cell"
 
     try:
         start = resolve_start(args.start, result.start)
@@ -225,6 +242,10 @@ def main() -> None:
     stats = compare_against_historical(
         result, cells, args.timeseries_dir, start=start,
     )
+    if args.drop_first_cell:
+        # compare_against_historical still emits a (now non-direct) NaN row
+        # for cell 0; drop it so it's absent from validation.csv entirely.
+        stats = stats[stats["cell"] != 0].reset_index(drop=True)
     station_metadata = pd.read_csv(args.station_metadata)
     aggregates = compare_corridor_aggregates(
         result, cells, args.timeseries_dir, station_metadata, start=start,
@@ -281,25 +302,32 @@ def main() -> None:
     )
     if obs_grid.n_direct_cells:
         end = start + pd.Timedelta(hours=obs_grid.horizon_h)
+        # Drop cell 0's column (and its postmile edge) so the measured
+        # heatmaps share the same x-extent as the cell-0-dropped sim contours.
+        obs_flow, obs_density = obs_grid.flow, obs_grid.density
+        obs_pm_edges = obs_grid.pm_edges
+        if args.drop_first_cell:
+            obs_flow = obs_flow[:, 1:]
+            obs_density = obs_density[:, 1:]
+            obs_pm_edges = obs_pm_edges[1:]
         plot_flow_density_contour(
-            obs_grid.flow,
+            obs_flow,
             title=f"Measured PeMS flow ({start} -> {end})",
             cbar_label="flow [veh/h]",
             cmap="viridis",
             horizon_h=obs_grid.horizon_h,
-            pm_edges=obs_grid.pm_edges,
+            pm_edges=obs_pm_edges,
             y_label="time from sim start [h]",
             out_path=out_dir / "pems_flow_heatmap.png",
         )
         plot_flow_density_contour(
-            obs_grid.density,
+            obs_density,
             title=f"Measured PeMS density ({start} -> {end})",
             cbar_label="density [veh/mi]",
             cmap="magma",
             horizon_h=obs_grid.horizon_h,
-            pm_edges=obs_grid.pm_edges,
+            pm_edges=obs_pm_edges,
             y_label="time from sim start [h]",
-            vmax=300.0,
             out_path=out_dir / "pems_density_heatmap.png",
         )
 

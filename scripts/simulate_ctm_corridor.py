@@ -179,6 +179,14 @@ def main() -> None:
         "--no-plots", action="store_true",
         help="Skip figure generation (faster for headless / large-batch runs).",
     )
+    parser.add_argument(
+        "--drop-first-cell", action=argparse.BooleanOptionalAction, default=True,
+        help=("Exclude the upstream-most cell (index 0) from the metrics and "
+              "figures -- its density is an inflated upstream-boundary "
+              "artifact. The raw per-quantity CSVs / result.npz still hold "
+              "every cell. On by default; pass --no-drop-first-cell to keep "
+              "it (e.g. to diagnose the boundary cell)."),
+    )
     args = parser.parse_args()
 
     dt_h = float(args.dt_seconds) / 3600.0
@@ -245,7 +253,10 @@ def main() -> None:
     result = replace(simulate(freeway, scenario), start=args.start)
     sim_wall_s = time.perf_counter() - t0
     sim_peak_rss_mb = _peak_rss_mb()
-    metrics = compute_metrics(result)
+    # Metrics and figures optionally exclude the upstream boundary cell
+    # (index 0); the raw CSVs / result.npz below always cover every cell.
+    analysis = result.without_first_cell() if args.drop_first_cell else result
+    metrics = compute_metrics(analysis)
 
     # 7. Write per-quantity CSVs + summary.
     out_dir = (
@@ -276,22 +287,27 @@ def main() -> None:
                 f"got remainder {n_steps - n_samples * steps_per_period} step(s)."
             )
 
+        # ``analysis`` already drops cell 0 when --drop-first-cell is set,
+        # so the contours, postmile edges, and per-cell x-axis all follow it.
+        first_cell = 1 if args.drop_first_cell else 0
+        cells_plot = cells.iloc[first_cell:]
+
         kw = dict(steps_per_period=steps_per_period, n_samples=n_samples)
         # Contours are (K, N): time runs down rows, cells across columns.
         flow_KN = downsample_to_plot_period(
-            result.mainline_flow, state=False, **kw,
+            analysis.mainline_flow, state=False, **kw,
         ).T
         # Drop the initial-state column so the time axis aligns with flow's
         # period-start sampling.
         density_KN = downsample_to_plot_period(
-            result.density, state=True, **kw,
+            analysis.density, state=True, **kw,
         )[:, 1:].T
         # Per-cell postmile boundaries from cells.csv preserve absolute
         # postmiles for pm-cropped corridors (cumsum-of-lengths from the
         # freeway.csv alone would start at 0 and lose that anchor).
         pm_edges = np.concatenate([
-            cells["pm_start"].to_numpy(dtype=float),
-            [float(cells["pm_end"].iloc[-1])],
+            cells_plot["pm_start"].to_numpy(dtype=float),
+            [float(cells_plot["pm_end"].iloc[-1])],
         ])
 
         plot_flow_density_contour(
@@ -306,7 +322,6 @@ def main() -> None:
             cbar_label="density [veh/mi]", cmap="magma",
             horizon_h=horizon_h, pm_edges=pm_edges,
             y_label="time from sim start [h]",
-            vmax=300.0,
             out_path=out_dir / "density_contour.png",
         )
 
@@ -326,6 +341,7 @@ def main() -> None:
         )
         plot_per_cell_metrics(
             metrics, title=f"{horizon_h:.2f}-hour totals per cell",
+            first_cell_index=first_cell,
             out_path=out_dir / "per_cell_metrics.png",
         )
     summary_lines = [
@@ -338,6 +354,8 @@ def main() -> None:
         f"  upstream VDS : {upstream_vds}",
         f"  demand       : {'<zero>' if demand_df is None else args.demand}",
         f"  beta         : {'<zero>' if beta_df is None else args.beta}",
+        (f"  metrics scope: cells 1..{n_cells - 1} (cell 0 dropped)"
+         if args.drop_first_cell else f"  metrics scope: all {n_cells} cells"),
         "",
         f"  horizon totals (eqs. 4.10/4.12/4.14/4.16):",
         f"    VHT                = {metrics.vht.sum():12.3f}  veh*h",

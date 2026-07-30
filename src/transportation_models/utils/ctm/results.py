@@ -9,7 +9,7 @@ helper exposes the same data in wide format with a time index in hours.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Optional, Union
 
@@ -99,6 +99,38 @@ class SimulationResult:
                 self.boundary_inflow, index=idx_flow, name="boundary_inflow"
             ),
         }
+
+    def without_first_cell(self) -> "SimulationResult":
+        """Return a copy with the upstream-most cell (index 0) removed.
+
+        Slices every per-cell array down to cells ``1..n-1`` and crops the
+        ``Freeway`` / ``Scenario`` cell dimension to match, so the copy is
+        internally consistent. ``boundary_inflow`` is a scalar time series
+        (the flow admitted *into* old cell 0) and is carried over
+        unchanged. Intended for excluding the upstream boundary cell --
+        whose density is a boundary artifact -- from metrics, plots, and
+        the DWPT adapter, without disturbing the on-disk result; not meant
+        for re-simulation or re-saving.
+        """
+        freeway = replace(self.freeway, cells=self.freeway.cells[1:])
+        scenario = replace(
+            self.scenario,
+            rho0=self.scenario.rho0[1:],
+            q0=self.scenario.q0[1:],
+            demand=self.scenario.demand[1:],
+            beta=self.scenario.beta[1:],
+        )
+        return replace(
+            self,
+            freeway=freeway,
+            scenario=scenario,
+            density=self.density[1:],
+            queue=self.queue[1:],
+            mainline_flow=self.mainline_flow[1:],
+            off_ramp=self.off_ramp[1:],
+            on_ramp=self.on_ramp[1:],
+            speed=self.speed[1:],
+        )
 
     def to_npz(self, path: Union[str, Path]) -> None:
         """Save this result to a single self-contained ``.npz`` file.

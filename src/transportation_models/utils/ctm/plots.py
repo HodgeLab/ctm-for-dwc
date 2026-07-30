@@ -237,7 +237,6 @@ def plot_flow_density_contour(
     horizon_h: float, pm_edges: np.ndarray,
     x_label: str = "distance from upstream end [mi]",
     y_label: str = "time [h]",
-    vmax: float | None = None,
     out_path: Path,
 ) -> None:
     """Render a ``(K, N)`` space-time array as a heatmap.
@@ -249,9 +248,7 @@ def plot_flow_density_contour(
     actual widths rather than being normalized to a uniform grid. The
     x_label / y_label defaults work for distance from the corridor
     upstream end and arbitrary time origins; pass overrides for e.g.
-    absolute Caltrans postmile or "time of day". ``vmax`` caps the color
-    scale (values above it saturate at the top color, flagged on the
-    colorbar); ``None`` autoscales.
+    absolute Caltrans postmile or "time of day".
     """
     pm_edges = np.asarray(pm_edges, dtype=float)
     n_samples, n_cells = arr_KN.shape
@@ -263,15 +260,12 @@ def plot_flow_density_contour(
     fig, ax = plt.subplots(figsize=(10, 4.5))
     y_edges = np.linspace(0.0, horizon_h, n_samples + 1)
     mesh = ax.pcolormesh(
-        pm_edges, y_edges, arr_KN, cmap=cmap, shading="flat", vmax=vmax,
+        pm_edges, y_edges, arr_KN, cmap=cmap, shading="flat",
     )
     ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
     ax.set_title(title)
-    fig.colorbar(
-        mesh, ax=ax, label=cbar_label,
-        extend="max" if vmax is not None else "neither",
-    )
+    fig.colorbar(mesh, ax=ax, label=cbar_label)
     fig.tight_layout()
     fig.savefig(out_path, dpi=120)
     plt.close(fig)
@@ -307,13 +301,20 @@ def plot_aggregate_metrics(
     plt.close(fig)
 
 
-def plot_per_cell_metrics(metrics, *, title: str, out_path: Path) -> None:
-    """Horizon-total VHT/VMT/delay/ploss broken down by cell."""
+def plot_per_cell_metrics(
+    metrics, *, title: str, out_path: Path, first_cell_index: int = 0,
+) -> None:
+    """Horizon-total VHT/VMT/delay/ploss broken down by cell.
+
+    ``first_cell_index`` is the original index of ``metrics``' first cell,
+    so the x-axis stays labelled with true cell indices when the caller
+    passes metrics computed on a cell-cropped result (e.g. cell 0 dropped).
+    """
     vht = metrics.vht_per_cell.sum(axis=1)
     vmt = metrics.vmt_per_cell.sum(axis=1)
     delay = metrics.delay_per_cell.sum(axis=1)
     ploss = metrics.productivity_loss_per_cell.sum(axis=1)
-    cells = np.arange(vht.size)
+    cells = np.arange(first_cell_index, first_cell_index + vht.size)
 
     fig, axes = plt.subplots(2, 2, figsize=(11, 6), sharex=True)
     series = list(zip((vht, vmt, delay, ploss), _METRIC_SERIES))

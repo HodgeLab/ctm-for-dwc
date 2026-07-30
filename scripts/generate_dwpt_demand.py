@@ -68,12 +68,20 @@ def main() -> None:
         help=("Output directory for DWPT demand profile. "
               "Defaults to <ctm-result-dir>"),
     )
+    parser.add_argument(
+        "--drop-first-cell", action=argparse.BooleanOptionalAction, default=True,
+        help=("Exclude the upstream-most CTM cell (index 0) from the demand, "
+              "whose density is an inflated upstream-boundary artifact. On by "
+              "default; pass --no-drop-first-cell to keep it."),
+    )
     args = parser.parse_args()
 
     if not args.ctm_result.exists():
         parser.error(f"--ctm-result not found: {args.ctm_result}")
     ctm_result_path = args.ctm_result.resolve()
     result = SimulationResult.from_npz(ctm_result_path)
+    if args.drop_first_cell:
+        result = result.without_first_cell()
 
     out_dir = (
         args.out_dir if args.out_dir is not None
