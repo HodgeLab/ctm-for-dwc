@@ -36,8 +36,13 @@ def _read_manifest(path: Path) -> pd.DataFrame:
 
 
 def _plot_vs_length(
-    manifest: pd.DataFrame, *,
-    metric: str, ylabel: str, title: str, out_path: Path,
+    manifest: pd.DataFrame,
+    *,
+    metric: str,
+    ylabel: str,
+    title: str,
+    out_path: Path,
+    y_lims: tuple,
 ) -> None:
     """One cost metric vs corridor length, one marker per run.
 
@@ -47,16 +52,23 @@ def _plot_vs_length(
     """
     fig, ax = plt.subplots(figsize=(7, 4.5))
     ax.plot(
-        manifest["length_mi"], manifest[metric],
-        marker="o", color="tab:blue",
+        manifest["length_mi"],
+        manifest[metric],
+        marker="o",
+        color="tab:blue",
     )
     ax.set_xticks(manifest["length_mi"])
-    ax.set_xticklabels([
-        f"{length:g} mi\n{cells:g} cells"
-        for length, cells in zip(manifest["length_mi"], manifest["n_cells"])
-    ])
+    ax.set_xticklabels(
+        [
+            f"{length:g} mi\n{cells:g} cells"
+            for length, cells in zip(manifest["length_mi"], manifest["n_cells"])
+        ]
+    )
     ax.set_xlabel("corridor length")
+    ax.tick_params(axis="x", labelrotation=45.0)
     ax.set_ylabel(ylabel)
+    if y_lims:
+        ax.set_ylim(y_lims)
     ax.set_title(title)
     ax.grid(alpha=0.3)
     fig.tight_layout()
@@ -86,14 +98,20 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     _plot_vs_length(
-        manifest, metric="runtime_s",
-        ylabel="runtime [s]", title="CTM simulation runtime vs corridor length",
+        manifest,
+        metric="runtime_s",
+        ylabel="runtime [s]",
+        title="CTM simulation runtime vs corridor length",
         out_path=out_dir / "runtime_vs_length.png",
+        y_lims=(0, 1),
     )
     _plot_vs_length(
-        manifest, metric="peakRSS_gb",
-        ylabel="peak RSS [GB]", title="CTM simulation peak RSS vs corridor length",
+        manifest,
+        metric="peakRSS_gb",
+        ylabel="peak RSS [GB]",
+        title="CTM simulation peak RSS vs corridor length",
         out_path=out_dir / "peakRSS_vs_length.png",
+        y_lims=None,
     )
 
     print(f"Compared {len(manifest)} runs; wrote plots to {out_dir}")
