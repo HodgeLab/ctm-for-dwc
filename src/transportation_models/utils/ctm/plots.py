@@ -502,16 +502,16 @@ def plot_metric_vs_distance(
 def plot_qq_cross_study(
     curves: list[dict], *,
     quantity: str, out_path: Path,
-    distance_colors: dict[float, str], strategy_styles: dict[str, str],
+    strategy_colors: dict[str, str], distance_styles: dict[float, str],
 ) -> None:
     """Overlaid corridor-pooled sim-vs-observed QQ curves across studies.
 
     Each entry in ``curves`` is a dict with ``distance`` (miles),
     ``strategy`` and the pooled paired ``sim`` / ``obs`` arrays for
     ``quantity``. Each study is drawn as a two-sample QQ curve (sorted
-    observed on x, sorted sim on y) with its color set by distance and its
-    line style by ramp strategy, over a shared y=x reference. Two legends
-    decode the color (distance) and style (strategy) channels.
+    observed on x, sorted sim on y) with its color set by ramp strategy and
+    its line style by distance, over a shared y=x reference. Two legends
+    decode the color (strategy) and style (distance) channels.
     """
     unit = _QQ_UNITS[quantity]
     fig, ax = plt.subplots(figsize=(6.5, 6.5))
@@ -525,8 +525,8 @@ def plot_qq_cross_study(
             continue
         ax.plot(
             obs, sim,
-            color=distance_colors[c["distance"]],
-            ls=strategy_styles[c["strategy"]], lw=1.6, alpha=0.85,
+            color=strategy_colors[c["strategy"]],
+            ls=distance_styles[c["distance"]], lw=1.6, alpha=0.85,
         )
         bounds += [float(obs[0]), float(obs[-1]), float(sim[0]), float(sim[-1])]
         obs_max = max(obs_max, float(obs[-1]))
@@ -545,22 +545,22 @@ def plot_qq_cross_study(
     ax.set_title(f"Sim vs observed {quantity} QQ -- corridor-pooled")
     ax.grid(alpha=0.3)
 
-    # Two legends: color decodes distance, line style decodes strategy.
+    # Two legends: color decodes strategy, line style decodes distance.
     color_handles = [
-        plt.Line2D([], [], color=col, lw=2.0, label=f"{dist:g} mi")
-        for dist, col in sorted(distance_colors.items())
+        plt.Line2D([], [], color=col, lw=2.0, label=strategy)
+        for strategy, col in sorted(strategy_colors.items())
     ]
     style_handles = [
-        plt.Line2D([], [], color="black", ls=style, lw=1.6, label=strategy)
-        for strategy, style in strategy_styles.items()
+        plt.Line2D([], [], color="black", ls=style, lw=1.6, label=f"{dist:g} mi")
+        for dist, style in sorted(distance_styles.items())
     ]
     leg1 = ax.legend(
-        handles=color_handles, title="distance", fontsize=8,
+        handles=color_handles, title="ramp fill strategy", fontsize=8,
         loc="upper left",
     )
     ax.add_artist(leg1)
     ax.legend(
-        handles=style_handles, title="ramp fill strategy", fontsize=8,
+        handles=style_handles, title="distance", fontsize=8,
         loc="lower right",
     )
 
