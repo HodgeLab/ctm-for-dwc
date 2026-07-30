@@ -1,7 +1,7 @@
 """Hand-calc and property tests for the DWPT temporal-aggregation core.
 
 Covers the pure numeric helpers in ``utils/dwpt/aggregation.py``: energy-
-conserving re-binning, window-average power (peak attenuation), mile-chunk
+conserving re-binning, window-average power (peak attenuation), mile-segment
 column grouping, and load-duration-curve divergence.
 """
 
@@ -86,25 +86,25 @@ def test_pct_attenuation_zero_baseline_is_zero():
 
 
 # ---------------------------------------------------------------------------
-# mile_chunk_columns
+# mile_segment_columns
 # ---------------------------------------------------------------------------
 
 
-def test_mile_chunk_columns_groups_by_mile():
+def test_mile_segment_columns_groups_by_mile():
     # positions at 0, 0.5, 1.0, 1.5 mi over a 2-mi corridor
     position_m = np.array([0.0, 0.5, 1.0, 1.5]) * _METERS_PER_MILE
-    chunks = agg.mile_chunk_columns(position_m, corridor_length_m=2.0 * _METERS_PER_MILE)
-    assert set(chunks) == {0, 1}
-    np.testing.assert_array_equal(chunks[0], [0, 1])
-    np.testing.assert_array_equal(chunks[1], [2, 3])
+    segments = agg.mile_segment_columns(position_m, corridor_length_m=2.0 * _METERS_PER_MILE)
+    assert set(segments) == {0, 1}
+    np.testing.assert_array_equal(segments[0], [0, 1])
+    np.testing.assert_array_equal(segments[1], [2, 3])
 
 
-def test_mile_chunk_columns_drops_off_corridor():
+def test_mile_segment_columns_drops_off_corridor():
     # a negative (approach) column and one past corridor end are dropped
     position_m = np.array([-0.25, 0.25, 0.75, 2.5]) * _METERS_PER_MILE
-    chunks = agg.mile_chunk_columns(position_m, corridor_length_m=1.0 * _METERS_PER_MILE)
-    assert set(chunks) == {0}
-    np.testing.assert_array_equal(chunks[0], [1, 2])
+    segments = agg.mile_segment_columns(position_m, corridor_length_m=1.0 * _METERS_PER_MILE)
+    assert set(segments) == {0}
+    np.testing.assert_array_equal(segments[0], [1, 2])
 
 
 # ---------------------------------------------------------------------------
