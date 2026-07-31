@@ -755,6 +755,98 @@ def compute_qq_samples(
     return QQResult(per_cell=per_cell)
 
 
+@dataclass
+class ObservedGrid:
+    """Measured-PeMS space-time grids that mirror the simulation contours.
+
+    ``flow`` [veh/h] and ``density`` [veh/mi] are ``(n_5min, n_cells)``
+    (time down rows, cells across columns) so they render with the same
+    :func:`utils.ctm.plots.plot_flow_density_contour` as the sim's
+    ``flow_contour``/``density_contour`` -- same distance x-axis, same
+    time-in-hours y-axis. Cells with no direct/tiebreak VDS (and invalid
+    observed samples) are NaN, so measured coverage shows against the full
+    corridor. ``pm_edges`` (length ``n_cells + 1``) and ``horizon_h`` are
+    the x/y extents the contour plotter needs; ``n_direct_cells`` is how
+    many cells carry data.
+    """
+
+    flow: np.ndarray
+    density: np.ndarray
+    pm_edges: np.ndarray
+    horizon_h: float
+    n_direct_cells: int
+
+
+def compute_observed_grid(
+    result: SimulationResult,
+    cells_df: pd.DataFrame,
+    timeseries_dir: Union[Path, str],
+    *,
+    start: pd.Timestamp,
+) -> ObservedGrid:
+    """Collect measured-PeMS flow/density space-time grids over the sim window.
+
+    Builds full-corridor ``(n_5min, n_cells)`` grids so the measured
+    heatmaps line up cell-for-cell with the simulation contours. Each cell
+    whose ``vds_source`` is ``direct`` or ``direct_tiebreak`` is filled
+    with its VDS's observed 5-min flow [veh/h] and density [veh/mi] over
+    the sim's wallclock ``[start, end)`` window (VDS reads are memoized, so
+    several cells sharing one VDS repeat its column); every other cell is
+    left NaN.
+
+    Parameters
+    ----------
+    result, cells_df, timeseries_dir, start
+        As in :func:`compute_qq_samples`. ``cells_df`` also needs
+        ``pm_start`` / ``pm_end`` for the distance x-axis.
+
+    Returns
+    -------
+    ObservedGrid
+    """
+    n_cells = result.freeway.n_cells
+    if len(cells_df) != n_cells:
+        raise ValueError(
+            f"cells_df has {len(cells_df)} rows but result.freeway has "
+            f"{n_cells} cells; one row per cell is required."
+        )
+    missing = {"vds_id", "vds_source", "pm_start", "pm_end"} - set(cells_df.columns)
+    if missing:
+        raise KeyError(
+            f"cells_df is missing column(s): {sorted(missing)}. "
+            "vds_id / vds_source come from Step 2 (assign_vds_to_cells)."
+        )
+
+    _, n_5min, start, end = _resolve_window(result, start)
+    timeseries_dir = Path(timeseries_dir)
+
+    flow = np.full((n_5min, n_cells), np.nan)
+    density = np.full((n_5min, n_cells), np.nan)
+    n_direct_cells = 0
+    cache: dict[int, pd.DataFrame] = {}
+    for cell_idx, cell_row in enumerate(cells_df.itertuples(index=False)):
+        if cell_row.vds_source not in _DIRECT_SOURCES:
+            continue
+        vds_id = int(cell_row.vds_id)
+        observed_flow, observed_density = _load_observed_window(
+            timeseries_dir, vds_id, start=start, end=end,
+            n_5min=n_5min, cache=cache,
+        )
+        flow[:, cell_idx] = observed_flow
+        density[:, cell_idx] = observed_density
+        n_direct_cells += 1
+
+    pm_edges = np.concatenate([
+        cells_df["pm_start"].to_numpy(dtype=float),
+        [float(cells_df["pm_end"].iloc[-1])],
+    ])
+    horizon_h = n_5min * _FIVE_MIN_H
+    return ObservedGrid(
+        flow=flow, density=density, pm_edges=pm_edges,
+        horizon_h=horizon_h, n_direct_cells=n_direct_cells,
+    )
+
+
 def corridor_rmse_mape(qq: QQResult) -> dict[str, tuple[int, float, float]]:
     """Corridor-pooled ``(n_samples, RMSE, MAPE)`` for flow and density.
 

@@ -7,7 +7,7 @@ study might -- conserves total energy but *attenuates the peak power* a feeder
 must actually carry, and flattens the load shape.
 
 This module holds the pure, NumPy-only numeric core for that analysis:
-collapse ``E`` to a corridor-total (or per-mile-chunk) energy-per-step series,
+collapse ``E`` to a corridor-total (or per-mile-segment) energy-per-step series,
 re-bin it to a coarser window, and score peak / load-duration-curve fidelity
 against the native-``dt`` baseline. Orchestration, plotting, and I/O live in
 ``scripts/analyze_dwpt_temporal_aggregation.py``.
@@ -89,22 +89,22 @@ def pct_attenuation(baseline_peak: float, window_peak: float) -> float:
     return 100.0 * (baseline_peak - window_peak) / baseline_peak
 
 
-def mile_chunk_columns(
-    position_m: np.ndarray, corridor_length_m: float, *, chunk_len_mi: float = 1.0
+def mile_segment_columns(
+    position_m: np.ndarray, corridor_length_m: float, *, segment_len_mi: float = 1.0
 ) -> dict[int, np.ndarray]:
-    """Group on-corridor ``E`` column indices into fixed-length mile chunks.
+    """Group on-corridor ``E`` column indices into fixed-length mile segments.
 
-    A column is assigned to chunk ``floor(position_mi / chunk_len_mi)`` when its
-    center position lies on the corridor (``0 <= position < corridor_length``).
+    A column is assigned to segment ``floor(position_mi / segment_len_mi)`` when
+    its center position lies on the corridor (``0 <= position < corridor_length``).
     Off-corridor boundary columns (Rx approach/exit, where ``E`` is zero) are
-    dropped. Returns ``{chunk_index: column_indices}`` in ascending chunk order.
+    dropped. Returns ``{segment_index: column_indices}`` in ascending segment order.
     """
     pos = np.asarray(position_m, dtype=float)
     on_corridor = (pos >= 0.0) & (pos < corridor_length_m)
-    chunk_of = np.floor((pos / _METERS_PER_MILE) / chunk_len_mi).astype(int)
+    segment_of = np.floor((pos / _METERS_PER_MILE) / segment_len_mi).astype(int)
     out: dict[int, np.ndarray] = {}
-    for c in sorted(set(chunk_of[on_corridor].tolist())):
-        out[c] = np.nonzero(on_corridor & (chunk_of == c))[0]
+    for c in sorted(set(segment_of[on_corridor].tolist())):
+        out[c] = np.nonzero(on_corridor & (segment_of == c))[0]
     return out
 
 

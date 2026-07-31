@@ -23,8 +23,8 @@ corridor:
    :meth:`SimulationResult.to_dataframes` returns) plus a
    self-contained ``result.npz`` (:meth:`SimulationResult.to_npz`, the
    input the DWPT demand pipeline reloads), plus a
-   ``summary.txt`` with horizon totals and four figures matching the
-   ``run_ctm_ctmsim_demo`` style:
+   ``summary.txt`` with horizon totals and the simulation's runtime and
+   peak RSS, and four figures matching the ``run_ctm_ctmsim_demo`` style:
 
       * ``flow_contour.png``      space-time heatmap of mainline flow
       * ``density_contour.png``   space-time heatmap of density
@@ -45,7 +45,9 @@ Run from the repo root::
 from __future__ import annotations
 
 import argparse
+import resource
 import sys
+import time
 from dataclasses import replace
 from pathlib import Path
 
@@ -67,6 +69,16 @@ from transportation_models.utils.ctm.plots import (
     plot_flow_density_contour,
     plot_per_cell_metrics,
 )
+
+
+def _peak_rss_mb() -> float:
+    """Process peak resident memory [MB] so far (RUSAGE_SELF high-water mark).
+
+    ``ru_maxrss`` is a monotonic high-water mark, reported in bytes on
+    macOS and kilobytes on Linux; normalize both to MB.
+    """
+    ru = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return ru / (1024 ** 2) if sys.platform == "darwin" else ru / 1024
 
 
 def _load_wide(
@@ -167,6 +179,14 @@ def main() -> None:
         "--no-plots", action="store_true",
         help="Skip figure generation (faster for headless / large-batch runs).",
     )
+    parser.add_argument(
+        "--drop-first-cell", action=argparse.BooleanOptionalAction, default=True,
+        help=("Exclude the upstream-most cell (index 0) from the metrics and "
+              "figures -- its density is an inflated upstream-boundary "
+              "artifact. The raw per-quantity CSVs / result.npz still hold "
+              "every cell. On by default; pass --no-drop-first-cell to keep "
+              "it (e.g. to diagnose the boundary cell)."),
+    )
     args = parser.parse_args()
 
     dt_h = float(args.dt_seconds) / 3600.0
@@ -227,9 +247,16 @@ def main() -> None:
         rho0=rho0, q0=0.0,
     )
 
-    # 6. Run.
+    # 6. Run. Time and measure the simulation's peak RSS here, before the
+    # downstream CSV/plot allocations, so the numbers reflect the sim alone.
+    t0 = time.perf_counter()
     result = replace(simulate(freeway, scenario), start=args.start)
-    metrics = compute_metrics(result)
+    sim_wall_s = time.perf_counter() - t0
+    sim_peak_rss_mb = _peak_rss_mb()
+    # Metrics and figures optionally exclude the upstream boundary cell
+    # (index 0); the raw CSVs / result.npz below always cover every cell.
+    analysis = result.without_first_cell() if args.drop_first_cell else result
+    metrics = compute_metrics(analysis)
 
     # 7. Write per-quantity CSVs + summary.
     out_dir = (
@@ -260,22 +287,27 @@ def main() -> None:
                 f"got remainder {n_steps - n_samples * steps_per_period} step(s)."
             )
 
+        # ``analysis`` already drops cell 0 when --drop-first-cell is set,
+        # so the contours, postmile edges, and per-cell x-axis all follow it.
+        first_cell = 1 if args.drop_first_cell else 0
+        cells_plot = cells.iloc[first_cell:]
+
         kw = dict(steps_per_period=steps_per_period, n_samples=n_samples)
         # Contours are (K, N): time runs down rows, cells across columns.
         flow_KN = downsample_to_plot_period(
-            result.mainline_flow, state=False, **kw,
+            analysis.mainline_flow, state=False, **kw,
         ).T
         # Drop the initial-state column so the time axis aligns with flow's
         # period-start sampling.
         density_KN = downsample_to_plot_period(
-            result.density, state=True, **kw,
+            analysis.density, state=True, **kw,
         )[:, 1:].T
         # Per-cell postmile boundaries from cells.csv preserve absolute
         # postmiles for pm-cropped corridors (cumsum-of-lengths from the
         # freeway.csv alone would start at 0 and lose that anchor).
         pm_edges = np.concatenate([
-            cells["pm_start"].to_numpy(dtype=float),
-            [float(cells["pm_end"].iloc[-1])],
+            cells_plot["pm_start"].to_numpy(dtype=float),
+            [float(cells_plot["pm_end"].iloc[-1])],
         ])
 
         plot_flow_density_contour(
@@ -309,6 +341,7 @@ def main() -> None:
         )
         plot_per_cell_metrics(
             metrics, title=f"{horizon_h:.2f}-hour totals per cell",
+            first_cell_index=first_cell,
             out_path=out_dir / "per_cell_metrics.png",
         )
     summary_lines = [
@@ -321,6 +354,8 @@ def main() -> None:
         f"  upstream VDS : {upstream_vds}",
         f"  demand       : {'<zero>' if demand_df is None else args.demand}",
         f"  beta         : {'<zero>' if beta_df is None else args.beta}",
+        (f"  metrics scope: cells 1..{n_cells - 1} (cell 0 dropped)"
+         if args.drop_first_cell else f"  metrics scope: all {n_cells} cells"),
         "",
         f"  horizon totals (eqs. 4.10/4.12/4.14/4.16):",
         f"    VHT                = {metrics.vht.sum():12.3f}  veh*h",
@@ -331,6 +366,10 @@ def main() -> None:
         f"  corridor travel time (eq. 4.9):",
         f"    mean across horizon = {metrics.travel_time.mean() * 60:7.3f}  min",
         f"    max  across horizon = {metrics.travel_time.max() * 60:7.3f}  min",
+        "",
+        f"  simulation compute cost:",
+        f"    runtime  = {sim_wall_s:8.3f}  s",
+        f"    peak RSS = {sim_peak_rss_mb:8.1f}  MB",
     ]
     summary = "\n".join(summary_lines) + "\n"
     (out_dir / "summary.txt").write_text(summary)

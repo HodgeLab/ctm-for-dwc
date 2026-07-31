@@ -6,7 +6,7 @@ Reporting it at a coarser temporal resolution -- averaging power over 5-, 15-,
 energy but *attenuates the peak power* a feeder must carry, and flattens the
 load shape. This script quantifies that, on a CTM case study, for two purposes:
 
-* **Grid sizing** -- how much the corridor-total (and worst per-mile-chunk)
+* **Grid sizing** -- how much the corridor-total (and worst per-mile-segment)
   peak power is understated at each aggregation window.
 * **Modeling fidelity** -- how the load-duration shape departs from the
   native-``dt`` baseline (peak-timing shift, load-duration-curve divergence).
@@ -66,10 +66,10 @@ def _parse_args() -> argparse.Namespace:
         help="Comma-separated aggregation windows in minutes (default 1,5,15,30,60)",
     )
     p.add_argument(
-        "--chunk-len-mi",
+        "--segment-len-mi",
         type=float,
         default=1.0,
-        help="Per-chunk length for the local-peak metric [mi] (default 1.0)",
+        help="Per-segment length for the local-peak metric [mi] (default 1.0)",
     )
     p.add_argument(
         "--out-dir",
@@ -111,13 +111,13 @@ def main() -> None:
     native_peak_time_h = agg.bin_center_times_h(native_counts, dt_h)[native_idx]
     total_energy_wh = float(e_total.sum())
 
-    # Per-mile-chunk energy-per-step series (worst-local-peak metric).
-    chunks = agg.mile_chunk_columns(
-        corridor.position_m, corridor.corridor_length_m, chunk_len_mi=args.chunk_len_mi
+    # Per-mile-segment energy-per-step series (worst-local-peak metric).
+    segments = agg.mile_segment_columns(
+        corridor.position_m, corridor.corridor_length_m, segment_len_mi=args.segment_len_mi
     )
-    chunk_e_step = {c: E[:, cols].sum(axis=1) for c, cols in chunks.items()}
-    chunk_native_peak = {
-        c: agg.window_power(e, 1, dt_h)[0].max() for c, e in chunk_e_step.items()
+    segment_e_step = {c: E[:, cols].sum(axis=1) for c, cols in segments.items()}
+    segment_native_peak = {
+        c: agg.window_power(e, 1, dt_h)[0].max() for c, e in segment_e_step.items()
     }
 
     # --- Sweep the aggregation windows ------------------------------------
@@ -136,15 +136,15 @@ def main() -> None:
         pk, idx = agg.peak(power)
         pk_time = agg.bin_center_times_h(counts, dt_h)[idx]
 
-        # Worst per-mile-chunk peak attenuation at this window.
-        chunk_atten = {
+        # Worst per-mile-segment peak attenuation at this window.
+        segment_atten = {
             c: agg.pct_attenuation(
-                chunk_native_peak[c], agg.window_power(e, steps, dt_h)[0].max()
+                segment_native_peak[c], agg.window_power(e, steps, dt_h)[0].max()
             )
-            for c, e in chunk_e_step.items()
+            for c, e in segment_e_step.items()
         }
-        worst_chunk = max(chunk_atten, key=chunk_atten.get) if chunk_atten else -1
-        worst_atten = chunk_atten[worst_chunk] if chunk_atten else 0.0
+        worst_segment = max(segment_atten, key=segment_atten.get) if segment_atten else -1
+        worst_atten = segment_atten[worst_segment] if segment_atten else 0.0
 
         ldc = agg.ldc_divergence(
             native_power, native_counts, power, counts
@@ -159,8 +159,8 @@ def main() -> None:
                 "peak_pct_atten": agg.pct_attenuation(native_peak, pk),
                 "peak_time_h": pk_time,
                 "peak_shift_min": (pk_time - native_peak_time_h) * 60.0,
-                "worst_chunk_idx": worst_chunk,
-                "worst_chunk_pct_atten": worst_atten,
+                "worst_segment_idx": worst_segment,
+                "worst_segment_pct_atten": worst_atten,
                 "ldc_divergence": ldc,
                 "total_energy_kWh": binned_energy / 1e3,
                 "energy_rel_err": (binned_energy - total_energy_wh)
@@ -178,7 +178,7 @@ def main() -> None:
         window_power_series, out_dir / "load_duration_curves.png"
     )
 
-    _print_summary(args, result, corridor, df, total_energy_wh, len(chunks), out_dir)
+    _print_summary(args, result, corridor, df, total_energy_wh, len(segments), out_dir)
 
 
 def _plot_load_profiles(series, dt_h, out_path):
@@ -199,7 +199,7 @@ def _plot_load_profiles(series, dt_h, out_path):
 
 
 def _plot_peak_attenuation(df, out_path):
-    """Peak understatement (%) vs window: corridor-total and worst mile chunk."""
+    """Peak understatement (%) vs window: corridor-total and worst mile segment."""
     agg_rows = df[df["window"] != "native"]
     fig, ax = plt.subplots(figsize=(8, 4.5))
     ax.plot(
@@ -207,8 +207,8 @@ def _plot_peak_attenuation(df, out_path):
         "o-", label="corridor total",
     )
     ax.plot(
-        agg_rows["window_min"], agg_rows["worst_chunk_pct_atten"],
-        "s--", label="worst mile chunk",
+        agg_rows["window_min"], agg_rows["worst_segment_pct_atten"],
+        "s--", label="worst mile segment",
     )
     ax.set_xlabel("aggregation window [min]")
     ax.set_ylabel("peak power understatement [%]")
@@ -237,7 +237,7 @@ def _plot_load_duration_curves(series, out_path):
     plt.close(fig)
 
 
-def _print_summary(args, result, corridor, df, total_energy_wh, n_chunks, out_dir):
+def _print_summary(args, result, corridor, df, total_energy_wh, n_segments, out_dir):
     dt_s = result.freeway.dt * 3600.0
     native = df[df["window"] == "native"].iloc[0]
     lines = [
@@ -245,17 +245,17 @@ def _print_summary(args, result, corridor, df, total_energy_wh, n_chunks, out_di
         f"  CTM result        : {args.ctm_result}",
         f"  native dt         : {dt_s:g} s   |  horizon {result.n_steps * result.freeway.dt:g} h",
         f"  corridor          : {corridor.corridor_length_m / 1609.344:.2f} mi, "
-        f"{n_chunks} chunk(s) @ {args.chunk_len_mi:g} mi",
+        f"{n_segments} segment(s) @ {args.segment_len_mi:g} mi",
         f"  eta_EV            : {args.eta_ev}   |  total energy {total_energy_wh / 1e3:.1f} kWh",
         f"  native peak power : {native['peak_power_kW']:.1f} kW "
         f"@ t={native['peak_time_h']:.2f} h",
         "",
-        "  window   peak[kW]  atten%  worstChunk%  peakShift[min]  ldcDiv  energyErr",
+        "  window   peak[kW]  atten%  worstSegment%  peakShift[min]  ldcDiv  energyErr",
     ]
     for _, r in df[df["window"] != "native"].iterrows():
         lines.append(
             f"  {r['window']:>6}  {r['peak_power_kW']:8.1f}  {r['peak_pct_atten']:6.1f}"
-            f"  {r['worst_chunk_pct_atten']:10.1f}  {r['peak_shift_min']:13.1f}"
+            f"  {r['worst_segment_pct_atten']:10.1f}  {r['peak_shift_min']:13.1f}"
             f"  {r['ldc_divergence']:6.3f}  {r['energy_rel_err']:+.2e}"
         )
     summary = "\n".join(lines) + "\n"

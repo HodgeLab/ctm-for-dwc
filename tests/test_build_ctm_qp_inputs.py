@@ -129,6 +129,13 @@ def test_build_bundle_schema_and_units(tmp_path):
     cell0 = obs.loc[obs["cell"] == 0, "rho_obs"]
     assert np.allclose(cell0.to_numpy(), 24.0)
 
+    # observed_flow.csv: same cells/masking; flow = total_flow * 12 [veh/h].
+    flow = pd.read_csv(out / "observed_flow.csv")
+    assert len(flow) == 36
+    assert set(flow["cell"]) == {0, 1, 2}
+    assert np.allclose(flow.loc[flow["cell"] == 0, "flow_obs"].to_numpy(), 120 * 12)
+    assert meta["n_observed_flow_samples"] == 36
+
 
 def test_build_bundle_drops_nan_observed_samples(tmp_path):
     ts = tmp_path / "ts"
