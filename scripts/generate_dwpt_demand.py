@@ -23,6 +23,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+import numpy as np
+
 from transportation_models.utils.ctm.results import SimulationResult
 
 from transportation_models.utils.dwpt import plots
@@ -66,9 +68,15 @@ def main() -> None:
         help="DWPT EV fraction [0,1]"
     )
     parser.add_argument(
+        "--aggregate", choices=("segment", "cell"), default="segment",
+        help=("How to bin the instantaneous peak load profile: fixed-width "
+              "'segment's (see --segment-m) or the CTM 'cell's. Defaults to "
+              "'segment'."),
+    )
+    parser.add_argument(
         "--segment-m", type=float, default=20.0,
         help=("Segment width (meters) for aggregating the instantaneous "
-              "peak load profile. Defaults to 20."),
+              "peak load profile when --aggregate=segment. Defaults to 20."),
     )
     parser.add_argument(
         "--out-dir", type=Path, default=None,
@@ -116,8 +124,13 @@ def main() -> None:
         demand, dt_h=result.freeway.dt,
         out_path=out_dir / "dwpt_aggregate_timeseries.png",
     )
+    cell_edges_m = (
+        np.concatenate([[0.0], np.cumsum(corridor.cell_lengths_m)])
+        if args.aggregate == "cell" else None
+    )
     plots.plot_peak_load_profile(
         demand, dt_h=result.freeway.dt, segment_m=args.segment_m,
+        cell_edges_m=cell_edges_m,
         out_path=out_dir / "dwpt_peak_load_profile.png",
     )
     plots.plot_load_duration_curve(

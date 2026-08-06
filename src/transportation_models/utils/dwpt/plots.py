@@ -108,29 +108,41 @@ def plot_peak_load_profile(
     *,
     dt_h: float,
     segment_m: float = 20.0,
+    cell_edges_m: np.ndarray | None = None,
     title: str = "DWPT instantaneous load profile at peak",
     out_path: Path,
 ) -> None:
-    """Plot load (MW) per ``segment_m`` segment at the peak-aggregate timestamp.
+    """Plot aggregated load (MW) at the peak-aggregate timestamp vs position.
 
     The peak timestamp is ``argmax`` of the corridor-aggregate load; the
     per-position load there is ``E[t*, :] / dt_h``. Positions are aggregated
-    (summed) into contiguous ``segment_m``-wide segments to suppress the
-    pad-vs-gap ripple; segment loads still sum to the peak corridor power.
+    (summed) into contiguous bins to suppress the pad-vs-gap ripple. Bins are
+    the CTM cells when ``cell_edges_m`` (an ``(N+1,)`` array of cell boundaries
+    in meters) is given, else uniform ``segment_m``-wide segments. Bin loads
+    sum to the peak corridor power either way.
     """
     t_star = int(np.argmax(result.E.sum(axis=1)))
     power_MW = result.E[t_star] / dt_h / 1e6
+    pos = result.position_m
 
-    floor_idx = np.floor(result.position_m / segment_m).astype(int)
-    rel = floor_idx - floor_idx.min()
-    seg_power_MW = np.bincount(rel, weights=power_MW)
-    left_edges_m = (floor_idx.min() + np.arange(seg_power_MW.size)) * segment_m
+    if cell_edges_m is not None:
+        edges = np.asarray(cell_edges_m, dtype=float)
+        unit = "cell"
+    else:
+        k0 = int(np.floor(pos.min() / segment_m))
+        k1 = int(np.floor(pos.max() / segment_m))
+        edges = np.arange(k0, k1 + 2) * segment_m
+        unit = f"{segment_m:g} m segment"
+
+    n_bins = edges.size - 1
+    idx = np.clip(np.digitize(pos, edges) - 1, 0, n_bins - 1)
+    bin_power_MW = np.bincount(idx, weights=power_MW, minlength=n_bins)
 
     fig, ax = plt.subplots(figsize=(10, 3.5))
-    ax.bar(left_edges_m, seg_power_MW, width=segment_m, align="edge",
+    ax.bar(edges[:-1], bin_power_MW, width=np.diff(edges), align="edge",
            edgecolor="white", lw=0.3)
     ax.set_xlabel("position [m]")
-    ax.set_ylabel(f"power per {segment_m:g} m segment [MW]")
+    ax.set_ylabel(f"power per {unit} [MW]")
     ax.set_title(f"{title} (t = {t_star * dt_h:.2f} h)")
     ax.grid(alpha=0.3, axis="y")
     fig.tight_layout()
