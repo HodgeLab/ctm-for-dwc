@@ -11,9 +11,9 @@ All artifacts are written to a ``validation/`` subdirectory of the sim
 dir (override with ``--out-dir``): ``validation.csv`` (per-cell stats),
 ``geh_heatmap.png``, ``pems_flow_heatmap.png`` /
 ``pems_density_heatmap.png`` (measured space-time heatmaps), and the QQ
-plots. Stats are also summarized to
-stdout: corridor-wide median / mean / max of each metric and the top-K
-worst-fitting cells by density RMSE.
+plots. The same stdout summary -- corridor-wide error, corridor
+aggregates, and the top-K worst-fitting cells by density RMSE -- is also
+written to ``ctm_validation_summary.txt`` in that directory.
 
 Run from the repo root::
 
@@ -88,40 +88,46 @@ def _print_summary(
     geh: GEHResult | None,
     corridor_errors: dict[str, tuple[int, float, float]],
 ) -> None:
-    """Tabular stdout summary: window, corridor aggregates, worst cells."""
+    """Tabular summary (window, corridor aggregates, worst cells) to stdout
+    and ``<out_dir>/ctm_validation_summary.txt``."""
+
+    lines: list[str] = []
     n_cells = len(stats)
     valid = stats[stats["n_flow_samples"] > 0]
     n_with_vds = len(valid)
 
-    print("=== Step 9: historical validation ===")
-    print(f"  sim dir       : {sim_dir}")
-    print(f"  cells         : {cells_path}")
-    print(f"  ts dir        : {ts_dir}")
-    print(f"  sim dt        : {dt * 3600.0:.1f} s")
+    lines.append("=== Step 9: historical validation ===")
+    lines.append(f"  sim dir       : {sim_dir}")
+    lines.append(f"  cells         : {cells_path}")
+    lines.append(f"  ts dir        : {ts_dir}")
+    lines.append(f"  sim dt        : {dt * 3600.0:.1f} s")
     end = start + pd.Timedelta(minutes=5 * n_5min)
-    print(f"  window        : [{start}, {end})  ({n_5min} 5-min samples)")
-    print(
+    lines.append(f"  window        : [{start}, {end})  ({n_5min} 5-min samples)")
+    lines.append(
         f"  cells         : {n_cells} total, {n_with_vds} scored "
         "(unique direct/tiebreak VDS)"
     )
 
     if valid.empty:
-        print(
+        lines.append(
             "\n  No direct/tiebreak VDS cells to score -- nothing to validate."
         )
+        summary = "\n".join(lines) + "\n"
+        print(summary)
+        (out_dir / "ctm_validation_summary.txt").write_text(summary)
         return
 
-    print()
+    lines.append("")
     fn, frmse, fmape = corridor_errors["flow"]
     dn, drmse, dmape = corridor_errors["density"]
-    print("  Corridor-pooled error (over scored direct/tiebreak cells):")
-    print(f"    flow    RMSE {frmse:.0f} veh/h , MAPE {fmape:.1f}%  (n={fn})")
-    print(f"    density RMSE {drmse:.2f} veh/mi, MAPE {dmape:.1f}%  (n={dn})")
+    lines.append("  Corridor-pooled error (over scored direct/tiebreak cells):")
+    lines.append(f"    flow    RMSE {frmse:.0f} veh/h , MAPE {fmape:.1f}%  (n={fn})")
+    lines.append(f"    density RMSE {drmse:.2f} veh/mi, MAPE {dmape:.1f}%  (n={dn})")
 
     k = min(top_k, len(valid))
     if k > 0:
-        print()
-        print(f"  Top {k} worst-fitting cells (by density RMSE):")
+        lines.append("")
+        lines.append(f"  Top {k} worst-fitting cells (by density RMSE):")
         worst = valid.nlargest(k, "density_rmse").reset_index(drop=True)
         # Compact column layout for readability.
         cols = [
@@ -141,33 +147,37 @@ def _print_summary(
             display["flow_geh_pct_under5"] = (
                 display["flow_geh_pct_under5"].map(_fmt_nan)
             )
-        print(display.to_string(index=False))
+        lines.append(display.to_string(index=False))
 
-    print()
-    print(
+    lines.append("")
+    lines.append(
         f"  Corridor aggregates (direct + tiebreak VDS, n={aggregates.n_vds}):"
     )
-    print(
+    lines.append(
         f"    VMT [veh*mi]: sim {aggregates.sim_vmt:,.0f}, "
         f"observed {aggregates.obs_vmt:,.0f}, "
         f"diff {aggregates.vmt_pct_diff:+.1f}%"
     )
-    print(
+    lines.append(
         f"    VHT [veh*h] : sim {aggregates.sim_vht:,.0f}, "
         f"observed {aggregates.obs_vht:,.0f}, "
         f"diff {aggregates.vht_pct_diff:+.1f}%"
     )
 
     if geh is not None and geh.n_geh_samples > 0:
-        print()
-        print(
+        lines.append("")
+        lines.append(
             f"    flow GEH<5  : {geh.corridor_pct_under5:.0f}% of "
             f"{geh.n_geh_samples} cell-hour samples "
             "(hourly volumes, direct + tiebreak VDS)"
         )
 
-    print()
-    print(f"  Wrote validation artifacts to {out_dir}")
+    lines.append("")
+    lines.append(f"  Wrote validation artifacts to {out_dir}")
+
+    summary = "\n".join(lines) + "\n"
+    print(summary)
+    (out_dir / "ctm_validation_summary.txt").write_text(summary)
 
 
 def main() -> None:
