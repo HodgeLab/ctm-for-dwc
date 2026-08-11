@@ -9,9 +9,10 @@ GEH statistic, and QQ error-distribution diagnostics.
 
 All artifacts are written to a ``validation/`` subdirectory of the sim
 dir (override with ``--out-dir``): ``validation.csv`` (per-cell stats),
-``geh_heatmap.png``, ``pems_flow_heatmap.png`` /
-``pems_density_heatmap.png`` (measured space-time heatmaps), and the QQ
-plots. The same stdout summary -- corridor-wide error, corridor
+``geh_heatmap.png``, ``sim_flow_heatmap.png`` /
+``pems_flow_heatmap.png`` and ``sim_density_heatmap.png`` /
+``pems_density_heatmap.png`` (simulated vs measured space-time heatmaps,
+sharing color limits so they compare directly), and the QQ plots. The same stdout summary -- corridor-wide error, corridor
 aggregates, and the top-K worst-fitting cells by density RMSE -- is also
 written to ``ctm_validation_summary.txt`` in that directory.
 
@@ -29,6 +30,7 @@ import argparse
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from transportation_models.utils.ctm import (
@@ -40,6 +42,7 @@ from transportation_models.utils.ctm import (
     corridor_rmse_mape,
 )
 from transportation_models.utils.ctm.plots import (
+    downsample_to_plot_period,
     plot_flow_density_contour,
     plot_geh_heatmap,
     plot_qq_pooled,
@@ -222,6 +225,13 @@ def main() -> None:
         help="How many worst-fitting cells to list in the stdout summary.",
     )
     parser.add_argument(
+        "--plot-period-seconds", type=float, default=300.0,
+        help=("Plotting period for the simulated flow/density heatmaps; must "
+              "match the value passed to simulate_ctm_corridor.py so the "
+              "re-rendered sim contours line up with its flow_contour/"
+              "density_contour. Defaults to 300s (5 min)."),
+    )
+    parser.add_argument(
         "--drop-first-cell", action=argparse.BooleanOptionalAction, default=True,
         help=("Exclude the upstream-most cell (index 0) from every scored "
               "statistic (RMSE/MAPE, GEH, QQ, corridor aggregates) and from "
@@ -300,10 +310,13 @@ def main() -> None:
             out_path=heatmap_path,
         )
 
-    # Measured-PeMS space-time heatmaps, rendered with the same contour
-    # plotter (and viridis/magma colormaps) as the sim's flow/density
-    # contours so the two are directly comparable. Measured coverage shows
-    # against the full corridor; cells with no VDS are blank.
+    # Sim vs measured-PeMS space-time heatmaps, rendered with the same
+    # contour plotter (and viridis/magma colormaps) so the two are directly
+    # comparable. Both share color limits taken from the measured PeMS data
+    # (the reference). The sim is sampled exactly as simulate_ctm_corridor.py
+    # samples its flow_contour/density_contour, so only the color limits
+    # differ from that script's contours. Measured coverage shows against the
+    # full corridor; cells with no VDS are filled black.
     obs_grid = compute_observed_grid(
         result,
         cells,
@@ -312,34 +325,57 @@ def main() -> None:
     )
     if obs_grid.n_direct_cells:
         end = start + pd.Timedelta(hours=obs_grid.horizon_h)
-        # Drop cell 0's column (and its postmile edge) so the measured
-        # heatmaps share the same x-extent as the cell-0-dropped sim contours.
+
+        # Sim flow/density at the plotting period, matching simulate_ctm_corridor.py.
+        dt_s = result.freeway.dt * 3600.0
+        ratio = args.plot_period_seconds / dt_s
+        steps_per_period = int(round(ratio))
+        n_samples, rem = divmod(result.n_steps, steps_per_period) if steps_per_period else (0, 1)
+        if steps_per_period < 1 or abs(ratio - steps_per_period) > 1e-6 or n_samples < 1 or rem:
+            parser.error(
+                f"--plot-period-seconds ({args.plot_period_seconds}) must be a "
+                f"positive integer multiple of the sim dt ({dt_s:.1f}s) that "
+                f"evenly divides the {result.n_steps}-step horizon."
+            )
+        kw = dict(steps_per_period=steps_per_period, n_samples=n_samples)
+        sim_flow = downsample_to_plot_period(result.mainline_flow, state=False, **kw).T
+        sim_density = downsample_to_plot_period(result.density, state=True, **kw)[:, 1:].T
+
         obs_flow, obs_density = obs_grid.flow, obs_grid.density
-        obs_pm_edges = obs_grid.pm_edges
+        pm_edges = obs_grid.pm_edges
+        # Drop cell 0's column (and its postmile edge) from both grids so they
+        # share the same cell-0-dropped x-extent as the scored statistics.
         if args.drop_first_cell:
-            obs_flow = obs_flow[:, 1:]
-            obs_density = obs_density[:, 1:]
-            obs_pm_edges = obs_pm_edges[1:]
-        plot_flow_density_contour(
-            obs_flow,
-            title=f"Measured PeMS flow ({start} -> {end})",
-            cbar_label="flow [veh/h]",
-            cmap="viridis",
-            horizon_h=obs_grid.horizon_h,
-            pm_edges=obs_pm_edges,
-            y_label="time from sim start [h]",
-            out_path=out_dir / "pems_flow_heatmap.png",
-        )
-        plot_flow_density_contour(
-            obs_density,
-            title=f"Measured PeMS density ({start} -> {end})",
-            cbar_label="density [veh/mi]",
-            cmap="magma",
-            horizon_h=obs_grid.horizon_h,
-            pm_edges=obs_pm_edges,
-            y_label="time from sim start [h]",
-            out_path=out_dir / "pems_density_heatmap.png",
-        )
+            obs_flow, obs_density = obs_flow[:, 1:], obs_density[:, 1:]
+            sim_flow, sim_density = sim_flow[:, 1:], sim_density[:, 1:]
+            pm_edges = pm_edges[1:]
+        # Color limits from the measured data so the sim adopts the same
+        # scale (sim values outside the measured range clip).
+        flow_lim = (float(np.nanmin(obs_flow)), float(np.nanmax(obs_flow)))
+        density_lim = (float(np.nanmin(obs_density)), float(np.nanmax(obs_density)))
+        for arr, cmap, cbar, lim, missing, fname, kind in (
+            (sim_flow, "viridis", "flow [veh/h]", flow_lim, None,
+             "sim_flow_heatmap.png", "Simulated flow"),
+            (obs_flow, "viridis", "flow [veh/h]", flow_lim, "black",
+             "pems_flow_heatmap.png", "Measured PeMS flow"),
+            (sim_density, "magma", "density [veh/mi]", density_lim, None,
+             "sim_density_heatmap.png", "Simulated density"),
+            (obs_density, "magma", "density [veh/mi]", density_lim, "black",
+             "pems_density_heatmap.png", "Measured PeMS density"),
+        ):
+            plot_flow_density_contour(
+                arr,
+                title=f"{kind} ({start} -> {end})",
+                cbar_label=cbar,
+                cmap=cmap,
+                horizon_h=obs_grid.horizon_h,
+                pm_edges=pm_edges,
+                y_label="time from sim start [h]",
+                vmin=lim[0],
+                vmax=lim[1],
+                missing_color=missing,
+                out_path=out_dir / fname,
+            )
 
     # QQ error-distribution diagnostics: per quantity, a corridor-pooled
     # two-sample sim-vs-obs QQ plus a per-cell faceted grid.

@@ -237,6 +237,9 @@ def plot_flow_density_contour(
     horizon_h: float, pm_edges: np.ndarray,
     x_label: str = "distance from upstream end [mi]",
     y_label: str = "time [h]",
+    vmin: float | None = None,
+    vmax: float | None = None,
+    missing_color: str | None = None,
     out_path: Path,
 ) -> None:
     """Render a ``(K, N)`` space-time array as a heatmap.
@@ -249,6 +252,12 @@ def plot_flow_density_contour(
     x_label / y_label defaults work for distance from the corridor
     upstream end and arbitrary time origins; pass overrides for e.g.
     absolute Caltrans postmile or "time of day".
+
+    ``vmin`` / ``vmax`` fix the color scale (default: autoscale to the
+    array); pass matching limits to two plots to make them directly
+    comparable. ``missing_color`` (default: unpainted / figure background)
+    is the fill for NaN cells, e.g. ``"black"`` for measured grids with
+    unobserved cells.
     """
     pm_edges = np.asarray(pm_edges, dtype=float)
     n_samples, n_cells = arr_KN.shape
@@ -257,10 +266,14 @@ def plot_flow_density_contour(
             f"pm_edges must have shape ({n_cells + 1},) (= n_cells + 1); "
             f"got {pm_edges.shape}."
         )
+    if missing_color is not None:
+        cmap = plt.get_cmap(cmap).copy()
+        cmap.set_bad(missing_color)
     fig, ax = plt.subplots(figsize=(10, 4.5))
     y_edges = np.linspace(0.0, horizon_h, n_samples + 1)
     mesh = ax.pcolormesh(
         pm_edges, y_edges, arr_KN, cmap=cmap, shading="flat",
+        vmin=vmin, vmax=vmax,
     )
     ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
