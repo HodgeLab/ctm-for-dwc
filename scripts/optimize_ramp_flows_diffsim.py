@@ -65,14 +65,40 @@ def _wide(path: Path, n_cells: int, T: int) -> np.ndarray:
 
 
 def _observed_grid(path: Path, value_col: str, n_cells: int, n_5min: int):
-    """Dense ``(n_cells, n_5min)`` observed grid + finite-sample mask."""
+    """Dense ``(n_cells, n_5min)`` observed grid + finite-sample mask.
+
+    Returns ``(obs, weight, genuine)`` where ``weight`` (the loss weighting) and
+    ``genuine`` (the reporting mask over real observations) are both the 0/1
+    sample mask -- imputed grids override ``weight`` in :func:`_imputed_grid`.
+    """
     obs = torch.zeros((n_cells, n_5min), dtype=torch.float64)
     mask = torch.zeros((n_cells, n_5min), dtype=torch.float64)
     df = pd.read_csv(path)
     for cell, m, val in zip(df["cell"], df["m_5min"], df[value_col]):
         obs[int(cell), int(m)] = float(val)
         mask[int(cell), int(m)] = 1.0
-    return obs, mask
+    return obs, mask, mask.clone()
+
+
+def _imputed_grid(path: Path, n_cells: int, n_5min: int, imputed_weight: float):
+    """Augmented ``cell,m_5min,value,source`` grid from ``augment_observed_grid``.
+
+    Returns ``(obs, weight, genuine)``: ``weight`` is 1.0 at genuine
+    observations and ``imputed_weight`` at hist/knn-filled cells (the loss
+    weighting); ``genuine`` marks only ``source == "observed"`` so reported
+    RMSE/MAPE stay on real measurements.
+    """
+    obs = torch.zeros((n_cells, n_5min), dtype=torch.float64)
+    weight = torch.zeros((n_cells, n_5min), dtype=torch.float64)
+    genuine = torch.zeros((n_cells, n_5min), dtype=torch.float64)
+    df = pd.read_csv(path)
+    for cell, m, val, src in zip(df["cell"], df["m_5min"], df["value"], df["source"]):
+        i, j = int(cell), int(m)
+        obs[i, j] = float(val)
+        is_obs = src == "observed"
+        weight[i, j] = 1.0 if is_obs else imputed_weight
+        genuine[i, j] = 1.0 if is_obs else 0.0
+    return obs, weight, genuine
 
 
 def _masked_mape(sim, obs, mask):
@@ -102,6 +128,8 @@ def optimize_bundle(
     w_rho: float = 1.0,
     w_flow: float = 1.0,
     beta_init: float = 0.05,
+    imputed_dir: Path | None = None,
+    imputed_weight: float = 0.3,
     patience: int | None = None,
     min_delta: float = 1e-4,
     log_every: int = 0,
@@ -132,8 +160,17 @@ def optimize_bundle(
     q0 = torch.zeros(n, dtype=torch.float64)
     inflow = to_t(pd.read_csv(bundle / "inflow.csv")["inflow"].to_numpy())
 
-    obs_rho, mask_rho = _observed_grid(bundle / "observed_density.csv", "rho_obs", n, n_5min)
-    obs_flow, mask_flow = _observed_grid(bundle / "observed_flow.csv", "flow_obs", n, n_5min)
+    if imputed_dir is not None:
+        imputed_dir = Path(imputed_dir)
+        obs_rho, w_rho_grid, gen_rho = _imputed_grid(
+            imputed_dir / "observed_density.csv", n, n_5min, imputed_weight)
+        obs_flow, w_flow_grid, gen_flow = _imputed_grid(
+            imputed_dir / "observed_flow.csv", n, n_5min, imputed_weight)
+    else:
+        obs_rho, w_rho_grid, gen_rho = _observed_grid(
+            bundle / "observed_density.csv", "rho_obs", n, n_5min)
+        obs_flow, w_flow_grid, gen_flow = _observed_grid(
+            bundle / "observed_flow.csv", "flow_obs", n, n_5min)
 
     on_idx = torch.tensor(meta["on_ramp_cells"], dtype=torch.long)
     off_idx = torch.tensor(meta["off_ramp_cells"], dtype=torch.long)
@@ -177,13 +214,21 @@ def optimize_bundle(
         return demand, beta
 
     def masked_metrics(traj):
+        """Weighted MSE (drives the loss) + genuine-observation RMSE/MAPE.
+
+        ``loss_rho``/``loss_flow`` weight imputed cells by ``imputed_weight``;
+        ``rep_rho``/``rep_flow`` (reported as RMSE) and the MAPEs score only
+        genuine observations, so the report stays comparable across runs.
+        """
         sim_rho5 = traj.density[:, : n_5min * sp5 : sp5]
         sim_flow5 = traj.mainline_flow[:, : n_5min * sp5].reshape(n, n_5min, sp5).mean(dim=2)
-        mse_rho = ((sim_rho5 - obs_rho) ** 2 * mask_rho).sum() / mask_rho.sum()
-        mse_flow = ((sim_flow5 - obs_flow) ** 2 * mask_flow).sum() / mask_flow.sum()
-        mape_rho = _masked_mape(sim_rho5, obs_rho, mask_rho)
-        mape_flow = _masked_mape(sim_flow5, obs_flow, mask_flow)
-        return mse_rho, mse_flow, mape_rho, mape_flow
+        loss_rho = ((sim_rho5 - obs_rho) ** 2 * w_rho_grid).sum() / w_rho_grid.sum()
+        loss_flow = ((sim_flow5 - obs_flow) ** 2 * w_flow_grid).sum() / w_flow_grid.sum()
+        rep_rho = ((sim_rho5 - obs_rho) ** 2 * gen_rho).sum() / gen_rho.sum()
+        rep_flow = ((sim_flow5 - obs_flow) ** 2 * gen_flow).sum() / gen_flow.sum()
+        mape_rho = _masked_mape(sim_rho5, obs_rho, gen_rho)
+        mape_flow = _masked_mape(sim_flow5, obs_flow, gen_flow)
+        return loss_rho, loss_flow, rep_rho, rep_flow, mape_rho, mape_flow
 
     def snapshot():
         s = {}
@@ -200,8 +245,8 @@ def optimize_bundle(
         opt.zero_grad()
         demand, beta = build_inputs()
         traj = diffsim.simulate(params, dt_h, rho0, q0, demand, beta, inflow)
-        mse_rho, mse_flow, mape_rho, mape_flow = masked_metrics(traj)
-        loss = w_rho * mse_rho / rho_scale**2 + w_flow * mse_flow / flow_scale**2
+        loss_rho, loss_flow, rep_rho, rep_flow, mape_rho, mape_flow = masked_metrics(traj)
+        loss = w_rho * loss_rho / rho_scale**2 + w_flow * loss_flow / flow_scale**2
         cur = loss.item()
 
         # Best-iterate tracking uses the loss at the *current* (pre-step) params,
@@ -215,8 +260,8 @@ def optimize_bundle(
 
         if log_every and (it % log_every == 0 or it == iters - 1):
             row = {"iter": it, "loss": cur,
-                   "density_rmse": mse_rho.sqrt().item(),
-                   "flow_rmse": mse_flow.sqrt().item(),
+                   "density_rmse": rep_rho.sqrt().item(),
+                   "flow_rmse": rep_flow.sqrt().item(),
                    "density_mape": mape_rho.item(),
                    "flow_mape": mape_flow.item()}
             if log_fn is not None:
@@ -242,7 +287,7 @@ def optimize_bundle(
     with torch.no_grad():
         demand, beta = build_inputs()
         traj = diffsim.simulate(params, dt_h, rho0, q0, demand, beta, inflow)
-        mse_rho, mse_flow, mape_rho, mape_flow = masked_metrics(traj)
+        loss_rho, loss_flow, rep_rho, rep_flow, mape_rho, mape_flow = masked_metrics(traj)
         demand_np = demand.numpy()
         beta_np = beta.numpy()
 
@@ -260,11 +305,17 @@ def optimize_bundle(
         "min_delta": min_delta,
         "n_on_ramp_cells": int(len(on_idx)),
         "n_off_ramp_cells": int(len(off_idx)),
-        "density_rmse": float(mse_rho.sqrt()),   # veh/mi, scored cells, 5-min grid
-        "flow_rmse": float(mse_flow.sqrt()),     # veh/h
+        "density_rmse": float(rep_rho.sqrt()),   # veh/mi, genuine obs, 5-min grid
+        "flow_rmse": float(rep_flow.sqrt()),     # veh/h
         "density_mape": float(mape_rho),         # %, non-zero observed samples
         "flow_mape": float(mape_flow),           # %
-        "final_loss": float(w_rho * mse_rho / rho_scale**2 + w_flow * mse_flow / flow_scale**2),
+        "final_loss": float(w_rho * loss_rho / rho_scale**2 + w_flow * loss_flow / flow_scale**2),
+        "imputed_dir": str(imputed_dir) if imputed_dir is not None else None,
+        "imputed_weight": imputed_weight if imputed_dir is not None else None,
+        "n_scored_density": int(gen_rho.sum()),   # genuine observations
+        "n_scored_flow": int(gen_flow.sum()),
+        "n_imputed_density": int((w_rho_grid > 0).sum() - gen_rho.sum()),
+        "n_imputed_flow": int((w_flow_grid > 0).sum() - gen_flow.sum()),
         "lr_demand": lr_demand,
         "lr_beta": lr_beta,
         "w_rho": w_rho,
@@ -297,6 +348,12 @@ def main() -> None:
     p.add_argument("--w-flow", "--w_flow", dest="w_flow", type=float, default=1.0)
     p.add_argument("--beta-init", type=float, default=0.05,
                    help="Off-ramp beta initial value when --init-beta is absent.")
+    p.add_argument("--imputed-dir", "--imputed_dir", dest="imputed_dir", type=Path, default=None,
+                   help="augment_observed_grid.py output dir (e.g. .../imputed/k2_d1.0); "
+                        "scores imputed cells too. Default: bundle's observed_*.csv only.")
+    p.add_argument("--imputed-weight", "--imputed_weight", dest="imputed_weight",
+                   type=float, default=0.3,
+                   help="Loss weight of imputed cells vs 1.0 for observations.")
     p.add_argument("--patience", type=int, default=200,
                    help="Early-stop after this many iters without a --min-delta "
                         "relative loss improvement (--no-early-stop disables).")
@@ -320,6 +377,8 @@ def main() -> None:
             "lr_demand": args.lr_demand, "lr_beta": args.lr_beta,
             "rho_scale": args.rho_scale, "flow_scale": args.flow_scale,
             "w_rho": args.w_rho, "w_flow": args.w_flow, "beta_init": args.beta_init,
+            "imputed_dir": str(args.imputed_dir) if args.imputed_dir else None,
+            "imputed_weight": args.imputed_weight,
             "patience": patience, "min_delta": args.min_delta,
             "init_demand": str(args.init_demand) if args.init_demand else None,
             "init_beta": str(args.init_beta) if args.init_beta else None,
@@ -339,6 +398,7 @@ def main() -> None:
         iters=args.iters, lr_demand=args.lr_demand, lr_beta=args.lr_beta,
         rho_scale=args.rho_scale, flow_scale=args.flow_scale,
         w_rho=args.w_rho, w_flow=args.w_flow, beta_init=args.beta_init,
+        imputed_dir=args.imputed_dir, imputed_weight=args.imputed_weight,
         patience=patience, min_delta=args.min_delta,
         log_every=args.log_every, log_fn=log_fn, out_dir=out_dir,
     )
