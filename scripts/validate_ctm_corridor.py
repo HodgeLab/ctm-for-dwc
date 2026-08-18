@@ -231,28 +231,11 @@ def main() -> None:
               "re-rendered sim contours line up with its flow_contour/"
               "density_contour. Defaults to 300s (5 min)."),
     )
-    parser.add_argument(
-        "--drop-first-cell", action=argparse.BooleanOptionalAction, default=True,
-        help=("Exclude the upstream-most cell (index 0) from every scored "
-              "statistic (RMSE/MAPE, GEH, QQ, corridor aggregates) and from "
-              "the measured PeMS heatmaps -- its density is an inflated "
-              "upstream-boundary artifact. On by default; pass "
-              "--no-drop-first-cell to score it too."),
-    )
     args = parser.parse_args()
 
     print(f"loading result.npz from {args.sim_dir}", file=sys.stderr)
     result = SimulationResult.from_npz(args.sim_dir / "result.npz")
     cells = pd.read_csv(args.cells)
-
-    # Excluding the upstream boundary cell (index 0) from every scored
-    # statistic: mark it non-direct so all the validation functions -- which
-    # score only direct/tiebreak VDS cells -- skip it, while every other
-    # cell keeps its original index. (The measured PeMS heatmaps drop its
-    # column separately below.) ``cells`` feeds only the validation calls
-    # from here on, so mutating it in place is safe.
-    if args.drop_first_cell:
-        cells.loc[cells.index[0], "vds_source"] = "dropped_first_cell"
 
     try:
         start = resolve_start(args.start, result.start)
@@ -262,10 +245,6 @@ def main() -> None:
     stats = compare_against_historical(
         result, cells, args.timeseries_dir, start=start,
     )
-    if args.drop_first_cell:
-        # compare_against_historical still emits a (now non-direct) NaN row
-        # for cell 0; drop it so it's absent from validation.csv entirely.
-        stats = stats[stats["cell"] != 0].reset_index(drop=True)
     station_metadata = pd.read_csv(args.station_metadata)
     aggregates = compare_corridor_aggregates(
         result, cells, args.timeseries_dir, station_metadata, start=start,
@@ -343,12 +322,6 @@ def main() -> None:
 
         obs_flow, obs_density = obs_grid.flow, obs_grid.density
         pm_edges = obs_grid.pm_edges
-        # Drop cell 0's column (and its postmile edge) from both grids so they
-        # share the same cell-0-dropped x-extent as the scored statistics.
-        if args.drop_first_cell:
-            obs_flow, obs_density = obs_flow[:, 1:], obs_density[:, 1:]
-            sim_flow, sim_density = sim_flow[:, 1:], sim_density[:, 1:]
-            pm_edges = pm_edges[1:]
         # Color limits from the measured data so the sim adopts the same
         # scale (sim values outside the measured range clip).
         flow_lim = (float(np.nanmin(obs_flow)), float(np.nanmax(obs_flow)))

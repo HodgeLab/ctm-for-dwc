@@ -314,20 +314,13 @@ def plot_aggregate_metrics(
     plt.close(fig)
 
 
-def plot_per_cell_metrics(
-    metrics, *, title: str, out_path: Path, first_cell_index: int = 0,
-) -> None:
-    """Horizon-total VHT/VMT/delay/ploss broken down by cell.
-
-    ``first_cell_index`` is the original index of ``metrics``' first cell,
-    so the x-axis stays labelled with true cell indices when the caller
-    passes metrics computed on a cell-cropped result (e.g. cell 0 dropped).
-    """
+def plot_per_cell_metrics(metrics, *, title: str, out_path: Path) -> None:
+    """Horizon-total VHT/VMT/delay/ploss broken down by cell."""
     vht = metrics.vht_per_cell.sum(axis=1)
     vmt = metrics.vmt_per_cell.sum(axis=1)
     delay = metrics.delay_per_cell.sum(axis=1)
     ploss = metrics.productivity_loss_per_cell.sum(axis=1)
-    cells = np.arange(first_cell_index, first_cell_index + vht.size)
+    cells = np.arange(vht.size)
 
     fig, axes = plt.subplots(2, 2, figsize=(11, 6), sharex=True)
     series = list(zip((vht, vmt, delay, ploss), _METRIC_SERIES))
