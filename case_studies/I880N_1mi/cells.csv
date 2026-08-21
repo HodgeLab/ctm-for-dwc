@@ -1,3 +1,4 @@
 pm_start,pm_end,length,lanes,on_ramp,off_ramp,on_ramp_name,off_ramp_name,caltrans_pm_start,caltrans_pm_end,length_warning,fd_vds_id,vds_id,vds_pm,vds_lanes,vds_source,vds_distance_mi,vds_n_candidates,on_ramp_vds_id,off_ramp_vds_id,Notes
-0.548464,1.288671,0.740207,4,TRUE,TRUE,,,0.39999987,1.20000017,ok,,400951,0.65860417,4,nearest_upstream,-0.3406933,1,"408905, 408906, 408908, 408909",413030;v400000,Add another off-ramp
-1.288671,1.488981,0.20031,3,FALSE,FALSE,,,1.20000017,1.40000012,ok,,400057,1.44589746,3,direct,0,1,,,Check lanes
+1.288671,1.488981,0.20031,3,False,False,,,1.20000017,1.40000012,ok,,400057,1.44589746,3,direct,0.0,1,,,Check lanes
+1.488981,2.047847,0.558866,4,True,True,,,1.40000012,1.90000053,ok,,400057,1.44589746,3,nearest_upstream,-0.3225165,0,413029.0,413028.0,
+2.047847,2.365016,0.317169,3,False,False,,,1.90000053,2.19999984,ok,,400147,2.15600615,3,direct,0.0,1,,,
