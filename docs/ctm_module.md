@@ -1019,8 +1019,14 @@ not the calibration source).
 
 Both quantities are evaluated at PeMS's native 5-min cadence:
 
-* Sim density is sampled at the start of each 5-min interval
-  (instantaneous state).
+* Sim density is **averaged** over each 5-min window — the mean of the
+  post-step states `ρ_i(k+1)` inside the interval. PeMS's density is an
+  interval quantity (interval flow over interval mean speed), so a
+  boundary snapshot would not be its counterpart. Averaging the
+  post-step states also keeps `ρ_i(0)` out of the comparison: it is
+  seeded from the observed value at `start` by
+  `initial_state_from_vds`, so scoring it would count a residual that
+  is zero by construction.
 * Sim mainline flow is **averaged** over each 5-min window (matching
   PeMS's interval-rate semantics — `total_flow_[veh/5-min] * 12`
   represents the mean rate over the interval).
@@ -1105,19 +1111,42 @@ length and on-ramp queues). Instead:
   `vds_source` is `direct` or `direct_tiebreak` contributes; a VDS
   spanning several cells is counted once, so observed flow/speed
   aren't double-counted.
-* **Length from `station_metadata.csv`** (`Length`, keyed by `ID`),
-  used identically on both sides, so the comparison reflects
-  flow/density accuracy rather than geometry. A contributing VDS
-  absent from `station_metadata` is a hard error.
+* **Two different lengths, by design.** The sim side of both totals is
+  measured over the contributing cell's **own** length `lᵢ`; the
+  observed side uses the station's `Length` from
+  `station_metadata.csv` (keyed by `ID`). A contributing VDS absent
+  from `station_metadata` is a hard error.
 
-Both sides share the same definitions:
+Definitions — sim integrated at native `dt`, observed at the 5-min
+cadence:
 
-* `VMT = Σ ρ·v·L·dt` — the sim integrates `ρ·v` at native `dt` (the
-  eq. 4.12 VMT definition); the observed side uses `flow·L·dt₅`, which
-  is identical because observed `ρ·v ≡ flow` (observed density is
-  `flow / speed`).
-* `VHT = Σ ρ·L·dt` — sim density integrated at native `dt`; observed
-  `ρ = flow / speed`.
+| | sim | observed |
+|---|---|---|
+| VMT | `Σ ρᵢ·Vᵢ·lᵢ·dt` | `Σ flow·L·dt₅` |
+| VHT | `Σ ρᵢ·lᵢ·dt` | `Σ (flow/speed)·L·dt₅` |
+
+`ρᵢ·Vᵢ` is the eq. 4.12 flux; eq. 4.8 already defines `Vᵢ` as
+`min{v_f, (fᵢ+sᵢ)/ρᵢ}`, so the flux the CTM produces is exactly what
+the metric integrates. `sim_vmt` and `sim_vht` are therefore the
+model's own vehicle-miles and vehicle-hours over the scored cells,
+rather than a detector rate extrapolated across the station's segment.
+On-ramp queues are excluded from `sim_vht` (unlike eq. 4.10) because a
+mainline detector cannot observe them.
+
+Because `lᵢ` and `L` differ, **length does not cancel** in either
+percent difference: a cell whose length disagrees with its station's
+`Length` shows that ratio as error even under a perfect flow/density
+match. Read the two percentages with that in mind, and check
+`n_vds` and the scored cells' total mileage against the corridor
+length when interpreting them.
+
+Both totals are signed sums, so `vmt_pct_diff` and `vht_pct_diff`
+measure **bias**, not accuracy: each is an observed-weighted mean of
+the local relative errors (VMT weighted by observed VMT, so peak
+volumes dominate; VHT by observed VHT, so congestion dominates), and
+over- and under-predictions cancel. A near-zero value is compatible
+with large per-sample error — read them next to the pooled RMSE and
+the GEH share.
 
 For each VDS, a 5-min window with a NaN observed value is dropped from
 **both** sides of that metric (paired support), mirroring how the

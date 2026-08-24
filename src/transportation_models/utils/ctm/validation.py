@@ -26,10 +26,11 @@ ratio).
 A third helper, :func:`compare_corridor_aggregates`, rolls the
 historical comparison up to two corridor scalars -- total VMT and VHT,
 sim vs observed -- computed once per *unique* mainline VDS (at its
-``direct`` / ``direct_tiebreak`` cell, with the station's
-``station_metadata`` length) rather than per cell. It answers "does the
-model reproduce aggregate corridor productivity?" as opposed to the
-per-cell point fits.
+``direct`` / ``direct_tiebreak`` cell) rather than per cell. It answers
+"does the model reproduce aggregate corridor productivity?" as opposed
+to the per-cell point fits. Both are signed totals, so their percent
+differences read as *bias* (over- and under-predictions cancel), not as
+accuracy -- read them next to the RMSE/GEH magnitudes.
 
 A fourth, :func:`compute_flow_geh`, reports the **GEH** flow statistic
 (``sqrt(2*(M-C)^2/(M+C))`` on hourly volumes) at the same
@@ -173,10 +174,10 @@ def compare_against_historical(
             "authoritative source."
         )
 
-    # Sim density at 5-min boundaries (instantaneous state at the start
-    # of each interval; we drop the trailing boundary so the array has
-    # one row per interval, lined up with the PeMS row at that interval).
-    sim_density_5min = result.density[:, : n_5min * steps_per_5min : steps_per_5min]
+    # Sim density averaged across each 5-min window: PeMS reports an
+    # interval quantity, so the sim counterpart is the mean of the
+    # post-step states inside the interval, not a boundary snapshot.
+    sim_density_5min = _sim_density_5min(result, n_5min, steps_per_5min)
     # Sim flow averaged across each 5-min window.
     sim_flow_per_step = result.mainline_flow[:, : n_5min * steps_per_5min]
     sim_flow_5min = sim_flow_per_step.reshape(
@@ -268,6 +269,11 @@ class CorridorAggregates:
     ``direct_tiebreak`` cell), summing over the cells' direct VDS and the
     window. ``n_vds`` is the number of unique VDS that contributed.
 
+    The sim totals are measured over each contributing cell's own length,
+    so they are the vehicle-miles and vehicle-hours the model actually
+    produces there; the observed totals use the station's
+    ``station_metadata`` ``Length``.
+
     Attributes
     ----------
     sim_vmt, obs_vmt : float
@@ -306,20 +312,36 @@ def compare_corridor_aggregates(
     """Corridor-total VMT and VHT, sim vs observed PeMS, over the sim window.
 
     Unlike the per-cell corridor-long metrics in :mod:`utils.ctm.metrics`
-    (which sum every cell with its own cell length and on-ramp queues),
-    this restricts to one term per *unique* mainline VDS -- the cell whose
-    ``vds_source`` is ``direct`` or ``direct_tiebreak`` -- and uses the
-    station's ``Length`` from ``station_metadata`` on both sides, so the
-    comparison reflects flow/density accuracy rather than geometry.
+    (which sum *every* cell and include the on-ramp queues), this
+    restricts to one term per *unique* mainline VDS -- the cell whose
+    ``vds_source`` is ``direct`` or ``direct_tiebreak``. On-ramp queues
+    are excluded from ``sim_vht`` on purpose: a mainline detector cannot
+    see them, so eq. 4.10's queue term has no observed counterpart.
 
-    Both sides share the same definitions:
+    Definitions -- the sim side integrates at native ``dt`` over the
+    cell's **own** length ``l_i``, the observed side at the 5-min cadence
+    over the station's ``Length``:
 
-    * ``VMT = sum rho * v * L * dt`` -- the sim integrates ``rho * v`` at
-      native ``dt`` (the eq. 4.12 VMT definition); the observed side uses
-      ``flow * L * dt_5min`` (identical, since observed ``rho * v == flow``
-      because observed density is ``flow / speed``).
-    * ``VHT = sum rho * L * dt`` -- sim density integrated at native
-      ``dt``; observed ``rho = flow / speed``.
+    * ``VMT``: sim ``sum rho_i * V_i * l_i * dt`` (the eq. 4.12
+      definition, and the flux the CTM's eq. 4.8 speed already encodes);
+      observed ``sum flow * L * dt_5min``.
+    * ``VHT``: sim ``sum rho_i * l_i * dt``; observed
+      ``sum (flow / speed) * L * dt_5min``.
+
+    ``sim_vmt`` / ``sim_vht`` are therefore the model's own vehicle-miles
+    and vehicle-hours over the scored cells, not a detector rate
+    extrapolated over the station's segment. On-ramp queues are excluded
+    from ``sim_vht`` (unlike eq. 4.10) because a mainline detector cannot
+    see them. Because ``l_i`` and ``L`` differ, length does **not** cancel
+    in either percent difference: a cell whose length disagrees with its
+    station's ``Length`` shows that ratio as error even under a perfect
+    flow/density match.
+
+    Because both totals are signed sums, ``vmt_pct_diff`` and
+    ``vht_pct_diff`` measure *bias*: they are observed-weighted means of
+    the local relative errors, so a near-zero value is compatible with
+    large per-sample error. Pair them with
+    :func:`corridor_rmse_mape` / :func:`compute_flow_geh`.
 
     For each VDS, a 5-min window with a NaN observed value is dropped from
     *both* sides of that metric (paired support), mirroring how the
@@ -383,6 +405,7 @@ def compare_corridor_aggregates(
     horizon = n_5min * steps_per_5min
     rho = result.density[:, 1: horizon + 1]   # (n_cells, T)  rho_i(k+1)
     speed = result.speed[:, :horizon]         # (n_cells, T)  V_i(k+1)
+    cell_length = np.array([c.length for c in result.freeway.cells])
     dt = result.freeway.dt
 
     sim_vmt = obs_vmt = sim_vht = obs_vht = 0.0
@@ -406,10 +429,14 @@ def compare_corridor_aggregates(
 
         # Sim side: integrate rho*v and rho at native dt, bucketed into the
         # n_5min windows so NaN-observed windows can be dropped pairwise.
+        # Both use the *cell's own* length, so they are the vehicle-miles
+        # and vehicle-hours the model actually produces over that cell;
+        # the observed side below uses the station's Length.
+        l_i = cell_length[cell_idx]
         rho_c = rho[cell_idx].reshape(n_5min, steps_per_5min)
         flux_c = (rho[cell_idx] * speed[cell_idx]).reshape(n_5min, steps_per_5min)
-        sim_vmt_w = flux_c.sum(axis=1) * dt * length    # (n_5min,) veh*mi
-        sim_vht_w = rho_c.sum(axis=1) * dt * length     # (n_5min,) veh*h
+        sim_vmt_w = flux_c.sum(axis=1) * dt * l_i    # (n_5min,) veh*mi
+        sim_vht_w = rho_c.sum(axis=1) * dt * l_i     # (n_5min,) veh*h
 
         observed_flow, observed_density = _load_observed_window(
             timeseries_dir, vds_id, start=start, end=end,
@@ -685,8 +712,8 @@ def compute_qq_samples(
 
     Sim quantities use the same definitions as
     :func:`compare_against_historical`: flow is the per-5-min window mean
-    of ``result.mainline_flow``; density is the instantaneous state at each
-    5-min boundary.
+    of ``result.mainline_flow``; density is the per-5-min window mean of
+    the post-step ``result.density``.
 
     Parameters
     ----------
@@ -721,7 +748,7 @@ def compute_qq_samples(
     steps_per_5min, n_5min, start, end = _resolve_window(result, start)
     timeseries_dir = Path(timeseries_dir)
 
-    sim_density_5min = result.density[:, : n_5min * steps_per_5min : steps_per_5min]
+    sim_density_5min = _sim_density_5min(result, n_5min, steps_per_5min)
     sim_flow_5min = result.mainline_flow[
         :, : n_5min * steps_per_5min
     ].reshape(n_cells, n_5min, steps_per_5min).mean(axis=2)
@@ -869,6 +896,28 @@ def corridor_rmse_mape(qq: QQResult) -> dict[str, tuple[int, float, float]]:
 # ---- Helpers --------------------------------------------------------------
 
 
+def _sim_density_5min(
+    result: SimulationResult, n_5min: int, steps_per_5min: int,
+) -> np.ndarray:
+    """Sim density averaged over each 5-min window, shape ``(n_cells, n_5min)``.
+
+    PeMS's 5-min row is an interval quantity (its density is built from an
+    interval flow and an interval mean speed), so the comparable sim value
+    is the window mean rather than the state at one boundary. Averages the
+    *post-step* densities ``rho_i(k+1)`` inside each window -- the same
+    alignment :mod:`utils.ctm.metrics` and
+    :func:`compare_corridor_aggregates` use, which also keeps the initial
+    condition out of the comparison (``rho_i(0)`` is seeded from the
+    observed value at ``start`` by
+    :func:`utils.ctm.scenario.initial_state_from_vds`, so including it
+    would score a residual that is zero by construction).
+    """
+    horizon = n_5min * steps_per_5min
+    return result.density[:, 1: horizon + 1].reshape(
+        result.freeway.n_cells, n_5min, steps_per_5min,
+    ).mean(axis=2)
+
+
 def _geh(modeled: np.ndarray, counted: np.ndarray) -> np.ndarray:
     """Elementwise GEH = sqrt(2*(M-C)^2/(M+C)); 0 where M+C==0, NaN where NaN."""
     m = np.asarray(modeled, dtype=float)
@@ -877,10 +926,6 @@ def _geh(modeled: np.ndarray, counted: np.ndarray) -> np.ndarray:
     with np.errstate(divide="ignore", invalid="ignore"):
         geh = np.sqrt(2.0 * (m - c) ** 2 / denom)
     return np.where(denom == 0.0, 0.0, geh)
-
-
-def _pct_diff(sim: float, obs: float) -> float:
-    return float("nan") if obs == 0.0 else 100.0 * (sim - obs) / obs
 
 
 def _pct_diff(sim: float, obs: float) -> float:

@@ -47,17 +47,24 @@ class _Result:
 def _result_constant(
     densities: list[float], speeds: list[float], *,
     n_5min: int, steps_per_5min: int = 30,
+    cell_lengths: list[float] | None = None,
 ) -> _Result:
-    """Constant per-cell density and speed over the horizon."""
+    """Constant per-cell density and speed over the horizon.
+
+    ``cell_lengths`` defaults to 0.5 mi per cell; the sim VMT/VHT totals
+    are measured over it, so tests that want a "perfect match" give each
+    cell the ``Length`` of its own station.
+    """
     n_cells = len(densities)
     n_steps = n_5min * steps_per_5min
     dt_h = (5.0 / 60.0) / steps_per_5min
+    lengths = [0.5] * n_cells if cell_lengths is None else cell_lengths
     density = np.repeat(
         np.asarray(densities, float)[:, None], n_steps + 1, axis=1,
     )
     speed = np.repeat(np.asarray(speeds, float)[:, None], n_steps, axis=1)
     return _Result(
-        freeway=_Freeway(dt=dt_h, cells=[_Cell() for _ in range(n_cells)]),
+        freeway=_Freeway(dt=dt_h, cells=[_Cell(length=L) for L in lengths]),
         density=density, speed=speed,
     )
 
@@ -93,7 +100,9 @@ def test_perfect_match_sums_per_unique_direct_vds(tmp_path):
 
     VDS 100 (L=0.5): obs 1200 veh/h @ 60 mph -> rho 20; sim rho 20, v 60.
     VDS 200 (L=1.0): obs 2400 veh/h @ 48 mph -> rho 50; sim rho 50, v 48.
-    Per-window VMT = flow*L*(5/60); summed over 2 windows.
+    Per-window VMT = flow*L*(5/60); summed over 2 windows. Each cell is
+    given its own station's Length so the sim totals (cell length) and
+    the observed totals (station Length) coincide.
     """
     n_5min = 2
     _write_vds_csv(
@@ -107,6 +116,7 @@ def test_perfect_match_sums_per_unique_direct_vds(tmp_path):
     # cell 1 is nearest_upstream -> excluded; its state is irrelevant.
     result = _result_constant(
         densities=[20.0, 999.0, 50.0], speeds=[60.0, 1.0, 48.0], n_5min=n_5min,
+        cell_lengths=[0.5, 0.5, 1.0],
     )
     cells = pd.DataFrame({
         "vds_id": [100, 100, 200],
@@ -231,3 +241,40 @@ def test_row_count_mismatch_raises(tmp_path):
             result, pd.DataFrame({"vds_id": [100], "vds_source": ["direct"]}),
             tmp_path, _station_metadata({100: 0.5}), start=START,
         )
+
+
+# ---- Sim totals are measured over the cell's own length -----------------
+
+
+def _single_vds(tmp_path, *, n_5min: int = 2) -> pd.DataFrame:
+    """One direct VDS reading 1200 veh/h @ 60 mph (-> rho 20 veh/mi)."""
+    _write_vds_csv(
+        tmp_path / "100.csv", start=START, station_id=100,
+        flows_5min=np.full(n_5min, 100.0), speeds_mph=np.full(n_5min, 60.0),
+    )
+    return pd.DataFrame({"vds_id": [100], "vds_source": ["direct"]})
+
+
+def test_sim_totals_use_cell_length_observed_uses_station_length(tmp_path):
+    """Halving the cell length halves sim VMT *and* sim VHT.
+
+    The sim side is the model's own vehicle-miles/-hours over its cell;
+    the observed side stays on the station's Length. So length does not
+    cancel: a 0.25 mi cell against a 0.5 mi station reads -50% on both
+    even though flow and density match exactly.
+    """
+    cells = _single_vds(tmp_path)
+    result = _result_constant(
+        densities=[20.0], speeds=[60.0], n_5min=2, cell_lengths=[0.25],
+    )
+    agg = compare_corridor_aggregates(
+        result, cells, tmp_path, _station_metadata({100: 0.5}), start=START,
+    )
+    # VMT: rho*v = 1200 over 0.25 mi, vs observed 1200 over 0.5 mi.
+    assert agg.sim_vmt == pytest.approx(1200.0 / 12.0 * 0.25 * 2)
+    assert agg.obs_vmt == pytest.approx(1200.0 / 12.0 * 0.5 * 2)
+    assert agg.vmt_pct_diff == pytest.approx(-50.0)
+    # VHT: rho = 20 over 0.25 mi, vs observed 20 over 0.5 mi.
+    assert agg.sim_vht == pytest.approx(20.0 / 12.0 * 0.25 * 2)
+    assert agg.obs_vht == pytest.approx(20.0 / 12.0 * 0.5 * 2)
+    assert agg.vht_pct_diff == pytest.approx(-50.0)
