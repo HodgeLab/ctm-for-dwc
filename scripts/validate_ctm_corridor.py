@@ -290,7 +290,7 @@ def main() -> None:
         )
 
     # Sim vs measured-PeMS space-time heatmaps, rendered with the same
-    # contour plotter (and viridis/magma colormaps) so the two are directly
+    # contour plotter (and viridis/plasma colormaps) so the two are directly
     # comparable. Both share color limits taken from the measured PeMS data
     # (the reference). The sim is sampled exactly as simulate_ctm_corridor.py
     # samples its flow_contour/density_contour, so only the color limits
@@ -331,9 +331,9 @@ def main() -> None:
              "sim_flow_heatmap.png", "Simulated flow"),
             (obs_flow, "viridis", "flow [veh/h]", flow_lim, "black",
              "pems_flow_heatmap.png", "Measured PeMS flow"),
-            (sim_density, "magma", "density [veh/mi]", density_lim, None,
+            (sim_density, "plasma", "density [veh/mi]", density_lim, None,
              "sim_density_heatmap.png", "Simulated density"),
-            (obs_density, "magma", "density [veh/mi]", density_lim, "black",
+            (obs_density, "plasma", "density [veh/mi]", density_lim, "black",
              "pems_density_heatmap.png", "Measured PeMS density"),
         ):
             plot_flow_density_contour(

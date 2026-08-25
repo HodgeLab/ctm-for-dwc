@@ -93,7 +93,7 @@ def _write_contours(out_dir, cells_df, raw, filled, n_5min, k, knn_decay):
         pm_edges = np.arange(n + 1, dtype=float)
         x_label = "cell index"
     horizon_h = n_5min / 12.0
-    styles = {"density": ("magma", "density [veh/mi]"),
+    styles = {"density": ("plasma", "density [veh/mi]"),
               "flow": ("viridis", "flow [veh/h]")}
     for q, (cmap, cbar) in styles.items():
         finite = filled[q][np.isfinite(filled[q])]

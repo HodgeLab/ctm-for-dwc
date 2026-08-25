@@ -191,7 +191,7 @@ def main() -> None:
     )
     plot_flow_density_contour(
         density_KN, title=f"Density — I-210W {args.day}",
-        cbar_label="density [veh/mi]", cmap="magma",
+        cbar_label="density [veh/mi]", cmap="plasma",
         horizon_h=24.0, pm_edges=pm_edges,
         y_label="time of day [h]",
         out_path=out_dir / "density_contour.png",

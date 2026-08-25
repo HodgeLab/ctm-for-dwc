@@ -303,7 +303,7 @@ def main() -> None:
         )
         plot_flow_density_contour(
             density_KN, title=f"Density ({args.start} -> {args.end})",
-            cbar_label="density [veh/mi]", cmap="magma",
+            cbar_label="density [veh/mi]", cmap="plasma",
             horizon_h=horizon_h, pm_edges=pm_edges,
             y_label="time from sim start [h]",
             out_path=out_dir / "density_contour.png",
