@@ -1,7 +1,8 @@
 """Generate DWPT demand from CTM simulation.
 
 Builds a DWPT corridor from a CTM simulation result and CLI-supplied corridor specs, calculates
-DWPT demand at every timestamp and Rx pad position, and writes five plots and a summary of results.
+DWPT demand at every timestamp and Rx pad position, and writes five plots and a summary of
+results (including the demand calculation's runtime and peak RSS).
 Plots are the corridor power-vs-position profile, the demand space-time heatmap, the
 corridor-aggregate load timeseries, the instantaneous load profile at peak, and the
 corridor-aggregate load duration curve.
@@ -21,6 +22,9 @@ Run from the repo root:
 from __future__ import annotations
 
 import argparse
+import resource
+import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -31,6 +35,16 @@ from transportation_models.utils.dwpt import plots
 from transportation_models.utils.dwpt.adapter import corridor_from_ctm, mainline_vht
 from transportation_models.utils.dwpt.demand import compute
 from transportation_models.utils.dwpt.model import PadSpec
+
+
+def _peak_rss_mb() -> float:
+    """Process peak resident memory [MB] so far (RUSAGE_SELF high-water mark).
+
+    ``ru_maxrss`` is a monotonic high-water mark, reported in bytes on
+    macOS and kilobytes on Linux; normalize both to MB.
+    """
+    ru = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return ru / (1024 ** 2) if sys.platform == "darwin" else ru / 1024
 
 
 def main() -> None:
@@ -102,8 +116,13 @@ def main() -> None:
         beta=args.beta, beta_prime=args.beta_prime
     )
 
+    # Time and measure peak RSS here, before the downstream plot
+    # allocations, so the numbers reflect the demand calculation alone.
+    t0 = time.perf_counter()
     corridor = corridor_from_ctm(result, pad, args.dx_grid)
     demand = compute(mainline_vht(result), corridor, args.eta_ev)
+    demand_wall_s = time.perf_counter() - t0
+    demand_peak_rss_mb = _peak_rss_mb()
 
     plots.plot_P_y(
         corridor.build_P_y(), corridor.position_m,
@@ -150,7 +169,11 @@ def main() -> None:
         "",
         "  DWPT demand:",
         f"  Energy delivered    : {demand.E.sum():.3e} Wh",
-        f"  Peak corridor power : {(demand.E.sum(axis=1).max() / result.freeway.dt):.3e} W"
+        f"  Peak corridor power : {(demand.E.sum(axis=1).max() / result.freeway.dt):.3e} W",
+        "",
+        "  demand compute cost:",
+        f"  runtime             = {demand_wall_s:8.3f}  s",
+        f"  peak RSS            = {demand_peak_rss_mb:8.1f}  MB",
     ]
     summary = "\n".join(summary_lines) + "\n"
     (out_dir / "dwpt_summary.txt").write_text(summary)
