@@ -4,11 +4,19 @@
 ``plot_demand_heatmap``         -- E(time, position) space-time heatmap.
 ``plot_aggregate_timeseries``   -- corridor-aggregate load vs time.
 ``plot_peak_load_profile``      -- per-position load at the peak timestamp.
+``plot_absolute_peak_profile``  -- per-position peak load over all timestamps.
+``plot_average_load_profile``   -- per-position load averaged over all timestamps.
+``plot_load_factor_profile``    -- per-position mean/peak load ratio.
 ``plot_load_duration_curve``    -- sorted corridor-aggregate load vs duration.
 
 All follow the repo's ``utils/ctm/plots.py`` convention: take the data plus
 a keyword-only ``out_path``, render, save at 120 dpi, and close the figure.
-The three load plots express power in megawatts (energy divided by ``dt_h``).
+The load plots express power in megawatts (energy divided by ``dt_h``); the
+load factor is dimensionless.
+
+The four per-position profiles share the same binning: contiguous bins that
+are the CTM cells when ``cell_edges_m`` is given, else uniform
+``segment_m``-wide segments.
 """
 
 from __future__ import annotations
@@ -103,6 +111,68 @@ def plot_aggregate_timeseries(
     plt.close(fig)
 
 
+def _bin_edges(
+    position_m: np.ndarray,
+    segment_m: float,
+    cell_edges_m: np.ndarray | None,
+) -> tuple[np.ndarray, str]:
+    """Contiguous bin edges over ``position_m``, plus a label for one bin.
+
+    Bins are the CTM cells when ``cell_edges_m`` (an ``(N+1,)`` array of cell
+    boundaries in meters) is given, else uniform ``segment_m``-wide segments
+    spanning the corridor.
+    """
+    if cell_edges_m is not None:
+        return np.asarray(cell_edges_m, dtype=float), "cell"
+    k0 = int(np.floor(position_m.min() / segment_m))
+    k1 = int(np.floor(position_m.max() / segment_m))
+    return np.arange(k0, k1 + 2) * segment_m, f"{segment_m:g} m segment"
+
+
+def _binned_load_MW(
+    E: np.ndarray,
+    position_m: np.ndarray,
+    dt_h: float,
+    edges: np.ndarray,
+) -> np.ndarray:
+    """Load (MW) per timestep and bin: ``(T, n_bins)`` from ``(T, m)`` energy.
+
+    Summing positions into bins suppresses the pad-vs-gap ripple; each row
+    still sums to that timestep's corridor power. ``position_m`` is ascending,
+    so every bin is a contiguous column slice of ``E``.
+    """
+    n_bins = edges.size - 1
+    idx = np.clip(np.digitize(position_m, edges) - 1, 0, n_bins - 1)
+    bounds = np.searchsorted(idx, np.arange(n_bins + 1))
+    return np.column_stack([
+        E[:, lo:hi].sum(axis=1) for lo, hi in zip(bounds[:-1], bounds[1:])
+    ]) / dt_h / 1e6
+
+
+def _plot_profile_bars(
+    edges: np.ndarray,
+    values: np.ndarray,
+    *,
+    ylabel: str,
+    title: str,
+    ylim: tuple[float, float] | None = None,
+    out_path: Path,
+) -> None:
+    """Render one per-bin profile as a bar chart against position (m)."""
+    fig, ax = plt.subplots(figsize=(10, 3.5))
+    ax.bar(edges[:-1], values, width=np.diff(edges), align="edge",
+           edgecolor="white", lw=0.3)
+    ax.set_xlabel("position [m]")
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    if ylim is not None:
+        ax.set_ylim(*ylim)
+    ax.grid(alpha=0.3, axis="y")
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=120)
+    plt.close(fig)
+
+
 def plot_peak_load_profile(
     result: DemandResult,
     *,
@@ -122,32 +192,104 @@ def plot_peak_load_profile(
     sum to the peak corridor power either way.
     """
     t_star = int(np.argmax(result.E.sum(axis=1)))
-    power_MW = result.E[t_star] / dt_h / 1e6
-    pos = result.position_m
+    edges, unit = _bin_edges(result.position_m, segment_m, cell_edges_m)
+    bin_power_MW = _binned_load_MW(
+        result.E[t_star][None, :], result.position_m, dt_h, edges
+    )[0]
 
-    if cell_edges_m is not None:
-        edges = np.asarray(cell_edges_m, dtype=float)
-        unit = "cell"
-    else:
-        k0 = int(np.floor(pos.min() / segment_m))
-        k1 = int(np.floor(pos.max() / segment_m))
-        edges = np.arange(k0, k1 + 2) * segment_m
-        unit = f"{segment_m:g} m segment"
+    _plot_profile_bars(
+        edges, bin_power_MW,
+        ylabel=f"power per {unit} [MW]",
+        title=f"{title} (t = {t_star * dt_h:.2f} h)",
+        out_path=out_path,
+    )
 
-    n_bins = edges.size - 1
-    idx = np.clip(np.digitize(pos, edges) - 1, 0, n_bins - 1)
-    bin_power_MW = np.bincount(idx, weights=power_MW, minlength=n_bins)
 
-    fig, ax = plt.subplots(figsize=(10, 3.5))
-    ax.bar(edges[:-1], bin_power_MW, width=np.diff(edges), align="edge",
-           edgecolor="white", lw=0.3)
-    ax.set_xlabel("position [m]")
-    ax.set_ylabel(f"power per {unit} [MW]")
-    ax.set_title(f"{title} (t = {t_star * dt_h:.2f} h)")
-    ax.grid(alpha=0.3, axis="y")
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=120)
-    plt.close(fig)
+def plot_absolute_peak_profile(
+    result: DemandResult,
+    *,
+    dt_h: float,
+    segment_m: float = 20.0,
+    cell_edges_m: np.ndarray | None = None,
+    title: str = "DWPT absolute peak load by position",
+    out_path: Path,
+) -> None:
+    """Plot each bin's largest load (MW) over all timesteps vs position.
+
+    Unlike ``plot_peak_load_profile``, every bin is read at its own worst
+    timestamp, so the bars are non-coincident: each is at least as tall as in
+    the peak-instant profile, and they sum to more than the peak corridor
+    power unless the whole corridor peaks together.
+    """
+    edges, unit = _bin_edges(result.position_m, segment_m, cell_edges_m)
+    peak_MW = _binned_load_MW(
+        result.E, result.position_m, dt_h, edges
+    ).max(axis=0)
+
+    _plot_profile_bars(
+        edges, peak_MW,
+        ylabel=f"peak power per {unit} [MW]",
+        title=title,
+        out_path=out_path,
+    )
+
+
+def plot_average_load_profile(
+    result: DemandResult,
+    *,
+    dt_h: float,
+    segment_m: float = 20.0,
+    cell_edges_m: np.ndarray | None = None,
+    title: str = "DWPT average load by position",
+    out_path: Path,
+) -> None:
+    """Plot each bin's load (MW) averaged over all timesteps vs position.
+
+    The mean runs over every simulated timestep, so a bin's bar is its total
+    delivered energy divided by the simulated duration.
+    """
+    edges, unit = _bin_edges(result.position_m, segment_m, cell_edges_m)
+    mean_MW = _binned_load_MW(
+        result.E, result.position_m, dt_h, edges
+    ).mean(axis=0)
+
+    _plot_profile_bars(
+        edges, mean_MW,
+        ylabel=f"mean power per {unit} [MW]",
+        title=title,
+        out_path=out_path,
+    )
+
+
+def plot_load_factor_profile(
+    result: DemandResult,
+    *,
+    dt_h: float,
+    segment_m: float = 20.0,
+    cell_edges_m: np.ndarray | None = None,
+    title: str = "DWPT load factor by position",
+    out_path: Path,
+) -> None:
+    """Plot each bin's load factor -- its mean load over its own peak load.
+
+    A value near 1 means the bin's load is steady; a small value means the bin
+    must be sized for a peak it rarely sees. Bins that never see load read 0.
+    """
+    edges, unit = _bin_edges(result.position_m, segment_m, cell_edges_m)
+    binned_MW = _binned_load_MW(result.E, result.position_m, dt_h, edges)
+    peak_MW = binned_MW.max(axis=0)
+    load_factor = np.divide(
+        binned_MW.mean(axis=0), peak_MW,
+        out=np.zeros_like(peak_MW), where=peak_MW > 0,
+    )
+
+    _plot_profile_bars(
+        edges, load_factor,
+        ylabel=f"load factor per {unit} [-]",
+        title=title,
+        ylim=(0.0, 1.0),
+        out_path=out_path,
+    )
 
 
 def plot_load_duration_curve(

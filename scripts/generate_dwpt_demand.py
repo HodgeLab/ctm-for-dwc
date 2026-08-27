@@ -1,10 +1,11 @@
 """Generate DWPT demand from CTM simulation.
 
 Builds a DWPT corridor from a CTM simulation result and CLI-supplied corridor specs, calculates
-DWPT demand at every timestamp and Rx pad position, and writes five plots and a summary of
+DWPT demand at every timestamp and Rx pad position, and writes eight plots and a summary of
 results (including the demand calculation's runtime and peak RSS).
 Plots are the corridor power-vs-position profile, the demand space-time heatmap, the
-corridor-aggregate load timeseries, the instantaneous load profile at peak, and the
+corridor-aggregate load timeseries, the instantaneous load profile at peak, the
+per-position absolute peak / average / load-factor profiles, and the
 corridor-aggregate load duration curve.
 
 Run from the repo root:
@@ -83,14 +84,14 @@ def main() -> None:
     )
     parser.add_argument(
         "--aggregate", choices=("segment", "cell"), default="segment",
-        help=("How to bin the instantaneous peak load profile: fixed-width "
+        help=("How to bin the per-position load profiles: fixed-width "
               "'segment's (see --segment-m) or the CTM 'cell's. Defaults to "
               "'segment'."),
     )
     parser.add_argument(
         "--segment-m", type=float, default=20.0,
-        help=("Segment width (meters) for aggregating the instantaneous "
-              "peak load profile when --aggregate=segment. Defaults to 20."),
+        help=("Segment width (meters) for aggregating the per-position load "
+              "profiles when --aggregate=segment. Defaults to 20."),
     )
     parser.add_argument(
         "--out-dir", type=Path, default=None,
@@ -144,6 +145,21 @@ def main() -> None:
         cell_edges_m=cell_edges_m,
         out_path=out_dir / "dwpt_peak_load_profile.png",
     )
+    plots.plot_absolute_peak_profile(
+        demand, dt_h=result.freeway.dt, segment_m=args.segment_m,
+        cell_edges_m=cell_edges_m,
+        out_path=out_dir / "dwpt_absolute_peak_profile.png",
+    )
+    plots.plot_average_load_profile(
+        demand, dt_h=result.freeway.dt, segment_m=args.segment_m,
+        cell_edges_m=cell_edges_m,
+        out_path=out_dir / "dwpt_average_load_profile.png",
+    )
+    plots.plot_load_factor_profile(
+        demand, dt_h=result.freeway.dt, segment_m=args.segment_m,
+        cell_edges_m=cell_edges_m,
+        out_path=out_dir / "dwpt_load_factor_profile.png",
+    )
     plots.plot_load_duration_curve(
         demand, dt_h=result.freeway.dt,
         out_path=out_dir / "dwpt_load_duration_curve.png",
@@ -184,6 +200,9 @@ def main() -> None:
     print("  dwpt_demand_heatmap.png")
     print("  dwpt_aggregate_timeseries.png")
     print("  dwpt_peak_load_profile.png")
+    print("  dwpt_absolute_peak_profile.png")
+    print("  dwpt_average_load_profile.png")
+    print("  dwpt_load_factor_profile.png")
     print("  dwpt_load_duration_curve.png")
     print("  dwpt_summary.txt")
 

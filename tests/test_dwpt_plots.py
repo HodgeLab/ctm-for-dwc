@@ -92,3 +92,102 @@ def test_plot_demand_heatmap_y_axis_is_physical_time(tmp_path, monkeypatch):
     assert ax.get_ylabel() == "time [h]"
     np.testing.assert_allclose(ax.get_ylim(), (0.0, n_t * dt_h))
     plots.plt.close(captured["fig"])
+
+
+def _ramp_demand() -> DemandResult:
+    """Two bins whose loads peak at different timesteps.
+
+    Positions 0-1 fall in bin [0, 2); positions 2-3 in bin [2, 4). Bin 0 peaks
+    at t=0 and bin 1 at t=2, so no single timestep holds both peaks.
+    """
+    E = np.array([
+        [4.0, 4.0, 0.0, 0.0],
+        [1.0, 1.0, 1.0, 1.0],
+        [0.0, 0.0, 5.0, 5.0],
+    ])
+    return DemandResult(
+        E=E,
+        position_m=np.array([0.0, 1.0, 2.0, 3.0]),
+        timesteps=np.arange(3),
+    )
+
+
+def _captured_bars(monkeypatch, plot_fn, **kwargs):
+    """Run a profile plotter and return (bar heights, ylabel) from its axes."""
+    captured = {}
+    monkeypatch.setattr(plots.plt, "close", lambda fig: captured.setdefault("fig", fig))
+    plot_fn(**kwargs)
+    ax = captured["fig"].axes[0]
+    heights = np.array([patch.get_height() for patch in ax.patches])
+    ylabel = ax.get_ylabel()
+    plots.plt.close(captured["fig"])
+    return heights, ylabel
+
+
+def test_absolute_peak_profile_is_non_coincident(tmp_path, monkeypatch):
+    """Each bin peaks at its own worst timestep, not at the corridor peak."""
+    result = _ramp_demand()
+    dt_h, seg = 1.0, 2.0
+    peak, ylabel = _captured_bars(
+        monkeypatch, plots.plot_absolute_peak_profile, result=result, dt_h=dt_h,
+        segment_m=seg, out_path=tmp_path / "abs_peak.png",
+    )
+    at_peak, _ = _captured_bars(
+        monkeypatch, plots.plot_peak_load_profile, result=result, dt_h=dt_h,
+        segment_m=seg, out_path=tmp_path / "peak.png",
+    )
+    # Bin 0 peaks at t=0 (8 W -> 8e-6 MW), bin 1 at t=2 (10 W).
+    np.testing.assert_allclose(peak, np.array([8.0, 10.0]) / 1e6)
+    # The corridor peaks at t=2 (10 W), where bin 0 carries nothing.
+    np.testing.assert_allclose(at_peak, np.array([0.0, 10.0]) / 1e6)
+    assert np.all(peak >= at_peak) and peak.sum() > at_peak.sum()
+    assert "peak power per 2 m segment [MW]" == ylabel
+
+
+def test_average_load_profile_is_energy_over_duration(tmp_path, monkeypatch):
+    """A bin's bar is its total energy divided by the simulated duration."""
+    result = _ramp_demand()
+    dt_h = 0.5
+    mean, ylabel = _captured_bars(
+        monkeypatch, plots.plot_average_load_profile, result=result, dt_h=dt_h,
+        segment_m=2.0, out_path=tmp_path / "avg.png",
+    )
+    duration_h = result.E.shape[0] * dt_h
+    expected = np.array([10.0, 12.0]) / duration_h / 1e6  # bin energies [Wh]
+    np.testing.assert_allclose(mean, expected)
+    assert "mean power per 2 m segment [MW]" == ylabel
+
+
+def test_load_factor_profile_is_mean_over_peak(tmp_path, monkeypatch):
+    """Load factor is each bin's own mean/peak, in [0, 1]; empty bins read 0."""
+    result = _ramp_demand()
+    factor, ylabel = _captured_bars(
+        monkeypatch, plots.plot_load_factor_profile, result=result, dt_h=0.5,
+        segment_m=2.0, out_path=tmp_path / "lf.png",
+    )
+    np.testing.assert_allclose(factor, [(10.0 / 3) / 8.0, (12.0 / 3) / 10.0])
+    assert np.all((factor >= 0.0) & (factor <= 1.0))
+    assert "load factor per 2 m segment [-]" == ylabel
+
+    # A corridor bin that never sees load divides 0/0 -> 0, not NaN.
+    empty = DemandResult(
+        E=np.zeros((3, 4)), position_m=result.position_m, timesteps=np.arange(3),
+    )
+    zero, _ = _captured_bars(
+        monkeypatch, plots.plot_load_factor_profile, result=empty, dt_h=0.5,
+        segment_m=2.0, out_path=tmp_path / "lf0.png",
+    )
+    np.testing.assert_array_equal(zero, np.zeros(2))
+
+
+def test_cell_binning_matches_cell_edges(tmp_path, monkeypatch):
+    """With --aggregate=cell the bins are the given cell edges, labelled 'cell'."""
+    result = _ramp_demand()
+    peak, ylabel = _captured_bars(
+        monkeypatch, plots.plot_absolute_peak_profile, result=result, dt_h=1.0,
+        cell_edges_m=np.array([0.0, 3.0, 4.0]), out_path=tmp_path / "cells.png",
+    )
+    # Positions 0,1,2 fall in cell 0 (peaking at t=0, 4+4+0 W); position 3 in
+    # cell 1 (peaking at t=2, 5 W).
+    np.testing.assert_allclose(peak, np.array([8.0, 5.0]) / 1e6)
+    assert "peak power per cell [MW]" == ylabel
