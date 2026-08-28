@@ -1,11 +1,11 @@
 """Generate DWPT demand from CTM simulation.
 
 Builds a DWPT corridor from a CTM simulation result and CLI-supplied corridor specs, calculates
-DWPT demand at every timestamp and Rx pad position, and writes eight plots and a summary of
+DWPT demand at every timestamp and Rx pad position, and writes nine plots and a summary of
 results (including the demand calculation's runtime and peak RSS).
 Plots are the corridor power-vs-position profile, the demand space-time heatmap, the
 corridor-aggregate load timeseries, the instantaneous load profile at peak, the
-per-position absolute peak / average / load-factor profiles, and the
+per-position absolute peak / average / load-factor / distribution profiles, and the
 corridor-aggregate load duration curve.
 
 Run from the repo root:
@@ -160,6 +160,11 @@ def main() -> None:
         cell_edges_m=cell_edges_m,
         out_path=out_dir / "dwpt_load_factor_profile.png",
     )
+    plots.plot_load_distribution_profile(
+        demand, dt_h=result.freeway.dt, segment_m=args.segment_m,
+        cell_edges_m=cell_edges_m,
+        out_path=out_dir / "dwpt_load_distribution_profile.png",
+    )
     plots.plot_load_duration_curve(
         demand, dt_h=result.freeway.dt,
         out_path=out_dir / "dwpt_load_duration_curve.png",
@@ -203,6 +208,7 @@ def main() -> None:
     print("  dwpt_absolute_peak_profile.png")
     print("  dwpt_average_load_profile.png")
     print("  dwpt_load_factor_profile.png")
+    print("  dwpt_load_distribution_profile.png")
     print("  dwpt_load_duration_curve.png")
     print("  dwpt_summary.txt")
 
