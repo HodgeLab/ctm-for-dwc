@@ -14,9 +14,11 @@ All follow the repo's ``utils/ctm/plots.py`` convention: take the data plus
 a keyword-only ``out_path``, render, save at 120 dpi, and close the figure.
 The corridor-aggregate plots express power in megawatts (energy divided by
 ``dt_h``). The per-position profiles divide that by the bin's length as well,
-giving a linear power density in kW/m so that bins of unequal length -- CTM
+giving a linear power density in MW/mi so that bins of unequal length -- CTM
 cells in particular -- are directly comparable; the load factor is a ratio and
-so is dimensionless either way.
+so is dimensionless either way. The per-position profiles put position on a
+mile axis; ``plot_P_y`` and ``plot_demand_heatmap`` stay in meters, being pad-
+and grid-scale views.
 
 The five per-position profiles share the same binning: contiguous bins that
 are the CTM cells when ``cell_edges_m`` is given, else uniform
@@ -31,6 +33,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from .model import DemandResult
+
+_METERS_PER_MILE = 1609.344
 
 
 def plot_P_y(
@@ -139,25 +143,25 @@ def _binned_density(
     dt_h: float,
     edges: np.ndarray,
 ) -> np.ndarray:
-    """Load density (kW/m) per timestep and bin: ``(T, n_bins)`` from ``(T, m)``.
+    """Load density (MW/mi) per timestep and bin: ``(T, n_bins)`` from ``(T, m)``.
 
     Summing positions into bins suppresses the pad-vs-gap ripple; dividing by
     the bin's length then makes bins of unequal length comparable, so a long
     CTM cell no longer reads as hot merely for being long. Multiply a column
-    back by its bin width to recover the kW carried by that bin.
+    back by its bin width in miles to recover the MW carried by that bin.
 
-    kW/m is directly comparable to the corridor's installed linear capacity,
-    ``beta / (alpha + lambda_gap)``.
+    ``edges`` stays in meters, matching ``position_m``; only the density's
+    denominator and the plotted axis are in miles.
 
     ``position_m`` is ascending, so every bin is a contiguous column slice.
     """
     n_bins = edges.size - 1
     idx = np.clip(np.digitize(position_m, edges) - 1, 0, n_bins - 1)
     bounds = np.searchsorted(idx, np.arange(n_bins + 1))
-    binned_kW = np.column_stack([
+    binned_MW = np.column_stack([
         E[:, lo:hi].sum(axis=1) for lo, hi in zip(bounds[:-1], bounds[1:])
-    ]) / dt_h / 1e3
-    return binned_kW / np.diff(edges)
+    ]) / dt_h / 1e6
+    return binned_MW / (np.diff(edges) / _METERS_PER_MILE)
 
 
 def _plot_profile_bars(
@@ -169,11 +173,24 @@ def _plot_profile_bars(
     ylim: tuple[float, float] | None = None,
     out_path: Path,
 ) -> None:
-    """Render one per-bin profile as a bar chart against position (m)."""
+    """Render one per-bin profile as a bar chart against position (mi).
+
+    ``edges`` is in meters, as everywhere else in this module; the conversion
+    to miles happens here so every profile shares one axis convention.
+
+    Bars are centered on their bin and drawn to one uniform width. Because the
+    values are densities, a bar's height alone is comparable across bins and
+    its width carries no information -- so bins of unequal length (CTM cells)
+    get equal-width bars rather than length-scaled ones. The width is the
+    narrowest bin, which keeps bars from overlapping and, when every bin is
+    the same width, reproduces a contiguous tiled profile.
+    """
+    edges_mi = edges / _METERS_PER_MILE
+    widths_mi = np.diff(edges_mi)
     fig, ax = plt.subplots(figsize=(10, 3.5))
-    ax.bar(edges[:-1], values, width=np.diff(edges), align="edge",
-           edgecolor="white", lw=0.3)
-    ax.set_xlabel("position [m]")
+    ax.bar(edges_mi[:-1] + widths_mi / 2, values, width=widths_mi.min(),
+           align="center", edgecolor="white", lw=0.3)
+    ax.set_xlabel("position [mi]")
     ax.set_ylabel(ylabel)
     ax.set_title(title)
     if ylim is not None:
@@ -210,7 +227,7 @@ def plot_peak_load_profile(
 
     _plot_profile_bars(
         edges, density,
-        ylabel="power density [kW/m]",
+        ylabel="power density [MW/mi]",
         title=f"{title} ({unit} bins, t = {t_star * dt_h:.2f} h)",
         out_path=out_path,
     )
@@ -225,7 +242,7 @@ def plot_absolute_peak_profile(
     title: str = "DWPT absolute peak load by position",
     out_path: Path,
 ) -> None:
-    """Plot each bin's largest load density (kW/m) over all timesteps.
+    """Plot each bin's largest load density (MW/mi) over all timesteps.
 
     Unlike ``plot_peak_load_profile``, every bin is read at its own worst
     timestamp, so the bars are non-coincident: each is at least as tall as in
@@ -239,7 +256,7 @@ def plot_absolute_peak_profile(
 
     _plot_profile_bars(
         edges, peak_density,
-        ylabel="peak power density [kW/m]",
+        ylabel="peak power density [MW/mi]",
         title=f"{title} ({unit} bins)",
         out_path=out_path,
     )
@@ -254,7 +271,7 @@ def plot_average_load_profile(
     title: str = "DWPT average load by position",
     out_path: Path,
 ) -> None:
-    """Plot each bin's load density (kW/m) averaged over all timesteps.
+    """Plot each bin's load density (MW/mi) averaged over all timesteps.
 
     The mean runs over every simulated timestep, so a bin's bar is its total
     delivered energy divided by the simulated duration and by its own length.
@@ -266,7 +283,7 @@ def plot_average_load_profile(
 
     _plot_profile_bars(
         edges, mean_density,
-        ylabel="mean power density [kW/m]",
+        ylabel="mean power density [MW/mi]",
         title=f"{title} ({unit} bins)",
         out_path=out_path,
     )
@@ -286,7 +303,7 @@ def plot_load_factor_profile(
     A value near 1 means the bin's load is steady; a small value means the bin
     must be sized for a peak it rarely sees. Bins that never see load read 0.
     Bin length cancels in the ratio, so this profile is the one that does not
-    change under the kW/m normalization the other profiles use.
+    change under the MW/mi normalization the other profiles use.
     """
     edges, unit = _bin_edges(result.position_m, segment_m, cell_edges_m)
     density = _binned_density(result.E, result.position_m, dt_h, edges)
@@ -314,32 +331,33 @@ def plot_load_distribution_profile(
     title: str = "DWPT load distribution by position",
     out_path: Path,
 ) -> None:
-    """Box-plot each bin's load density (kW/m) over all timesteps.
+    """Box-plot each bin's load density (MW/mi) over all timesteps.
 
     One box per bin summarizes that bin's load across every simulated
     timestep: median, interquartile range, 1.5-IQR whiskers, and outliers
-    beyond them. Boxes sit at their bin's center and are drawn to its width,
-    so the x-axis reads the same as the other per-position profiles -- the
-    whisker top is that bin's absolute peak or near it, and the box shows how
-    much of the day is spent well below it.
+    beyond them. Boxes sit at their bin's center and share one uniform width,
+    matching the bar profiles, so the x-axis reads the same across the set --
+    the whisker top is that bin's absolute peak or near it, and the box shows
+    how much of the day is spent well below it.
 
     A long corridor binned into narrow segments yields hundreds of boxes;
     widen the bins (``segment_m``, or ``cell_edges_m``) to keep them legible.
     """
     edges, unit = _bin_edges(result.position_m, segment_m, cell_edges_m)
     density = _binned_density(result.E, result.position_m, dt_h, edges)
-    widths = np.diff(edges)
+    edges_mi = edges / _METERS_PER_MILE
+    widths_mi = np.diff(edges_mi)
 
     fig, ax = plt.subplots(figsize=(10, 4.5))
     ax.boxplot(
         density,
-        positions=edges[:-1] + widths / 2,
-        widths=0.8 * widths,
+        positions=edges_mi[:-1] + widths_mi / 2,
+        widths=0.8 * widths_mi.min(),
         manage_ticks=False,  # keep the numeric position axis, not 1..N labels
         flierprops=dict(marker=".", ms=2, mec="none", mfc="C0", alpha=0.3),
     )
-    ax.set_xlabel("position [m]")
-    ax.set_ylabel("power density [kW/m]")
+    ax.set_xlabel("position [mi]")
+    ax.set_ylabel("power density [MW/mi]")
     ax.set_title(f"{title} ({unit} bins)")
     ax.grid(alpha=0.3, axis="y")
     fig.tight_layout()
