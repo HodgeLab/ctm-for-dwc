@@ -178,22 +178,14 @@ def _plot_profile_bars(
     ``edges`` is in meters, as everywhere else in this module; the conversion
     to miles happens here so every profile shares one axis convention.
 
-    Bars are centered on their bin and drawn to one uniform width. Because the
-    values are densities, a bar's height alone is comparable across bins and
-    its width carries no information -- so bins of unequal length (CTM cells)
-    get equal-width bars rather than length-scaled ones.
-
-    The width is the *mean* bin width, i.e. the corridor divided by the bin
-    count, so the bars tile the axis on average at any corridor length: equal
-    bins stay exactly contiguous, while ragged ones let a short bin's bar
-    overlap its neighbours slightly rather than shrinking every bar to the
-    narrowest one.
+    Each bar spans its own bin, so the bars tile the corridor contiguously
+    with no overlap and no gaps whatever the bin lengths. Height is a density
+    and width is the bin's length, so a bar's *area* is the load it carries.
     """
     edges_mi = edges / _METERS_PER_MILE
-    widths_mi = np.diff(edges_mi)
     fig, ax = plt.subplots(figsize=(10, 3.5))
-    ax.bar(edges_mi[:-1] + widths_mi / 2, values, width=widths_mi.mean(),
-           align="center", edgecolor="white", lw=0.3)
+    ax.bar(edges_mi[:-1], values, width=np.diff(edges_mi), align="edge",
+           edgecolor="white", lw=0.3)
     ax.set_xlabel("position [mi]")
     ax.set_ylabel(ylabel)
     ax.set_title(title)
@@ -339,7 +331,7 @@ def plot_load_distribution_profile(
 
     One box per bin summarizes that bin's load across every simulated
     timestep: median, interquartile range, 1.5-IQR whiskers, and outliers
-    beyond them. Boxes sit at their bin's center and share one uniform width,
+    beyond them. Boxes sit at their bin's center and are drawn to its width,
     matching the bar profiles, so the x-axis reads the same across the set --
     the whisker top is that bin's absolute peak or near it, and the box shows
     how much of the day is spent well below it.
@@ -356,7 +348,7 @@ def plot_load_distribution_profile(
     ax.boxplot(
         density,
         positions=edges_mi[:-1] + widths_mi / 2,
-        widths=0.8 * widths_mi.mean(),
+        widths=0.8 * widths_mi,
         manage_ticks=False,  # keep the numeric position axis, not 1..N labels
         flierprops=dict(marker=".", ms=2, mec="none", mfc="C0", alpha=0.3),
     )
