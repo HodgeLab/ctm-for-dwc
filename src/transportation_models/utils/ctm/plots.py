@@ -229,6 +229,18 @@ def per_period_totals(
     ).sum(axis=1)
 
 
+# Presentation-sized text for the space-time heatmaps (they get shown at
+# figure size in talks/papers, not inline).
+_CONTOUR_RC = {
+    "font.size": 32,
+    "axes.titlesize": 32,
+    "axes.labelsize": 28,
+    "xtick.labelsize": 22,
+    "ytick.labelsize": 22,
+    "legend.fontsize": 20,
+}
+
+
 def plot_flow_density_contour(
     arr_KN: np.ndarray, *,
     title: str, cbar_label: str, cmap: str,
@@ -267,19 +279,21 @@ def plot_flow_density_contour(
     if missing_color is not None:
         cmap = plt.get_cmap(cmap).copy()
         cmap.set_bad(missing_color)
-    fig, ax = plt.subplots(figsize=(10, 4.5))
-    y_edges = np.linspace(0.0, horizon_h, n_samples + 1)
-    mesh = ax.pcolormesh(
-        pm_edges, y_edges, arr_KN, cmap=cmap, shading="flat",
-        vmin=vmin, vmax=vmax,
-    )
-    ax.set_xlabel(x_label)
-    ax.set_ylabel(y_label)
-    ax.set_title(title)
-    fig.colorbar(mesh, ax=ax, label=cbar_label)
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=120)
-    plt.close(fig)
+    with plt.rc_context(_CONTOUR_RC):
+        # Figure scaled up with the fonts so the larger text still fits.
+        fig, ax = plt.subplots(figsize=(20, 9))
+        y_edges = np.linspace(0.0, horizon_h, n_samples + 1)
+        mesh = ax.pcolormesh(
+            pm_edges, y_edges, arr_KN, cmap=cmap, shading="flat",
+            vmin=vmin, vmax=vmax,
+        )
+        ax.set_xlabel(x_label)
+        ax.set_ylabel(y_label)
+        ax.set_title(title)
+        fig.colorbar(mesh, ax=ax, label=cbar_label)
+        fig.tight_layout()
+        fig.savefig(out_path, dpi=120)
+        plt.close(fig)
 
 
 _METRIC_SERIES = [
