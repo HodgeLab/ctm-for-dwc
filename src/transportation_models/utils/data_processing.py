@@ -1208,7 +1208,7 @@ class PeMSDataProcessor:
         free_flow_pred = free_flow_model.predict(free_flow_xvals)
 
         congestion_xvals = np.linspace(
-            bin_df["BinDensity"].min(), bin_df["BinDensity"].max(), 100
+            params["critical_density"], params["jam_density"], 100
         )
         congestion_slope = congestion_model.coef_[0]
         congestion_pred = (
@@ -1284,13 +1284,13 @@ class PeMSDataProcessor:
 
         # Set limits
         ax.set_ylim(-25, 2000)
-        ax.set_xlim(-10, 200)
+        ax.set_xlim(-10, 1.05 * params["jam_density"])
 
         # Add plot features
         plt.xlabel("Density (Vehicles Per Mile Per Lane)")
         plt.ylabel("Flow (Vehicles Per Hour Per Lane)")
-        plt.title(f"Fundamental Diagram for Detector: {params['Station ID']}")
-        plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left")
+        plt.title(f"Fundamental Diagram for Detector: {params['Station ID']}", pad=30)
+        plt.legend(loc="upper right")
         plt.tight_layout()
 
         params_as_text = "\n".join(
@@ -1304,8 +1304,9 @@ class PeMSDataProcessor:
         )
         plt.annotate(
             text=params_as_text,
-            xy=(0.77, 0.25),
-            xycoords="figure fraction",
+            xy=(0.72, 0.5),
+            xycoords="axes fraction",
+            va="center",
             fontsize=24,
             bbox=dict(boxstyle="square,pad=0.5", fc="lightgray", ec="black", lw=2),
         )
