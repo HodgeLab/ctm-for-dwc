@@ -120,8 +120,15 @@ def plot_aggregate_timeseries(
     with plt.rc_context(PAPER_RC):
         fig, ax = plt.subplots(figsize=(COLUMN_W, 2.2))
         ax.plot(t_h, power_MW, lw=1.8)
-        ax.plot(t_h[i_peak], power_MW[i_peak], "o", color="C3", ms=6, zorder=5,
-                label=f"Peak {power_MW[i_peak]:.3g} MW @ {peak_clock}")
+        ax.plot(
+            t_h[i_peak],
+            power_MW[i_peak],
+            "o",
+            color="C3",
+            ms=6,
+            zorder=5,
+            label=f"Peak {power_MW[i_peak]:.3g} MW at {peak_clock}",
+        )
         ax.set_xlabel("Time [h]")
         ax.set_ylabel("Corridor power [MW]")
         ax.grid(alpha=0.3)
