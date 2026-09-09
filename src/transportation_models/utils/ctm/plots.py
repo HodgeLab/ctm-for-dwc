@@ -52,7 +52,7 @@ import numpy as np
 import pandas as pd
 from matplotlib.collections import LineCollection
 
-from ..plot_style import PRESENTATION_RC
+from ..plot_style import COLUMN_W, PAPER_DPI, PAPER_RC
 from .osm import Corridor
 
 # Distinct colors per lane count so the corridor map reads at a glance.
@@ -273,9 +273,8 @@ def plot_flow_density_contour(
     if missing_color is not None:
         cmap = plt.get_cmap(cmap).copy()
         cmap.set_bad(missing_color)
-    with plt.rc_context(PRESENTATION_RC):
-        # Figure scaled up with the fonts so the larger text still fits.
-        fig, ax = plt.subplots(figsize=(20, 9))
+    with plt.rc_context(PAPER_RC):
+        fig, ax = plt.subplots(figsize=(COLUMN_W, 2.6))
         y_edges = np.linspace(0.0, horizon_h, n_samples + 1)
         mesh = ax.pcolormesh(
             pm_edges, y_edges, arr_KN, cmap=cmap, shading="flat",
@@ -285,7 +284,7 @@ def plot_flow_density_contour(
         ax.set_ylabel(y_label)
         fig.colorbar(mesh, ax=ax, label=cbar_label)
         fig.tight_layout()
-        fig.savefig(out_path, dpi=300)
+        fig.savefig(out_path, dpi=PAPER_DPI)
         plt.close(fig)
 
 
@@ -392,10 +391,10 @@ def _two_sample_qq(ax, *, sim: np.ndarray, obs: np.ndarray, unit: str) -> None:
     else:
         sim_sorted = np.sort(sim)
         obs_sorted = np.sort(obs)
-        ax.scatter(obs_sorted, sim_sorted, s=12, color="tab:blue", alpha=0.7)
+        ax.scatter(obs_sorted, sim_sorted, s=18, color="tab:blue", alpha=0.7)
         lo = float(min(obs_sorted[0], sim_sorted[0]))
         hi = float(max(obs_sorted[-1], sim_sorted[-1]))
-        ax.plot([lo, hi], [lo, hi], color="black", lw=1.0, ls="--")
+        ax.plot([lo, hi], [lo, hi], color="black", lw=1.4, ls="--")
     ax.set_xlabel(f"Observed quantiles [{unit}]")
     ax.set_ylabel(f"Sim quantiles [{unit}]")
     ax.grid(alpha=0.3)
@@ -413,12 +412,11 @@ def plot_qq_pooled(qq, *, quantity: str, out_path: Path) -> None:
     """
     unit = _QQ_UNITS[quantity]
     sim, obs = qq.pooled(quantity)
-    with plt.rc_context(PRESENTATION_RC):
-        # Figure scaled up with the fonts so the larger text still fits.
-        fig, ax = plt.subplots(figsize=(12, 10))
+    with plt.rc_context(PAPER_RC):
+        fig, ax = plt.subplots(figsize=(COLUMN_W, 3.0))
         _two_sample_qq(ax, sim=sim, obs=obs, unit=unit)
         fig.tight_layout()
-        fig.savefig(out_path, dpi=300)
+        fig.savefig(out_path, dpi=PAPER_DPI)
         plt.close(fig)
 
 

@@ -7,15 +7,15 @@
 ``plot_absolute_peak_profile``  -- per-position peak load over all timestamps.
 ``plot_average_load_profile``   -- per-position load averaged over all timestamps.
 ``plot_load_factor_profile``    -- per-position mean/peak load ratio.
-``plot_load_distribution_profile`` -- per-position load distribution over time.
+``plot_load_distribution_profile`` -- per-position load percentile bands over time.
 ``plot_load_duration_curve``    -- sorted corridor-aggregate load vs duration.
 
 All follow the repo's ``utils/ctm/plots.py`` convention: take the data plus
 a keyword-only ``out_path``, render, save, and close the figure. Most save
 at 120 dpi; ``plot_aggregate_timeseries`` and
-``plot_load_distribution_profile`` are the presentation figures, drawn
-larger with ``utils.plot_style.PRESENTATION_RC`` text at 300 dpi and with
-no title (their caption carries that).
+``plot_load_distribution_profile`` are the paper figures, drawn at printed
+size with ``utils.plot_style.PAPER_RC`` and saved at ``PAPER_DPI`` with no
+title (their caption carries that).
 The corridor-aggregate plots express power in megawatts (energy divided by
 ``dt_h``). The per-position profiles divide that by the bin's length as well,
 giving a linear power density in MW/mi so that bins of unequal length -- CTM
@@ -37,7 +37,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-from ..plot_style import PRESENTATION_RC
+from ..plot_style import COLUMN_W, PAPER_DPI, PAPER_RC
 from .model import DemandResult
 
 _METERS_PER_MILE = 1609.344
@@ -117,18 +117,17 @@ def plot_aggregate_timeseries(
     origin = start if start is not None else datetime(1900, 1, 1)
     peak_clock = (origin + timedelta(hours=float(t_h[i_peak]))).strftime("%I:%M %p")
 
-    with plt.rc_context(PRESENTATION_RC):
-        # Figure scaled up with the fonts so the larger text still fits.
-        fig, ax = plt.subplots(figsize=(20, 7))
-        ax.plot(t_h, power_MW, lw=1.2)
-        ax.plot(t_h[i_peak], power_MW[i_peak], "o", color="C3", zorder=5,
+    with plt.rc_context(PAPER_RC):
+        fig, ax = plt.subplots(figsize=(COLUMN_W, 2.2))
+        ax.plot(t_h, power_MW, lw=1.8)
+        ax.plot(t_h[i_peak], power_MW[i_peak], "o", color="C3", ms=6, zorder=5,
                 label=f"Peak {power_MW[i_peak]:.3g} MW @ {peak_clock}")
         ax.set_xlabel("Time [h]")
         ax.set_ylabel("Corridor power [MW]")
         ax.grid(alpha=0.3)
         ax.legend(loc="lower center")
         fig.tight_layout()
-        fig.savefig(out_path, dpi=300)
+        fig.savefig(out_path, dpi=PAPER_DPI)
         plt.close(fig)
 
 
@@ -339,40 +338,38 @@ def plot_load_distribution_profile(
     cell_edges_m: np.ndarray | None = None,
     out_path: Path,
 ) -> None:
-    """Box-plot each bin's load density (MW/mi) over all timesteps.
+    """Percentile bands of each bin's load density (MW/mi) over all timesteps.
 
-    One box per bin summarizes that bin's load across every simulated
-    timestep: median, interquartile range, 1.5-IQR whiskers, and outliers
-    beyond them. Boxes sit at their bin's center and are drawn to its width,
-    matching the bar profiles, so the x-axis reads the same across the set --
-    the whisker top is that bin's absolute peak or near it, and the box shows
-    how much of the day is spent well below it.
+    The median line is the load a position carries in the middle of the day;
+    the P25-P75 and P10-P90 bands around it are how much that position's load
+    swings over the horizon, so the band's top edge approaches the bin's peak
+    while the median shows how much of the day is spent well below it. Values
+    are read at each bin's center, on the same mile axis as the bar profiles.
 
-    A long corridor binned into narrow segments yields hundreds of boxes;
-    widen the bins (``segment_m``, or ``cell_edges_m``) to keep them legible.
+    Bands replace the box-per-bin this used to draw: at the printed figure
+    width a corridor's worth of boxes collapses into an unreadable picket
+    fence, whereas the bands only get smoother as the bins get narrower --
+    so bin as finely as the data allows (``segment_m``, or ``cell_edges_m``).
     """
     edges, _ = _bin_edges(result.position_m, segment_m, cell_edges_m)
     density = _binned_density(result.E, result.position_m, dt_h, edges)
     edges_mi = edges / _METERS_PER_MILE
-    widths_mi = np.diff(edges_mi)
+    centers_mi = edges_mi[:-1] + np.diff(edges_mi) / 2
+    p10, p25, p50, p75, p90 = np.percentile(density, [10, 25, 50, 75, 90], axis=0)
 
-    with plt.rc_context(PRESENTATION_RC):
-        # Figure scaled up with the fonts so the larger text still fits.
-        fig, ax = plt.subplots(figsize=(20, 9))
-        thin = dict(lw=0.6)  # boxes crowd together; keep their strokes light
-        ax.boxplot(
-            density,
-            positions=edges_mi[:-1] + widths_mi / 2,
-            widths=0.8 * widths_mi,
-            manage_ticks=False,  # keep the numeric position axis, not 1..N labels
-            flierprops=dict(marker=".", ms=2, mec="none", mfc="C0", alpha=0.3),
-            boxprops=thin, whiskerprops=thin, capprops=thin, medianprops=thin,
-        )
+    with plt.rc_context(PAPER_RC):
+        fig, ax = plt.subplots(figsize=(COLUMN_W, 2.2))
+        ax.fill_between(centers_mi, p10, p90, color="C0", alpha=0.20, lw=0,
+                        label="P10-P90")
+        ax.fill_between(centers_mi, p25, p75, color="C0", alpha=0.40, lw=0,
+                        label="P25-P75")
+        ax.plot(centers_mi, p50, color="C0", lw=1.8, label="Median")
         ax.set_xlabel("Position [mi]")
         ax.set_ylabel("Power density [MW/mi]")
         ax.grid(alpha=0.3, axis="y")
+        ax.legend(loc="best", framealpha=0.9)
         fig.tight_layout()
-        fig.savefig(out_path, dpi=300)
+        fig.savefig(out_path, dpi=PAPER_DPI)
         plt.close(fig)
 
 

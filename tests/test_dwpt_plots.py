@@ -205,8 +205,8 @@ def test_cell_binning_matches_cell_edges(tmp_path, monkeypatch):
     assert "peak power density [MW/mi]" == ylabel
 
 
-def test_load_distribution_profile_boxes_track_bins(tmp_path, monkeypatch):
-    """One box per bin, at the bin center, summarizing that bin over time."""
+def test_load_distribution_profile_bands_track_bins(tmp_path, monkeypatch):
+    """Median line and percentile bands sit at the bin centers, over time."""
     result = _ramp_demand()
     captured = {}
     monkeypatch.setattr(plots.plt, "close", lambda fig: captured.setdefault("fig", fig))
@@ -218,25 +218,23 @@ def test_load_distribution_profile_boxes_track_bins(tmp_path, monkeypatch):
     )
     ax = captured["fig"].axes[0]
 
-    # Each box contributes three horizontal segments -- the two whisker caps
-    # and the median between them. Group them by the bin center they sit on.
-    levels: dict[float, list[float]] = {}
-    for line in ax.lines:
-        x, y = line.get_xdata(), line.get_ydata()
-        if len(y) == 2 and y[0] == y[1] and x[0] != x[1]:
-            levels.setdefault(round(float(np.mean(x)), 12), []).append(float(y[0]))
+    # The median line, sampled at the bin centers (1.5 m and 3.5 m, on a mile
+    # axis), as MW over each cell's own length (3 m and 1 m in miles).
+    (median_line,) = ax.lines
+    np.testing.assert_allclose(median_line.get_xdata(), np.array([1.5, 3.5]) / _MI)
+    np.testing.assert_allclose(
+        median_line.get_ydata(),
+        np.array([5.0 / (3.0 / _MI), 1.0 / (1.0 / _MI)]) / 1e6,
+    )
 
-    # Bin centers are 1.5 m and 3.5 m, plotted on a mile axis.
-    centers = sorted(levels)
-    np.testing.assert_allclose(centers, np.array([1.5, 3.5]) / _MI)
-    # (low whisker, median, high whisker) per bin, as MW over the cell's own
-    # length (3 m and 1 m in miles); no point falls outside the whiskers.
-    np.testing.assert_allclose(
-        sorted(levels[centers[0]]), np.array([3.0, 5.0, 8.0]) / 1e6 / (3.0 / _MI)
-    )
-    np.testing.assert_allclose(
-        sorted(levels[centers[1]]), np.array([0.0, 1.0, 5.0]) / 1e6 / (1.0 / _MI)
-    )
+    # Two bands (P10-P90 outside, P25-P75 inside) bracket the median.
+    bands = ax.collections
+    assert len(bands) == 2
+    for band in bands:
+        ys = band.get_paths()[0].vertices[:, 1]
+        assert ys.min() <= median_line.get_ydata().min()
+        assert ys.max() >= median_line.get_ydata().max()
+
     assert ax.get_ylabel() == "Power density [MW/mi]"
     plots.plt.close(captured["fig"])
 

@@ -41,7 +41,7 @@ from transportation_models.utils.dwpt import aggregation as agg
 from transportation_models.utils.dwpt.adapter import corridor_from_ctm, mainline_vht
 from transportation_models.utils.dwpt.demand import compute
 from transportation_models.utils.dwpt.model import PadSpec
-from transportation_models.utils.plot_style import PRESENTATION_RC
+from transportation_models.utils.plot_style import COLUMN_W, PAPER_DPI, PAPER_RC
 
 
 def _parse_args() -> argparse.Namespace:
@@ -241,30 +241,33 @@ def _plot_peak_attenuation(df, segment_lens_mi, out_path):
     """
     agg_rows = df[df["window"] != "native"]
     x = agg_rows["window_actual_s"]
-    with plt.rc_context(PRESENTATION_RC):
-        # Figure scaled up with the fonts so the larger text still fits.
-        fig, ax = plt.subplots(figsize=(16, 9))
+    with plt.rc_context(PAPER_RC):
+        fig, ax = plt.subplots(figsize=(COLUMN_W, 3.2))
         shades = plt.cm.Blues(np.linspace(0.4, 0.95, len(segment_lens_mi)))
         for L, color in zip(segment_lens_mi, shades):
             ax.plot(
                 x, agg_rows[f"worst_seg_{L:g}mi_pct_atten"],
-                "s--", color=color, lw=1.5, ms=4, label=f"Worst {L:g} mi segment",
+                "s--", color=color, lw=1.8, ms=5, label=f"Worst {L:g} mi segment",
             )
-        ax.plot(x, agg_rows["peak_pct_atten"], "o-", color="k", lw=2,
-                ms=5, label="Corridor total")
+        ax.plot(x, agg_rows["peak_pct_atten"], "o-", color="k", lw=2.2,
+                ms=6, label="Corridor total")
         ax.set_xscale("log")
         ax.set_xticks(x)
         # "5min" reads as a label, not a quantity; space the unit off the number.
+        # Rotated: at column width the windows bunch up at the log axis's left.
         ax.set_xticklabels(
-            [_spaced_window_label(w) for w in agg_rows["window"]]
+            [_spaced_window_label(w) for w in agg_rows["window"]],
+            rotation=45, ha="right",
         )
         ax.minorticks_off()  # log minor ticks would be unlabeled
         ax.set_xlabel("Aggregation window")
         ax.set_ylabel("Peak power understatement [%]")
         ax.grid(alpha=0.3)
-        ax.legend(ncol=2)
+        # One column: the labels are too long to pair up at this width. The
+        # curves all rise left-to-right, so the upper left stays clear.
+        ax.legend(loc="upper left", fontsize=8, framealpha=0.9)
         fig.tight_layout()
-        fig.savefig(out_path, dpi=300)
+        fig.savefig(out_path, dpi=PAPER_DPI)
         plt.close(fig)
 
 

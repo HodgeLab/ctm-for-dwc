@@ -1,20 +1,45 @@
-"""Shared matplotlib styling for the figures that get shown at full size.
+"""Shared matplotlib styling for the figures that go into the paper.
 
-``PRESENTATION_RC`` is the font block for plots destined for talks and the
-paper, where the default 10 pt text is unreadable once the figure is scaled
-down onto a slide. Apply it with ``plt.rc_context(PRESENTATION_RC)`` (not
-``plt.rcParams.update``) so the sizes do not leak into the inline-sized
-plots rendered later in the same process, and scale the figure up with the
-text so the labels still fit.
+The figures are authored at their final printed size -- IEEE Transactions
+single-column width, 3.5 in -- and included at 1:1::
+
+    \\includegraphics[width=\\columnwidth]{fig.pdf}
+
+That is what makes the text come out at body size: LaTeX applies no
+scaling, so a 10 pt label in the figure is a 10 pt label on the page. The
+older approach of drawing a 20 in canvas with 32 pt text and letting
+``width=\\columnwidth`` shrink it 5.7x rendered that label at 5.6 pt --
+smaller than the caption. Anything authored here should therefore keep
+``COLUMN_W`` as its width and leave the point sizes alone; make a figure
+taller, never wider.
+
+Apply with ``plt.rc_context(PAPER_RC)`` (not ``plt.rcParams.update``) so
+the sizes do not leak into plots rendered later in the same process, and
+save at ``PAPER_DPI``.
 """
 
 from __future__ import annotations
 
-PRESENTATION_RC = {
-    "font.size": 32,
-    "axes.titlesize": 32,
-    "axes.labelsize": 28,
-    "xtick.labelsize": 22,
-    "ytick.labelsize": 22,
-    "legend.fontsize": 20,
+# IEEE Transactions single-column text width, inches. Full text width
+# (a figure* spanning both columns) is 7.16 in.
+COLUMN_W = 3.5
+
+PAPER_DPI = 300
+
+PAPER_RC = {
+    # Body text in the IEEE Trans template is 10 pt; axis labels match it
+    # and the ticks sit one step below, the usual figure convention.
+    "font.size": 10,
+    "axes.titlesize": 10,
+    "axes.labelsize": 10,
+    "xtick.labelsize": 9,
+    "ytick.labelsize": 9,
+    "legend.fontsize": 9,
+    "legend.title_fontsize": 9,
+    # Defaults thick enough to survive printing; individual plots that set
+    # their own lw/ms override these.
+    "lines.linewidth": 1.6,
+    "lines.markersize": 5,
+    "axes.linewidth": 0.8,
+    "grid.linewidth": 0.6,
 }
