@@ -274,7 +274,10 @@ def plot_flow_density_contour(
         cmap = plt.get_cmap(cmap).copy()
         cmap.set_bad(missing_color)
     with plt.rc_context(PAPER_RC):
-        fig, ax = plt.subplots(figsize=(COLUMN_W, 2.6))
+        # 1.8 in is the floor: the tallest y-label in use ("Simulation
+        # time [h]") is 1.08 in, and a shorter panel clips it. Shortening
+        # a caller's y_label is what buys height here.
+        fig, ax = plt.subplots(figsize=(COLUMN_W, 1.8))
         y_edges = np.linspace(0.0, horizon_h, n_samples + 1)
         mesh = ax.pcolormesh(
             pm_edges, y_edges, arr_KN, cmap=cmap, shading="flat",

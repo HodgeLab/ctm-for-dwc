@@ -104,7 +104,7 @@ def _write_contours(out_dir, cells_df, raw, filled, n_5min, k, knn_decay):
                 grid.T,
                 cbar_label=cbar, cmap=cmap, horizon_h=horizon_h,
                 pm_edges=pm_edges, x_label=x_label,
-                y_label="Time from window start [h]",
+                y_label="Window time [h]",
                 vmin=vmin, vmax=vmax, missing_color="black",
                 out_path=out_dir / f"{label}_{q}_contour.png",
             )

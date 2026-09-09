@@ -298,14 +298,14 @@ def main() -> None:
             flow_KN,
             cbar_label="Flow [veh/h]", cmap="viridis",
             horizon_h=horizon_h, pm_edges=pm_edges,
-            y_label="Time from sim start [h]",
+            y_label="Simulation time [h]",
             out_path=out_dir / "flow_contour.png",
         )
         plot_flow_density_contour(
             density_KN,
             cbar_label="Density [veh/mi]", cmap="plasma",
             horizon_h=horizon_h, pm_edges=pm_edges,
-            y_label="Time from sim start [h]",
+            y_label="Simulation time [h]",
             out_path=out_dir / "density_contour.png",
         )
 

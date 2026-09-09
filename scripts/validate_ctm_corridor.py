@@ -342,7 +342,7 @@ def main() -> None:
                 cmap=cmap,
                 horizon_h=obs_grid.horizon_h,
                 pm_edges=pm_edges,
-                y_label="Time from sim start [h]",
+                y_label="Simulation time [h]",
                 vmin=lim[0],
                 vmax=lim[1],
                 missing_color=missing,
