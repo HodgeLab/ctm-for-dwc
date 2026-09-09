@@ -5,8 +5,8 @@ single-column width, 3.5 in -- and included at 1:1::
 
     \\includegraphics[width=\\columnwidth]{fig.pdf}
 
-That is what makes the text come out at body size: LaTeX applies no
-scaling, so a 10 pt label in the figure is a 10 pt label on the page. The
+That is what makes the text come out at the size it says: LaTeX applies no
+scaling, so an 8 pt label in the figure is an 8 pt label on the page. The
 older approach of drawing a 20 in canvas with 32 pt text and letting
 ``width=\\columnwidth`` shrink it 5.7x rendered that label at 5.6 pt --
 smaller than the caption. Anything authored here should therefore keep
@@ -27,15 +27,15 @@ COLUMN_W = 3.5
 PAPER_DPI = 300
 
 PAPER_RC = {
-    # Body text in the IEEE Trans template is 10 pt; axis labels match it
-    # and the ticks sit one step below, the usual figure convention.
-    "font.size": 10,
-    "axes.titlesize": 10,
-    "axes.labelsize": 10,
-    "xtick.labelsize": 9,
-    "ytick.labelsize": 9,
-    "legend.fontsize": 9,
-    "legend.title_fontsize": 9,
+    # Body text in the IEEE Trans template is 10 pt; figure text sits a
+    # couple of steps below it, with the ticks one step below the labels.
+    "font.size": 8,
+    "axes.titlesize": 8,
+    "axes.labelsize": 8,
+    "xtick.labelsize": 7,
+    "ytick.labelsize": 7,
+    "legend.fontsize": 7,
+    "legend.title_fontsize": 7,
     # Defaults thick enough to survive printing; individual plots that set
     # their own lw/ms override these.
     "lines.linewidth": 1.6,

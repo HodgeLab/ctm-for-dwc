@@ -242,7 +242,7 @@ def _plot_peak_attenuation(df, segment_lens_mi, out_path):
     agg_rows = df[df["window"] != "native"]
     x = agg_rows["window_actual_s"]
     with plt.rc_context(PAPER_RC):
-        fig, ax = plt.subplots(figsize=(COLUMN_W, 3.2))
+        fig, ax = plt.subplots(figsize=(COLUMN_W, 2.8))
         shades = plt.cm.Blues(np.linspace(0.4, 0.95, len(segment_lens_mi)))
         for L, color in zip(segment_lens_mi, shades):
             ax.plot(
@@ -265,7 +265,7 @@ def _plot_peak_attenuation(df, segment_lens_mi, out_path):
         ax.grid(alpha=0.3)
         # One column: the labels are too long to pair up at this width. The
         # curves all rise left-to-right, so the upper left stays clear.
-        ax.legend(loc="upper left", fontsize=8, framealpha=0.9)
+        ax.legend(loc="upper left", framealpha=0.9)
         fig.tight_layout()
         fig.savefig(out_path, dpi=PAPER_DPI)
         plt.close(fig)
