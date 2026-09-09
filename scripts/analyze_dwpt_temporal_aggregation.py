@@ -41,6 +41,7 @@ from transportation_models.utils.dwpt import aggregation as agg
 from transportation_models.utils.dwpt.adapter import corridor_from_ctm, mainline_vht
 from transportation_models.utils.dwpt.demand import compute
 from transportation_models.utils.dwpt.model import PadSpec
+from transportation_models.utils.plot_style import PRESENTATION_RC
 
 
 def _parse_args() -> argparse.Namespace:
@@ -208,6 +209,12 @@ def _window_label(window_s: float) -> str:
     return f"{window_s:g}s" if window_s < 60.0 else f"{window_s / 60.0:g}min"
 
 
+def _spaced_window_label(label: str) -> str:
+    """``'5min'`` -> ``'5 min'``, for axes where the label is read as prose."""
+    unit = label.lstrip("0123456789.")
+    return f"{label[: len(label) - len(unit)]} {unit}"
+
+
 def _plot_load_profiles(series, dt_h, out_path):
     """Overlay corridor-total power vs time-of-day at each resolution."""
     fig, ax = plt.subplots(figsize=(11, 4.5))
@@ -234,27 +241,31 @@ def _plot_peak_attenuation(df, segment_lens_mi, out_path):
     """
     agg_rows = df[df["window"] != "native"]
     x = agg_rows["window_actual_s"]
-    fig, ax = plt.subplots(figsize=(8, 4.5))
-    shades = plt.cm.Blues(np.linspace(0.4, 0.95, len(segment_lens_mi)))
-    for L, color in zip(segment_lens_mi, shades):
-        ax.plot(
-            x, agg_rows[f"worst_seg_{L:g}mi_pct_atten"],
-            "s--", color=color, lw=1.5, ms=4, label=f"worst {L:g} mi segment",
+    with plt.rc_context(PRESENTATION_RC):
+        # Figure scaled up with the fonts so the larger text still fits.
+        fig, ax = plt.subplots(figsize=(16, 9))
+        shades = plt.cm.Blues(np.linspace(0.4, 0.95, len(segment_lens_mi)))
+        for L, color in zip(segment_lens_mi, shades):
+            ax.plot(
+                x, agg_rows[f"worst_seg_{L:g}mi_pct_atten"],
+                "s--", color=color, lw=1.5, ms=4, label=f"Worst {L:g} mi segment",
+            )
+        ax.plot(x, agg_rows["peak_pct_atten"], "o-", color="k", lw=2,
+                ms=5, label="Corridor total")
+        ax.set_xscale("log")
+        ax.set_xticks(x)
+        # "5min" reads as a label, not a quantity; space the unit off the number.
+        ax.set_xticklabels(
+            [_spaced_window_label(w) for w in agg_rows["window"]]
         )
-    ax.plot(x, agg_rows["peak_pct_atten"], "o-", color="k", lw=2,
-            ms=5, label="corridor total")
-    ax.set_xscale("log")
-    ax.set_xticks(x)
-    ax.set_xticklabels(agg_rows["window"])
-    ax.minorticks_off()  # log minor ticks would be unlabeled
-    ax.set_xlabel("aggregation window")
-    ax.set_ylabel("peak power understatement [%]")
-    ax.set_title("DWPT peak attenuation vs temporal aggregation")
-    ax.grid(alpha=0.3)
-    ax.legend(ncol=2, fontsize=8)
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=120)
-    plt.close(fig)
+        ax.minorticks_off()  # log minor ticks would be unlabeled
+        ax.set_xlabel("Aggregation window")
+        ax.set_ylabel("Peak power understatement [%]")
+        ax.grid(alpha=0.3)
+        ax.legend(ncol=2)
+        fig.tight_layout()
+        fig.savefig(out_path, dpi=300)
+        plt.close(fig)
 
 
 def _plot_load_duration_curves(series, out_path):

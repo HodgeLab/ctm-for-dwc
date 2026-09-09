@@ -237,7 +237,7 @@ def test_load_distribution_profile_boxes_track_bins(tmp_path, monkeypatch):
     np.testing.assert_allclose(
         sorted(levels[centers[1]]), np.array([0.0, 1.0, 5.0]) / 1e6 / (1.0 / _MI)
     )
-    assert ax.get_ylabel() == "power density [MW/mi]"
+    assert ax.get_ylabel() == "Power density [MW/mi]"
     plots.plt.close(captured["fig"])
 
 

@@ -326,24 +326,23 @@ def main() -> None:
         # scale (sim values outside the measured range clip).
         flow_lim = (float(np.nanmin(obs_flow)), float(np.nanmax(obs_flow)))
         density_lim = (float(np.nanmin(obs_density)), float(np.nanmax(obs_density)))
-        for arr, cmap, cbar, lim, missing, fname, kind in (
-            (sim_flow, "viridis", "flow [veh/h]", flow_lim, None,
-             "sim_flow_heatmap.png", "Simulated flow"),
-            (obs_flow, "viridis", "flow [veh/h]", flow_lim, "black",
-             "pems_flow_heatmap.png", "Measured PeMS flow"),
-            (sim_density, "plasma", "density [veh/mi]", density_lim, None,
-             "sim_density_heatmap.png", "Simulated density"),
-            (obs_density, "plasma", "density [veh/mi]", density_lim, "black",
-             "pems_density_heatmap.png", "Measured PeMS density"),
+        for arr, cmap, cbar, lim, missing, fname in (
+            (sim_flow, "viridis", "Flow [veh/h]", flow_lim, None,
+             "sim_flow_heatmap.png"),
+            (obs_flow, "viridis", "Flow [veh/h]", flow_lim, "black",
+             "pems_flow_heatmap.png"),
+            (sim_density, "plasma", "Density [veh/mi]", density_lim, None,
+             "sim_density_heatmap.png"),
+            (obs_density, "plasma", "Density [veh/mi]", density_lim, "black",
+             "pems_density_heatmap.png"),
         ):
             plot_flow_density_contour(
                 arr,
-                title=f"{kind} ({start} -> {end})",
                 cbar_label=cbar,
                 cmap=cmap,
                 horizon_h=obs_grid.horizon_h,
                 pm_edges=pm_edges,
-                y_label="time from sim start [h]",
+                y_label="Time from sim start [h]",
                 vmin=lim[0],
                 vmax=lim[1],
                 missing_color=missing,

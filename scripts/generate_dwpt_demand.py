@@ -133,7 +133,7 @@ def main() -> None:
         demand, dt_h=result.freeway.dt, out_path=out_dir / "dwpt_demand_heatmap.png",
     )
     plots.plot_aggregate_timeseries(
-        demand, dt_h=result.freeway.dt,
+        demand, dt_h=result.freeway.dt, start=result.start,
         out_path=out_dir / "dwpt_aggregate_timeseries.png",
     )
     cell_edges_m = (

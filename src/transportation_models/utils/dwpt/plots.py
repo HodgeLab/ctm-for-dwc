@@ -11,7 +11,11 @@
 ``plot_load_duration_curve``    -- sorted corridor-aggregate load vs duration.
 
 All follow the repo's ``utils/ctm/plots.py`` convention: take the data plus
-a keyword-only ``out_path``, render, save at 120 dpi, and close the figure.
+a keyword-only ``out_path``, render, save, and close the figure. Most save
+at 120 dpi; ``plot_aggregate_timeseries`` and
+``plot_load_distribution_profile`` are the presentation figures, drawn
+larger with ``utils.plot_style.PRESENTATION_RC`` text at 300 dpi and with
+no title (their caption carries that).
 The corridor-aggregate plots express power in megawatts (energy divided by
 ``dt_h``). The per-position profiles divide that by the bin's length as well,
 giving a linear power density in MW/mi so that bins of unequal length -- CTM
@@ -27,11 +31,13 @@ are the CTM cells when ``cell_edges_m`` is given, else uniform
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 
+from ..plot_style import PRESENTATION_RC
 from .model import DemandResult
 
 _METERS_PER_MILE = 1609.344
@@ -93,30 +99,37 @@ def plot_aggregate_timeseries(
     result: DemandResult,
     *,
     dt_h: float,
-    title: str = "DWPT corridor-aggregate load",
+    start: datetime | None = None,
     out_path: Path,
 ) -> None:
     """Plot the corridor-aggregate load (MW) against time (h).
 
     The aggregate is ``E.sum(axis=1) / dt_h`` (energy over all positions per
-    timestep, as power). The peak timestamp is marked.
+    timestep, as power). The peak timestamp is marked, labelled as a clock
+    time: ``start`` is the wall-clock anchor of step 0
+    (``SimulationResult.start``), defaulting to midnight, so on a run that
+    does not start at midnight the label is only meaningful when ``start``
+    is passed.
     """
     power_MW = result.E.sum(axis=1) / dt_h / 1e6
     t_h = np.arange(power_MW.size) * dt_h
     i_peak = int(np.argmax(power_MW))
+    origin = start if start is not None else datetime(1900, 1, 1)
+    peak_clock = (origin + timedelta(hours=float(t_h[i_peak]))).strftime("%I:%M %p")
 
-    fig, ax = plt.subplots(figsize=(10, 3.5))
-    ax.plot(t_h, power_MW, lw=1.2)
-    ax.plot(t_h[i_peak], power_MW[i_peak], "o", color="C3", zorder=5,
-            label=f"peak {power_MW[i_peak]:.3g} MW @ {t_h[i_peak]:.2f} h")
-    ax.set_xlabel("time [h]")
-    ax.set_ylabel("corridor power [MW]")
-    ax.set_title(title)
-    ax.grid(alpha=0.3)
-    ax.legend(loc="best")
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=120)
-    plt.close(fig)
+    with plt.rc_context(PRESENTATION_RC):
+        # Figure scaled up with the fonts so the larger text still fits.
+        fig, ax = plt.subplots(figsize=(20, 7))
+        ax.plot(t_h, power_MW, lw=1.2)
+        ax.plot(t_h[i_peak], power_MW[i_peak], "o", color="C3", zorder=5,
+                label=f"Peak {power_MW[i_peak]:.3g} MW @ {peak_clock}")
+        ax.set_xlabel("Time [h]")
+        ax.set_ylabel("Corridor power [MW]")
+        ax.grid(alpha=0.3)
+        ax.legend(loc="lower center")
+        fig.tight_layout()
+        fig.savefig(out_path, dpi=300)
+        plt.close(fig)
 
 
 def _bin_edges(
@@ -324,7 +337,6 @@ def plot_load_distribution_profile(
     dt_h: float,
     segment_m: float = 20.0,
     cell_edges_m: np.ndarray | None = None,
-    title: str = "DWPT load distribution by position",
     out_path: Path,
 ) -> None:
     """Box-plot each bin's load density (MW/mi) over all timesteps.
@@ -339,26 +351,29 @@ def plot_load_distribution_profile(
     A long corridor binned into narrow segments yields hundreds of boxes;
     widen the bins (``segment_m``, or ``cell_edges_m``) to keep them legible.
     """
-    edges, unit = _bin_edges(result.position_m, segment_m, cell_edges_m)
+    edges, _ = _bin_edges(result.position_m, segment_m, cell_edges_m)
     density = _binned_density(result.E, result.position_m, dt_h, edges)
     edges_mi = edges / _METERS_PER_MILE
     widths_mi = np.diff(edges_mi)
 
-    fig, ax = plt.subplots(figsize=(10, 4.5))
-    ax.boxplot(
-        density,
-        positions=edges_mi[:-1] + widths_mi / 2,
-        widths=0.8 * widths_mi,
-        manage_ticks=False,  # keep the numeric position axis, not 1..N labels
-        flierprops=dict(marker=".", ms=2, mec="none", mfc="C0", alpha=0.3),
-    )
-    ax.set_xlabel("position [mi]")
-    ax.set_ylabel("power density [MW/mi]")
-    ax.set_title(f"{title} ({unit} bins)")
-    ax.grid(alpha=0.3, axis="y")
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=120)
-    plt.close(fig)
+    with plt.rc_context(PRESENTATION_RC):
+        # Figure scaled up with the fonts so the larger text still fits.
+        fig, ax = plt.subplots(figsize=(20, 9))
+        thin = dict(lw=0.6)  # boxes crowd together; keep their strokes light
+        ax.boxplot(
+            density,
+            positions=edges_mi[:-1] + widths_mi / 2,
+            widths=0.8 * widths_mi,
+            manage_ticks=False,  # keep the numeric position axis, not 1..N labels
+            flierprops=dict(marker=".", ms=2, mec="none", mfc="C0", alpha=0.3),
+            boxprops=thin, whiskerprops=thin, capprops=thin, medianprops=thin,
+        )
+        ax.set_xlabel("Position [mi]")
+        ax.set_ylabel("Power density [MW/mi]")
+        ax.grid(alpha=0.3, axis="y")
+        fig.tight_layout()
+        fig.savefig(out_path, dpi=300)
+        plt.close(fig)
 
 
 def plot_load_duration_curve(

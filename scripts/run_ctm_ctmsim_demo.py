@@ -183,17 +183,17 @@ def main() -> None:
     pm_edges = np.concatenate([[0.0], np.cumsum(lengths)])
 
     plot_flow_density_contour(
-        flow_KN, title=f"Mainline flow — I-210W {args.day}",
-        cbar_label="flow [veh/h]", cmap="viridis",
+        flow_KN,
+        cbar_label="Flow [veh/h]", cmap="viridis",
         horizon_h=24.0, pm_edges=pm_edges,
-        y_label="time of day [h]",
+        y_label="Time of day [h]",
         out_path=out_dir / "flow_contour.png",
     )
     plot_flow_density_contour(
-        density_KN, title=f"Density — I-210W {args.day}",
-        cbar_label="density [veh/mi]", cmap="plasma",
+        density_KN,
+        cbar_label="Density [veh/mi]", cmap="plasma",
         horizon_h=24.0, pm_edges=pm_edges,
-        y_label="time of day [h]",
+        y_label="Time of day [h]",
         out_path=out_dir / "density_contour.png",
     )
 
