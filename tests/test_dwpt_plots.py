@@ -23,6 +23,9 @@ from transportation_models.utils.dwpt.adapter import corridor_from_ctm
 from transportation_models.utils.dwpt.model import CorridorSpec, DemandResult, PadSpec
 
 
+_MI = 1609.344  # meters per mile, matching plots._METERS_PER_MILE
+
+
 def _pad() -> PadSpec:
     return PadSpec(
         alpha=20.0, delta=20.0, lambda_gap=10.0,
@@ -92,3 +95,164 @@ def test_plot_demand_heatmap_y_axis_is_physical_time(tmp_path, monkeypatch):
     assert ax.get_ylabel() == "time [h]"
     np.testing.assert_allclose(ax.get_ylim(), (0.0, n_t * dt_h))
     plots.plt.close(captured["fig"])
+
+
+def _ramp_demand() -> DemandResult:
+    """Two bins whose loads peak at different timesteps.
+
+    Positions 0-1 fall in bin [0, 2); positions 2-3 in bin [2, 4). Bin 0 peaks
+    at t=0 and bin 1 at t=2, so no single timestep holds both peaks.
+    """
+    E = np.array([
+        [4.0, 4.0, 0.0, 0.0],
+        [1.0, 1.0, 1.0, 1.0],
+        [0.0, 0.0, 5.0, 5.0],
+    ])
+    return DemandResult(
+        E=E,
+        position_m=np.array([0.0, 1.0, 2.0, 3.0]),
+        timesteps=np.arange(3),
+    )
+
+
+def _captured_bars(monkeypatch, plot_fn, **kwargs):
+    """Run a profile plotter and return (bar heights, ylabel) from its axes.
+
+    Bars carry a length-normalized density, so expected values below are the
+    bin's load in MW divided by that bin's width in miles.
+    """
+    captured = {}
+    monkeypatch.setattr(plots.plt, "close", lambda fig: captured.setdefault("fig", fig))
+    plot_fn(**kwargs)
+    ax = captured["fig"].axes[0]
+    heights = np.array([patch.get_height() for patch in ax.patches])
+    ylabel = ax.get_ylabel()
+    plots.plt.close(captured["fig"])
+    return heights, ylabel
+
+
+def test_absolute_peak_profile_is_non_coincident(tmp_path, monkeypatch):
+    """Each bin peaks at its own worst timestep, not at the corridor peak."""
+    result = _ramp_demand()
+    dt_h, seg = 1.0, 2.0
+    peak, ylabel = _captured_bars(
+        monkeypatch, plots.plot_absolute_peak_profile, result=result, dt_h=dt_h,
+        segment_m=seg, out_path=tmp_path / "abs_peak.png",
+    )
+    at_peak, _ = _captured_bars(
+        monkeypatch, plots.plot_peak_load_profile, result=result, dt_h=dt_h,
+        segment_m=seg, out_path=tmp_path / "peak.png",
+    )
+    # Bin 0 peaks at t=0 (8 W), bin 1 at t=2 (10 W); bins are 2 m wide.
+    np.testing.assert_allclose(peak, np.array([8.0, 10.0]) / 1e6 / (seg / _MI))
+    # The corridor peaks at t=2 (10 W), where bin 0 carries nothing.
+    np.testing.assert_allclose(at_peak, np.array([0.0, 10.0]) / 1e6 / (seg / _MI))
+    assert np.all(peak >= at_peak) and peak.sum() > at_peak.sum()
+    assert "peak power density [MW/mi]" == ylabel
+
+
+def test_average_load_profile_is_energy_over_duration(tmp_path, monkeypatch):
+    """A bin's bar is its total energy divided by the simulated duration."""
+    result = _ramp_demand()
+    dt_h = 0.5
+    mean, ylabel = _captured_bars(
+        monkeypatch, plots.plot_average_load_profile, result=result, dt_h=dt_h,
+        segment_m=2.0, out_path=tmp_path / "avg.png",
+    )
+    duration_h = result.E.shape[0] * dt_h
+    # bin energies [Wh], over the duration and the 2 m bin width
+    expected = np.array([10.0, 12.0]) / duration_h / 1e6 / (2.0 / _MI)
+    np.testing.assert_allclose(mean, expected)
+    assert "mean power density [MW/mi]" == ylabel
+
+
+def test_load_factor_profile_is_mean_over_peak(tmp_path, monkeypatch):
+    """Load factor is each bin's own mean/peak, in [0, 1]; empty bins read 0."""
+    result = _ramp_demand()
+    factor, ylabel = _captured_bars(
+        monkeypatch, plots.plot_load_factor_profile, result=result, dt_h=0.5,
+        segment_m=2.0, out_path=tmp_path / "lf.png",
+    )
+    # Bin length cancels in mean/peak, so these are unnormalized ratios.
+    np.testing.assert_allclose(factor, [(10.0 / 3) / 8.0, (12.0 / 3) / 10.0])
+    assert np.all((factor >= 0.0) & (factor <= 1.0))
+    assert "load factor [-]" == ylabel
+
+    # A corridor bin that never sees load divides 0/0 -> 0, not NaN.
+    empty = DemandResult(
+        E=np.zeros((3, 4)), position_m=result.position_m, timesteps=np.arange(3),
+    )
+    zero, _ = _captured_bars(
+        monkeypatch, plots.plot_load_factor_profile, result=empty, dt_h=0.5,
+        segment_m=2.0, out_path=tmp_path / "lf0.png",
+    )
+    np.testing.assert_array_equal(zero, np.zeros(2))
+
+
+def test_cell_binning_matches_cell_edges(tmp_path, monkeypatch):
+    """With --aggregate=cell the bins are the given cell edges, labelled 'cell'."""
+    result = _ramp_demand()
+    peak, ylabel = _captured_bars(
+        monkeypatch, plots.plot_absolute_peak_profile, result=result, dt_h=1.0,
+        cell_edges_m=np.array([0.0, 3.0, 4.0]), out_path=tmp_path / "cells.png",
+    )
+    # Positions 0,1,2 fall in cell 0 (peaking at t=0, 4+4+0 W over 3 m);
+    # position 3 in cell 1 (peaking at t=2, 5 W over 1 m). The unequal cell
+    # lengths are exactly what the MW/mi normalization has to divide out.
+    np.testing.assert_allclose(
+        peak, np.array([8.0 / (3.0 / _MI), 5.0 / (1.0 / _MI)]) / 1e6
+    )
+    assert "peak power density [MW/mi]" == ylabel
+
+
+def test_load_distribution_profile_bands_track_bins(tmp_path, monkeypatch):
+    """Median line and percentile bands sit at the bin centers, over time."""
+    result = _ramp_demand()
+    captured = {}
+    monkeypatch.setattr(plots.plt, "close", lambda fig: captured.setdefault("fig", fig))
+    # Cell 0 holds positions 0-2, so its load over time is [8, 3, 5] W;
+    # cell 1 holds position 3 only: [0, 1, 5] W.
+    plots.plot_load_distribution_profile(
+        result, dt_h=1.0, cell_edges_m=np.array([0.0, 3.0, 4.0]),
+        out_path=tmp_path / "dist.png",
+    )
+    ax = captured["fig"].axes[0]
+
+    # The median line, sampled at the bin centers (1.5 m and 3.5 m, on a mile
+    # axis), as MW over each cell's own length (3 m and 1 m in miles).
+    (median_line,) = ax.lines
+    np.testing.assert_allclose(median_line.get_xdata(), np.array([1.5, 3.5]) / _MI)
+    np.testing.assert_allclose(
+        median_line.get_ydata(),
+        np.array([5.0 / (3.0 / _MI), 1.0 / (1.0 / _MI)]) / 1e6,
+    )
+
+    # Two bands (P10-P90 outside, P25-P75 inside) bracket the median.
+    bands = ax.collections
+    assert len(bands) == 2
+    for band in bands:
+        ys = band.get_paths()[0].vertices[:, 1]
+        assert ys.min() <= median_line.get_ydata().min()
+        assert ys.max() >= median_line.get_ydata().max()
+
+    assert ax.get_ylabel() == "Power density [MW/mi]"
+    plots.plt.close(captured["fig"])
+
+
+def test_peak_profile_density_integrates_to_corridor_peak(tmp_path, monkeypatch):
+    """Density bars integrate -- not sum -- back to the peak corridor power.
+
+    This is the invariant that replaced "bars sum to the corridor peak" when
+    the profiles switched to MW/mi, and it must hold for unequal bin widths.
+    """
+    result = _ramp_demand()
+    dt_h = 0.25
+    edges = np.array([0.0, 3.0, 4.0])  # cells of 3 m and 1 m
+    density, _ = _captured_bars(
+        monkeypatch, plots.plot_peak_load_profile, result=result, dt_h=dt_h,
+        cell_edges_m=edges, out_path=tmp_path / "peak.png",
+    )
+    t_star = int(np.argmax(result.E.sum(axis=1)))
+    corridor_MW = result.E[t_star].sum() / dt_h / 1e6
+    widths_mi = np.diff(edges) / _MI
+    np.testing.assert_allclose((density * widths_mi).sum(), corridor_MW)

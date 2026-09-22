@@ -52,6 +52,7 @@ import numpy as np
 import pandas as pd
 from matplotlib.collections import LineCollection
 
+from ..plot_style import COLUMN_W, PAPER_DPI, PAPER_RC
 from .osm import Corridor
 
 # Distinct colors per lane count so the corridor map reads at a glance.
@@ -230,11 +231,14 @@ def per_period_totals(
 
 
 def plot_flow_density_contour(
-    arr_KN: np.ndarray, *,
-    title: str, cbar_label: str, cmap: str,
-    horizon_h: float, pm_edges: np.ndarray,
-    x_label: str = "distance from upstream end [mi]",
-    y_label: str = "time [h]",
+    arr_KN: np.ndarray,
+    *,
+    cbar_label: str,
+    cmap: str,
+    horizon_h: float,
+    pm_edges: np.ndarray,
+    x_label: str = "Distance from upstream end [mi]",
+    y_label: str = "Time [h]",
     vmin: float | None = None,
     vmax: float | None = None,
     missing_color: str | None = None,
@@ -249,7 +253,8 @@ def plot_flow_density_contour(
     actual widths rather than being normalized to a uniform grid. The
     x_label / y_label defaults work for distance from the corridor
     upstream end and arbitrary time origins; pass overrides for e.g.
-    absolute Caltrans postmile or "time of day".
+    absolute Caltrans postmile or "Time of day". The heatmap carries no
+    title -- what it shows belongs in the caption alongside it.
 
     ``vmin`` / ``vmax`` fix the color scale (default: autoscale to the
     array); pass matching limits to two plots to make them directly
@@ -257,6 +262,7 @@ def plot_flow_density_contour(
     is the fill for NaN cells, e.g. ``"black"`` for measured grids with
     unobserved cells.
     """
+
     pm_edges = np.asarray(pm_edges, dtype=float)
     n_samples, n_cells = arr_KN.shape
     if pm_edges.shape != (n_cells + 1,):
@@ -267,19 +273,22 @@ def plot_flow_density_contour(
     if missing_color is not None:
         cmap = plt.get_cmap(cmap).copy()
         cmap.set_bad(missing_color)
-    fig, ax = plt.subplots(figsize=(10, 4.5))
-    y_edges = np.linspace(0.0, horizon_h, n_samples + 1)
-    mesh = ax.pcolormesh(
-        pm_edges, y_edges, arr_KN, cmap=cmap, shading="flat",
-        vmin=vmin, vmax=vmax,
-    )
-    ax.set_xlabel(x_label)
-    ax.set_ylabel(y_label)
-    ax.set_title(title)
-    fig.colorbar(mesh, ax=ax, label=cbar_label)
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=120)
-    plt.close(fig)
+    with plt.rc_context(PAPER_RC):
+        # 1.8 in is the floor: the tallest y-label in use ("Simulation
+        # time [h]") is 1.08 in, and a shorter panel clips it. Shortening
+        # a caller's y_label is what buys height here.
+        fig, ax = plt.subplots(figsize=(COLUMN_W, 1.8))
+        y_edges = np.linspace(0.0, horizon_h, n_samples + 1)
+        mesh = ax.pcolormesh(
+            pm_edges, y_edges, arr_KN, cmap=cmap, shading="flat",
+            vmin=vmin, vmax=vmax,
+        )
+        ax.set_xlabel(x_label)
+        ax.set_ylabel(y_label)
+        fig.colorbar(mesh, ax=ax, label=cbar_label)
+        fig.tight_layout()
+        fig.savefig(out_path, dpi=PAPER_DPI)
+        plt.close(fig)
 
 
 _METRIC_SERIES = [
@@ -385,12 +394,12 @@ def _two_sample_qq(ax, *, sim: np.ndarray, obs: np.ndarray, unit: str) -> None:
     else:
         sim_sorted = np.sort(sim)
         obs_sorted = np.sort(obs)
-        ax.scatter(obs_sorted, sim_sorted, s=12, color="tab:blue", alpha=0.7)
+        ax.scatter(obs_sorted, sim_sorted, s=18, color="tab:blue", alpha=0.7)
         lo = float(min(obs_sorted[0], sim_sorted[0]))
         hi = float(max(obs_sorted[-1], sim_sorted[-1]))
-        ax.plot([lo, hi], [lo, hi], color="black", lw=1.0, ls="--")
-    ax.set_xlabel(f"observed quantiles [{unit}]")
-    ax.set_ylabel(f"sim quantiles [{unit}]")
+        ax.plot([lo, hi], [lo, hi], color="black", lw=1.4, ls="--")
+    ax.set_xlabel(f"Observed quantiles [{unit}]")
+    ax.set_ylabel(f"Sim quantiles [{unit}]")
     ax.grid(alpha=0.3)
 
 
@@ -406,17 +415,12 @@ def plot_qq_pooled(qq, *, quantity: str, out_path: Path) -> None:
     """
     unit = _QQ_UNITS[quantity]
     sim, obs = qq.pooled(quantity)
-    fig, ax = plt.subplots(figsize=(6, 5))
-
-    _two_sample_qq(ax, sim=sim, obs=obs, unit=unit)
-    ax.set_title(
-        f"Sim vs observed {quantity} QQ -- corridor-pooled "
-        f"({sim.size} samples)"
-    )
-
-    fig.tight_layout()
-    fig.savefig(out_path, dpi=120)
-    plt.close(fig)
+    with plt.rc_context(PAPER_RC):
+        fig, ax = plt.subplots(figsize=(COLUMN_W, 3.0))
+        _two_sample_qq(ax, sim=sim, obs=obs, unit=unit)
+        fig.tight_layout()
+        fig.savefig(out_path, dpi=PAPER_DPI)
+        plt.close(fig)
 
 
 def plot_qq_percell(

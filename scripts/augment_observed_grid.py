@@ -88,23 +88,23 @@ def _write_contours(out_dir, cells_df, raw, filled, n_5min, k, knn_decay):
     if {"pm_start", "pm_end"} <= set(cells_df.columns):
         pm_edges = np.concatenate([cells_df["pm_start"].to_numpy(dtype=float),
                                    [float(cells_df["pm_end"].iloc[-1])]])
-        x_label = "distance from upstream end [mi]"
+        x_label = "Distance from upstream end [mi]"
     else:
         pm_edges = np.arange(n + 1, dtype=float)
-        x_label = "cell index"
+        x_label = "Cell index"
     horizon_h = n_5min / 12.0
-    styles = {"density": ("magma", "density [veh/mi]"),
-              "flow": ("viridis", "flow [veh/h]")}
+    styles = {"density": ("plasma", "Density [veh/mi]"),
+              "flow": ("viridis", "Flow [veh/h]")}
     for q, (cmap, cbar) in styles.items():
         finite = filled[q][np.isfinite(filled[q])]
         vmin = float(finite.min()) if finite.size else None
         vmax = float(finite.max()) if finite.size else None
         for label, grid in (("raw", raw[q]), ("augmented", filled[q])):
             plot_flow_density_contour(
-                grid.T, title=f"{label} {q}  (k={k}, decay={knn_decay})",
+                grid.T,
                 cbar_label=cbar, cmap=cmap, horizon_h=horizon_h,
                 pm_edges=pm_edges, x_label=x_label,
-                y_label="time from window start [h]",
+                y_label="Window time [h]",
                 vmin=vmin, vmax=vmax, missing_color="black",
                 out_path=out_dir / f"{label}_{q}_contour.png",
             )

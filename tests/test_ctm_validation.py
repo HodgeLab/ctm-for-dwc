@@ -744,3 +744,57 @@ def test_missing_reference_csv_raises(tmp_path, ctmsim_result):
     """An empty / missing reference dir raises FileNotFoundError early."""
     with pytest.raises(FileNotFoundError, match="density.csv"):
         compare_against_ctmsim(ctmsim_result, tmp_path)
+
+
+# ---- Sim density is a 5-min interval average, not a snapshot -------------
+
+
+def _ramp_density_case(tmp_path):
+    """A run whose density rises within each window, plus its matching PeMS.
+
+    Four steps per 5-min window over two windows. The post-step densities
+    are 10,20,30,40 then 50,60,70,80, so the window means are 25 and 65
+    while the *boundary snapshots* (the old definition) would be 0 and 40.
+    Observed density is written to equal the window means exactly, so the
+    interval-average definition scores zero error and the snapshot one
+    would not.
+    """
+    steps_per_5min, n_5min = 4, 2
+    start = pd.Timestamp("2022-04-12 06:00")
+    density = np.arange(0.0, 90.0, 10.0)[None, :]        # (1, 9)
+    flows_veh_h = np.array([1500.0] * 4 + [3900.0] * 4)  # (8,) -> means 1500/3900
+    result = _Result(
+        freeway=_Freeway(
+            dt=(5.0 / 60.0) / steps_per_5min, cells=[_Cell()],
+        ),
+        density=density,
+        mainline_flow=flows_veh_h[None, :],
+    )
+    # obs density = flow / speed = 1500/60 = 25 and 3900/60 = 65.
+    _write_vds_csv(
+        tmp_path / "100.csv", start=start,
+        flows_5min=np.array([1500.0, 3900.0]) / 12.0,
+        speeds_mph=np.full(n_5min, 60.0),
+    )
+    return result, _cells_df([100]), start
+
+
+def test_density_uses_window_mean_not_boundary_snapshot(tmp_path):
+    result, cells, start = _ramp_density_case(tmp_path)
+    row = compare_against_historical(
+        result, cells, tmp_path, start=start,
+    ).iloc[0]
+    assert row["n_density_samples"] == 2
+    # Window means (25, 65) match observed exactly; the old boundary
+    # snapshots (0, 40) would have given RMSE 25.
+    assert row["density_rmse"] == pytest.approx(0.0, abs=1e-9)
+    assert row["density_mape"] == pytest.approx(0.0, abs=1e-9)
+
+
+def test_qq_density_samples_use_window_mean(tmp_path):
+    from transportation_models.utils.ctm import compute_qq_samples
+
+    result, cells, start = _ramp_density_case(tmp_path)
+    qq = compute_qq_samples(result, cells, tmp_path, start=start)
+    assert np.allclose(qq.per_cell[0].density_sim, [25.0, 65.0])
+    assert np.allclose(qq.per_cell[0].density_obs, [25.0, 65.0])

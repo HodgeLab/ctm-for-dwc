@@ -6,15 +6,17 @@ simulation or metric is recomputed here:
 * ``ctm_validation_summary.txt`` (``scripts/validate_ctm_corridor.py``)
   supplies the corridor-pooled flow/density RMSE and MAPE and the VMT/VHT
   percent errors.
-* ``summary.txt`` (``scripts/simulate_ctm_corridor.py``) supplies the
-  sim's runtime and peak RSS.
+* ``dwpt_summary.txt`` (``scripts/generate_dwpt_demand.py``) supplies the
+  energy delivered and the peak corridor power. It is read from the parent
+  of the validation directory, i.e. the sim dir that both scripts wrote to.
 
 A *case study* here is one CTM sim of a length-subset of a corridor under
 one ramp-fill strategy. The manifest declares one row per study:
 
-    distance_mi,ramp_strategy,validation_summary,sim_summary
+    distance_mi,ramp_strategy,validation_summary
 
-where the two summary columns are paths to that study's summary files.
+where ``validation_summary`` is the path to that study's
+``ctm_validation_summary.txt``.
 
 Artifacts are written to ``--out-dir`` (default: a ``cross_study/``
 folder next to the manifest):
@@ -42,16 +44,17 @@ from transportation_models.utils.ctm.plots import plot_metric_vs_distance
 
 # Patterns matching the summary lines the two per-study scripts emit.
 # The error/aggregate lines come from validate_ctm_corridor._print_summary;
-# the cost lines from simulate_ctm_corridor's summary_lines.
-_NUM = r"([-+]?[\d.]+|nan)"
+# the DWPT lines from generate_dwpt_demand's summary_lines (which writes
+# them in scientific notation).
+_NUM = r"([-+]?[\d.]+(?:[eE][-+]?\d+)?|nan)"
 _FLOW_ERROR = re.compile(rf"flow\s+RMSE\s+{_NUM}\s*veh/h\s*,\s*MAPE\s+{_NUM}%")
 _DENSITY_ERROR = re.compile(
     rf"density\s+RMSE\s+{_NUM}\s*veh/mi\s*,\s*MAPE\s+{_NUM}%"
 )
 _VMT_DIFF = re.compile(rf"VMT \[veh\*mi\].*diff\s*{_NUM}%")
 _VHT_DIFF = re.compile(rf"VHT \[veh\*h\].*diff\s*{_NUM}%")
-_RUNTIME = re.compile(rf"runtime\s*=\s*{_NUM}\s*s")
-_PEAK_RSS = re.compile(rf"peak RSS\s*=\s*{_NUM}\s*MB")
+_ENERGY = re.compile(rf"Energy delivered\s*:\s*{_NUM}\s*Wh")
+_PEAK_POWER = re.compile(rf"Peak corridor power\s*:\s*{_NUM}\s*W")
 
 # (column, y-axis label, plot title) for the eight per-metric line plots.
 _LINE_METRICS = [
@@ -61,17 +64,16 @@ _LINE_METRICS = [
     ("density_mape", "density MAPE [%]", "Density MAPE"),
     ("vmt_pct_diff", "VMT % error (sim - obs)", "VMT percent error"),
     ("vht_pct_diff", "VHT % error (sim - obs)", "VHT percent error"),
-    ("runtime_s", "runtime [s]", "Simulation runtime"),
-    ("peak_rss_mb", "peak RSS [MB]", "Simulation peak RSS"),
+    ("energy_delivered_wh", "energy delivered [Wh]", "DWPT energy delivered"),
+    ("peak_corridor_power_w", "peak corridor power [W]",
+     "DWPT peak corridor power"),
 ]
 
 
 def _read_manifest(path: Path) -> pd.DataFrame:
     """Load and validate the study manifest."""
     manifest = pd.read_csv(path)
-    required = {
-        "distance_mi", "ramp_strategy", "validation_summary", "sim_summary",
-    }
+    required = {"distance_mi", "ramp_strategy", "validation_summary"}
     missing = required - set(manifest.columns)
     if missing:
         raise ValueError(
@@ -89,17 +91,22 @@ def _extract(
     if match is None:
         raise ValueError(
             f"{path}: no {what} line found -- is this the summary written by "
-            "validate_ctm_corridor.py / simulate_ctm_corridor.py?"
+            "validate_ctm_corridor.py / generate_dwpt_demand.py?"
         )
     return [float(g) for g in match.groups()]
 
 
 def _read_study(row: pd.Series) -> dict:
-    """Parse one study's two summary files into a tidy metric row."""
+    """Parse one study's two summary files into a tidy metric row.
+
+    ``generate_dwpt_demand.py`` writes ``dwpt_summary.txt`` to the sim dir,
+    which is the parent of the ``validation/`` dir holding the validation
+    summary -- so the manifest only has to name the latter.
+    """
     validation_path = Path(row["validation_summary"])
-    sim_path = Path(row["sim_summary"])
+    dwpt_path = validation_path.parent.parent / "dwpt_summary.txt"
     validation = validation_path.read_text()
-    sim = sim_path.read_text()
+    dwpt = dwpt_path.read_text()
 
     flow_rmse, flow_mape = _extract(
         _FLOW_ERROR, validation, validation_path, "corridor-pooled flow error",
@@ -110,8 +117,10 @@ def _read_study(row: pd.Series) -> dict:
     )
     (vmt_pct_diff,) = _extract(_VMT_DIFF, validation, validation_path, "VMT")
     (vht_pct_diff,) = _extract(_VHT_DIFF, validation, validation_path, "VHT")
-    (runtime_s,) = _extract(_RUNTIME, sim, sim_path, "runtime")
-    (peak_rss_mb,) = _extract(_PEAK_RSS, sim, sim_path, "peak RSS")
+    (energy_wh,) = _extract(_ENERGY, dwpt, dwpt_path, "energy delivered")
+    (peak_power_w,) = _extract(
+        _PEAK_POWER, dwpt, dwpt_path, "peak corridor power",
+    )
 
     return {
         "distance_mi": float(row["distance_mi"]),
@@ -122,8 +131,8 @@ def _read_study(row: pd.Series) -> dict:
         "density_mape": density_mape,
         "vmt_pct_diff": vmt_pct_diff,
         "vht_pct_diff": vht_pct_diff,
-        "runtime_s": runtime_s,
-        "peak_rss_mb": peak_rss_mb,
+        "energy_delivered_wh": energy_wh,
+        "peak_corridor_power_w": peak_power_w,
     }
 
 
