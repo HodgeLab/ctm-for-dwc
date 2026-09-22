@@ -1,5 +1,12 @@
 # Spec: DWPT Macro-vs-Micro Validation Harness (P7)
 
+> **SUPERSEDED.** The code this document specifies — `utils/microsim/` and
+> `scripts/run_dwpt_validation.py` — was removed when the repository was
+> refocused on the CTM-corridor-simulation → DWPT-charging-demand workstream.
+> The macro-vs-micro validation is not part of that workstream. This spec is
+> kept for reference only; recover the implementation with
+> `git show pre-cleanup:<path>`.
+
 > Status: **DRAFT — awaiting review.** This is the Phase-1 specification for P7
 > of [dwpt_demand_implementation_plan.md](dwpt_demand_implementation_plan.md).
 > The plan/spec for the DWPT demand module itself remains
