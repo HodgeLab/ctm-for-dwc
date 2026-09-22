@@ -1,1 +1,1 @@
-"""Utility subpackage: data download/processing, freeway representation, validation, and logging."""
+"""Utility subpackage: data download/processing, validation, and logging."""
