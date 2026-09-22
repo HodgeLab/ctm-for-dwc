@@ -8,7 +8,8 @@
 > optimize (`optimize_ramp_flows_diffsim.py`).
 >
 > Removed, and described here for reference only: the **Julia inverse-CTM QP**
-> (`julia/ramp_qp/`, `scripts/verify_ramp_qp.py`). Recover with
+> (`julia/ramp_qp/`, `scripts/verify_ramp_qp.py`) and the **Zhang estimator**
+> (`zhang.py`, `zhang_features.py`, and the `*_zhang_*` scripts). Recover with
 > `git show pre-cleanup:<path>`.
 
 A fundamental issue in traffic flow modeling is the existence of missing ramp flows, which are critical boundary conditions for freeway traffic simulation.
