@@ -1,4 +1,16 @@
 # Ramp Flow Estimation
+
+> **PARTIALLY SUPERSEDED.** This document describes several estimators, not all
+> of which still exist. The active workflow is: train a GRU
+> (`train_ramp_flow_gru.py`) → build a ramp scenario from it
+> (`build_ctm_ramp_scenario.py`) → build the optimization bundle
+> (`build_ctm_diffsim_inputs.py`, renamed from `build_ctm_qp_inputs.py`) →
+> optimize (`optimize_ramp_flows_diffsim.py`).
+>
+> Removed, and described here for reference only: the **Julia inverse-CTM QP**
+> (`julia/ramp_qp/`, `scripts/verify_ramp_qp.py`). Recover with
+> `git show pre-cleanup:<path>`.
+
 A fundamental issue in traffic flow modeling is the existence of missing ramp flows, which are critical boundary conditions for freeway traffic simulation.
 The problem is described in detail in [ctm_module](ctm_module.md); here, we describe the different methods for estimating missing ramp flows. Most methods are specific to Type 1 estimation on stretches which are configuration type (c), except for the model-based optimization method.
 

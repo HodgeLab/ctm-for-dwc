@@ -234,7 +234,7 @@ def restrict_to_direct_tiebreak(cells_df: pd.DataFrame) -> pd.DataFrame:
     :func:`compare_against_historical` now applies the direct-only
     restriction itself, so this helper is no longer needed there; it
     remains for consumers that need the one-cell-per-unique-VDS view of
-    ``cells.csv`` directly (e.g. ``scripts/build_ctm_qp_inputs.py``).
+    ``cells.csv`` directly (e.g. ``scripts/build_ctm_diffsim_inputs.py``).
 
     Raises
     ------

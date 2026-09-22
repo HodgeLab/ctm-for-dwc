@@ -1,6 +1,7 @@
 """Step 7 Level 3: differentiable forward-sim ramp-flow optimizer ("option B").
 
-Rather than the relaxed convex QP (`solve_ramp_qp.jl`), this fits the ramp
+Rather than the relaxed convex QP this replaced (a Julia solver, since
+removed -- recover it with `git show pre-cleanup:julia/`), this fits the ramp
 inputs by running the *exact* CTM forward simulator each iteration and
 descending the mainline density+flow error into the ramp `demand`/`beta` via
 autograd (`utils.ctm.diffsim`). Because it never leaves the exact dynamics, the
@@ -18,7 +19,7 @@ mainline density AND flow at the direct/tiebreak cells, on the 5-min grid,
 sampled exactly as `validate_ctm_corridor` does (density at 5-min boundaries,
 flow block-averaged). No regularization in v1.
 
-Consumes the bundle from `build_ctm_qp_inputs.py` (now including
+Consumes the bundle from `build_ctm_diffsim_inputs.py` (now including
 `observed_flow.csv`); writes the same wide `demand.csv` / `beta.csv` the QP
 solver and `simulate_ctm_corridor.py` use, plus `optimize_report.json`.
 
@@ -29,7 +30,7 @@ disable) so hyperparameter sweeps are inspectable, and early-stops on the loss
 restore so a sweep run doesn't burn iterations after it converges.
 
     python scripts/optimize_ramp_flows_diffsim.py \
-        --bundle case_studies/I880N_5mi/qp_inputs \
+        --bundle case_studies/I880N_5mi/diffsim_inputs \
         --init-demand case_studies/I880N_5mi/histAve_ramps/demand.csv \
         --init-beta   case_studies/I880N_5mi/histAve_ramps/beta.csv \
         --iters 3000
@@ -332,7 +333,7 @@ def optimize_bundle(
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--bundle", required=True, type=Path,
-                   help="Bundle dir from build_ctm_qp_inputs.py (+ observed_flow.csv).")
+                   help="Bundle dir from build_ctm_diffsim_inputs.py (+ observed_flow.csv).")
     p.add_argument("--init-demand", type=Path, default=None,
                    help="Wide demand.csv to initialize from (else zeros).")
     p.add_argument("--init-beta", type=Path, default=None,

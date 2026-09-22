@@ -1,4 +1,4 @@
-"""Tests for ``scripts/build_ctm_qp_inputs.py`` (Level 3 QP input prep).
+"""Tests for ``scripts/build_ctm_diffsim_inputs.py`` (Level 3 input prep).
 
 Covers the dt selection (CFL bound + 5-min-divisor rule) and the bundle
 writer (schema, units, direct/tiebreak observed-density extraction).
@@ -16,7 +16,7 @@ import pytest
 _REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO / "scripts"))
 
-from build_ctm_qp_inputs import build_bundle, choose_dt_seconds  # noqa: E402
+from build_ctm_diffsim_inputs import build_bundle, choose_dt_seconds  # noqa: E402
 
 _FW = pd.DataFrame(
     {

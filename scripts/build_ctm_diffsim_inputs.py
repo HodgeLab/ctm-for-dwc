@@ -1,12 +1,14 @@
-"""Step 7 Level 3: build the inverse-CTM QP input bundle (Python prep).
+"""Step 7 Level 3: build the ramp-flow optimization input bundle.
 
-The model-based ramp-flow imputer (`julia/ramp_qp/solve_ramp_qp.jl`) solves a
-convex QP that fits the CTM's mainline density to observed PeMS density, with
-on-ramp admitted flow ``r_i(k)`` and off-ramp flow ``s_i(k)`` as the free
-variables (see the Level 3 subsection of docs/ctm_module.md). This script
-prepares the solver's inputs from the existing Python pipeline and writes a
-self-contained CSV/JSON bundle the Julia side consumes -- no runtime
-Python<->Julia bridge.
+The model-based ramp-flow imputer fits the CTM's mainline density and flow to
+observed PeMS data, with on-ramp admitted flow ``r_i(k)`` and off-ramp flow
+``s_i(k)`` as the free variables (see the Level 3 subsection of
+docs/ctm_module.md). This script prepares its inputs from the existing Python
+pipeline and writes a self-contained CSV/JSON bundle.
+
+The bundle is consumed by ``scripts/optimize_ramp_flows_diffsim.py``, the
+differentiable forward-sim optimizer. It originally fed a convex QP solved in
+Julia; that solver was removed, but the bundle format outlived it.
 
 Bundle contents (written to ``--out-dir``):
 
@@ -16,8 +18,7 @@ Bundle contents (written to ``--out-dir``):
 * ``observed_density.csv`` -- ``cell, m_5min, rho_obs`` for direct/tiebreak
                               cells only, NaN samples dropped.
 * ``observed_flow.csv``    -- ``cell, m_5min, flow_obs`` [veh/h], same cells/
-                              masking as observed_density. Unused by the QP
-                              (density-only objective); consumed by the
+                              masking as observed_density. Consumed by the
                               differentiable forward-sim optimizer, whose loss
                               also matches mainline flow (Step 7 Level 3,
                               docs/ramp_flow_estimation_module.md).
@@ -26,7 +27,7 @@ Bundle contents (written to ``--out-dir``):
 
 Run from the repo root::
 
-    python scripts/build_ctm_qp_inputs.py \\
+    python scripts/build_ctm_diffsim_inputs.py \\
         --freeway scripts/output/ctm_corridor/<case>/freeway.csv \\
         --cells   scripts/output/ctm_corridor/<case>/cells.csv \\
         --timeseries-dir data/pems/csv_files \\
@@ -67,7 +68,7 @@ def _divides_5min(dt_s: float) -> bool:
 def choose_dt_seconds(
     freeway_df: pd.DataFrame, explicit: float | None,
 ) -> tuple[float, object]:
-    """Pick the QP sim ``dt`` [s]: the largest CFL-stable 5-min divisor.
+    """Pick the sim ``dt`` [s]: the largest CFL-stable 5-min divisor.
 
     Any ``dt = 300/n`` (integer ``n``) aligns the sim grid to the PeMS 5-min
     grid; we take the smallest ``n`` (largest ``dt``) strictly below the CFL
@@ -114,7 +115,7 @@ def build_bundle(
     upstream_vds: int,
     out_dir: Path,
 ) -> dict:
-    """Assemble + write the QP bundle; return the meta dict (also serialized)."""
+    """Assemble + write the bundle; return the meta dict (also serialized)."""
     if len(freeway_df) != len(cells_df):
         raise SystemExit(
             f"freeway.csv has {len(freeway_df)} rows but cells.csv has "
@@ -227,7 +228,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--out-dir", default=None, type=Path,
-        help="Bundle directory. Default: <freeway parent>/qp_inputs.",
+        help="Bundle directory. Default: <freeway parent>/diffsim_inputs.",
     )
     args = parser.parse_args()
 
@@ -250,7 +251,7 @@ def main() -> None:
 
     out_dir = (
         args.out_dir if args.out_dir is not None
-        else args.freeway.resolve().parent / "qp_inputs"
+        else args.freeway.resolve().parent / "diffsim_inputs"
     )
 
     meta = build_bundle(
@@ -260,7 +261,7 @@ def main() -> None:
     )
 
     print(
-        f"\nQP bundle written to {out_dir}\n"
+        f"\nBundle written to {out_dir}\n"
         f"  dt            : {meta['dt_s']:.4g} s ({meta['steps_per_5min']} "
         f"steps / 5 min)\n"
         f"  horizon       : {meta['n_5min']} x 5 min = {meta['T']} sim steps\n"
