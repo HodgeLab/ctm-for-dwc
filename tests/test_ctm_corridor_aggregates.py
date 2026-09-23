@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from transportation_models.utils.ctm import (
+from ctm_for_dwc.utils.ctm import (
     CorridorAggregates, compare_corridor_aggregates,
 )
 

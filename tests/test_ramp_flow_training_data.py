@@ -11,7 +11,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from transportation_models.utils.ramp_flow_estimation.features import build_training_data
+from ctm_for_dwc.utils.ramp_flow_estimation.features import build_training_data
 
 
 def _write_station(tmp, sid, flow, *, speed=60.0, occ=10.0, pct=100.0, n=6):

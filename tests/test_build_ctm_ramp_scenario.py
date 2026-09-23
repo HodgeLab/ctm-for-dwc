@@ -207,7 +207,7 @@ def test_estimator_none_uses_conservation_on_type_b(tmp_path):
 
 
 def test_estimator_gru_estimates_absent_ramp(tmp_path):
-    from transportation_models.utils.ramp_flow_estimation.gru import GruEstimator
+    from ctm_for_dwc.utils.ramp_flow_estimation.gru import GruEstimator
 
     base, out_dir = _estimator_case(tmp_path)
     rng = np.random.default_rng(0)

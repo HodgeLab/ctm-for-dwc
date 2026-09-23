@@ -30,12 +30,12 @@ from pathlib import Path
 
 import numpy as np
 
-from transportation_models.utils.ctm.results import SimulationResult
+from ctm_for_dwc.utils.ctm.results import SimulationResult
 
-from transportation_models.utils.dwc import plots
-from transportation_models.utils.dwc.adapter import corridor_from_ctm, mainline_vht
-from transportation_models.utils.dwc.demand import compute
-from transportation_models.utils.dwc.model import PadSpec
+from ctm_for_dwc.utils.dwc import plots
+from ctm_for_dwc.utils.dwc.adapter import corridor_from_ctm, mainline_vht
+from ctm_for_dwc.utils.dwc.demand import compute
+from ctm_for_dwc.utils.dwc.model import PadSpec
 
 
 def _peak_rss_mb() -> float:

@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from transportation_models.utils.ctm import (
+from ctm_for_dwc.utils.ctm import (
     ctmsim_demand_at_sim_steps,
     ctmsim_initial_densities,
     freeway_from_ctmsim_mat,

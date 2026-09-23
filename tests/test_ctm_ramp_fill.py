@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from transportation_models.utils.ctm.ramp_fill import (
+from ctm_for_dwc.utils.ctm.ramp_fill import (
     gap_aware_fill,
     persistence_fill,
 )

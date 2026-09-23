@@ -21,7 +21,7 @@ this doc is the build plan.
 A self-contained subpackage under the library (`utils/` = importable):
 
 ```
-src/transportation_models/utils/ctm/
+src/ctm_for_dwc/utils/ctm/
   __init__.py     # public API
   model.py        # Cell, Freeway, Scenario dataclasses + validation
   engine.py       # step() and simulate() — the six canonical equations

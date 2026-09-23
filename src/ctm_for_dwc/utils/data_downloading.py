@@ -25,7 +25,7 @@ from bs4 import BeautifulSoup
 from http.cookiejar import LWPCookieJar
 
 # Local imports
-from transportation_models.utils.pems_settings import (
+from ctm_for_dwc.utils.pems_settings import (
     DATA_PATH,
     BASE_URL,
     DISTRICTS,

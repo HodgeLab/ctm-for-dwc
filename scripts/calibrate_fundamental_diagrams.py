@@ -44,7 +44,7 @@ import logging
 import sys
 from pathlib import Path
 
-from transportation_models.utils.data_processing import PeMSDataProcessor
+from ctm_for_dwc.utils.data_processing import PeMSDataProcessor
 
 
 def _enable_stdout_logging() -> None:

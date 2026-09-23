@@ -23,12 +23,12 @@ import osmnx as ox
 import pytest
 import scipy.io as sio
 
-from transportation_models.utils.ctm.cells import cells_from_corridor
-from transportation_models.utils.ctm.osm import corridor_from_graph
+from ctm_for_dwc.utils.ctm.cells import cells_from_corridor
+from ctm_for_dwc.utils.ctm.osm import corridor_from_graph
 
 REPO = Path(__file__).resolve().parents[1]
 GRAPHML = REPO / "tests/fixtures/osm/i210_bbox.graphml"
-CTMSIM_MAT = REPO / "src/transportation_models/utils/ctm/ctmsim_configs/w060412.mat"
+CTMSIM_MAT = REPO / "src/ctm_for_dwc/utils/ctm/ctmsim_configs/w060412.mat"
 
 
 @pytest.fixture(scope="module")

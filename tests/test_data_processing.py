@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from transportation_models.utils.data_processing import PeMSDataProcessor
+from ctm_for_dwc.utils.data_processing import PeMSDataProcessor
 
 
 # Matches load_data_by_id's reindex: one year of 5-minute rows.

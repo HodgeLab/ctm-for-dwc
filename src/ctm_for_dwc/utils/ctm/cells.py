@@ -78,7 +78,7 @@ def cells_from_corridor(
 
         ``length``, ``on_ramp``, and ``off_ramp`` match the optional/required
         columns expected by
-        :func:`transportation_models.utils.ctm.io.freeway_from_dataframe`;
+        :func:`ctm_for_dwc.utils.ctm.io.freeway_from_dataframe`;
         Step 4 (FD calibration) and Step 2 (VDS-to-cell mapping) fill in the
         rest of the freeway schema before that function is called.
     """

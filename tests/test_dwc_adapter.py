@@ -7,21 +7,21 @@ tiny four-cell CTM run (Kurzhanskiy diss. §3.4) as the smoke test.
 
 import numpy as np
 
-from transportation_models.utils.ctm.engine import simulate
-from transportation_models.utils.ctm.examples import (
+from ctm_for_dwc.utils.ctm.engine import simulate
+from ctm_for_dwc.utils.ctm.examples import (
     four_cell_freeway,
     four_cell_scenario,
     metered_on_ramp_freeway,
     metered_on_ramp_scenario,
 )
-from transportation_models.utils.ctm.metrics import compute_metrics
-from transportation_models.utils.dwc.adapter import (
+from ctm_for_dwc.utils.ctm.metrics import compute_metrics
+from ctm_for_dwc.utils.dwc.adapter import (
     corridor_from_ctm,
     from_ctm,
     mainline_vht,
 )
-from transportation_models.utils.dwc.demand import compute
-from transportation_models.utils.dwc.model import PadSpec
+from ctm_for_dwc.utils.dwc.demand import compute
+from ctm_for_dwc.utils.dwc.model import PadSpec
 
 _METERS_PER_MILE = 1609.344
 

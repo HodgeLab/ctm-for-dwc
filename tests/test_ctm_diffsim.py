@@ -13,10 +13,10 @@ import numpy as np
 import pytest
 import torch
 
-from transportation_models.utils.ctm import diffsim
-from transportation_models.utils.ctm.engine import simulate as np_simulate
-from transportation_models.utils.ctm.engine import step as np_step
-from transportation_models.utils.ctm.model import Cell, Freeway, Scenario
+from ctm_for_dwc.utils.ctm import diffsim
+from ctm_for_dwc.utils.ctm.engine import simulate as np_simulate
+from ctm_for_dwc.utils.ctm.engine import step as np_step
+from ctm_for_dwc.utils.ctm.model import Cell, Freeway, Scenario
 
 RTOL, ATOL = 0.0, 1e-9
 

@@ -22,10 +22,10 @@ sys.path.insert(0, str(_REPO / "scripts"))
 
 from optimize_ramp_flows_diffsim import optimize_bundle  # noqa: E402
 
-from transportation_models.utils.ctm import (  # noqa: E402
+from ctm_for_dwc.utils.ctm import (  # noqa: E402
     freeway_from_dataframe, scenario_from_dataframes, simulate,
 )
-from transportation_models.utils.ctm.model import Scenario  # noqa: E402
+from ctm_for_dwc.utils.ctm.model import Scenario  # noqa: E402
 
 # cell 0 plain, cell 1 on-ramp only, cell 2 off-ramp only (single-ramp cells ->
 # each ramp flow is uniquely identifiable from mainline density+flow).

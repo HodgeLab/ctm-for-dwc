@@ -18,7 +18,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from transportation_models.utils.data_downloading import PeMSExtractor
+from ctm_for_dwc.utils.data_downloading import PeMSExtractor
 
 
 # ---- Synthetic gzipped-PeMS fixture builder ------------------------------

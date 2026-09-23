@@ -33,7 +33,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from transportation_models.utils.ctm import (
+from ctm_for_dwc.utils.ctm import (
     compare_against_historical,
     compare_corridor_aggregates,
     compute_flow_geh,
@@ -41,15 +41,15 @@ from transportation_models.utils.ctm import (
     compute_qq_samples,
     corridor_rmse_mape,
 )
-from transportation_models.utils.ctm.plots import (
+from ctm_for_dwc.utils.ctm.plots import (
     downsample_to_plot_period,
     plot_flow_density_contour,
     plot_geh_heatmap,
     plot_qq_pooled,
     plot_qq_percell,
 )
-from transportation_models.utils.ctm.results import SimulationResult
-from transportation_models.utils.ctm.validation import CorridorAggregates, GEHResult
+from ctm_for_dwc.utils.ctm.results import SimulationResult
+from ctm_for_dwc.utils.ctm.validation import CorridorAggregates, GEHResult
 
 
 def resolve_start(

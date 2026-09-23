@@ -20,16 +20,16 @@ import numpy as np
 import pandas as pd
 import wandb
 
-from transportation_models.utils import constants
-from transportation_models.utils.ramp_flow_estimation.features import build_training_data
-from transportation_models.utils.ramp_flow_estimation.gru import GruEstimator
-from transportation_models.utils.ramp_flow_estimation.manifest import (
+from ctm_for_dwc.utils import constants
+from ctm_for_dwc.utils.ramp_flow_estimation.features import build_training_data
+from ctm_for_dwc.utils.ramp_flow_estimation.gru import GruEstimator
+from ctm_for_dwc.utils.ramp_flow_estimation.manifest import (
     load_corpus_cache,
     load_stretches,
     save_corpus_cache,
     write_manifest,
 )
-from transportation_models.utils.ramp_flow_estimation.validation import (
+from ctm_for_dwc.utils.ramp_flow_estimation.validation import (
     flow_metrics,
     train_val_test_split,
 )

@@ -48,7 +48,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from transportation_models.utils.ctm.assembly import (
+from ctm_for_dwc.utils.ctm.assembly import (
     assemble_freeway_table,
     compute_cfl_advisory,
     format_cfl_advisory,

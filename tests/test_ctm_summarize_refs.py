@@ -14,7 +14,7 @@ import osmnx as ox
 import pytest
 from shapely.geometry import LineString
 
-from transportation_models.utils.ctm.osm import summarize_refs
+from ctm_for_dwc.utils.ctm.osm import summarize_refs
 
 REPO = Path(__file__).resolve().parents[1]
 GRAPHML = REPO / "tests/fixtures/osm/i210_bbox.graphml"

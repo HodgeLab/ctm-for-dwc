@@ -122,8 +122,8 @@ driver fails loudly with the missing path if it is absent.
 - Python ≥ 3.10, NumPy core (matching the DWC module). `pandas` for the
   validation-CSV / timeseries I/O. `matplotlib` (Agg in tests) for figures.
   No new heavy dependencies.
-- Reuses `transportation_models.utils.ctm` (`SimulationResult`,
-  `compare_against_historical`) and `transportation_models.utils.dwc`
+- Reuses `ctm_for_dwc.utils.ctm` (`SimulationResult`,
+  `compare_against_historical`) and `ctm_for_dwc.utils.dwc`
   (`build_P_y`, `compute`, `CorridorSpec`, `PadSpec`).
 
 ## Commands
@@ -143,7 +143,7 @@ entrypoint (run, don't import) — matching the repo's `utils/` vs `scripts/`
 convention.
 
 ```
-src/transportation_models/utils/microsim/
+src/ctm_for_dwc/utils/microsim/
   __init__.py        # public API
   model.py           # MicrosimSpec / Vehicles / MicrosimResult / GuardStats
   gipps.py           # modified Gipps longitudinal update (eq 1–5)
@@ -581,7 +581,7 @@ is the opt-in end-to-end harness.
     module map mentions `microsim` + the driver; `dwc_demand_implementation_plan.md`
     P7 progress-log entry added (date, what shipped, what was learned).
   - Verify: `pytest` (full suite green); `python -c "import
-    transportation_models.utils.microsim"` succeeds; README/plan reviewed.
+    ctm_for_dwc.utils.microsim"` succeeds; README/plan reviewed.
   - Files: `utils/microsim/__init__.py`, `README.md`,
     `docs/dwc_demand_implementation_plan.md`.
 ```

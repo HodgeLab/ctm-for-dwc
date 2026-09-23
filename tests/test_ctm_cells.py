@@ -11,7 +11,7 @@ import pandas as pd
 import pytest
 from shapely.geometry import LineString, Point
 
-from transportation_models.utils.ctm.cells import (
+from ctm_for_dwc.utils.ctm.cells import (
     cells_from_corridor,
     cells_to_geodataframe,
     corridor_from_artifacts,
@@ -19,7 +19,7 @@ from transportation_models.utils.ctm.cells import (
     flag_cell_length_warnings,
     ramp_junctions_to_geodataframe,
 )
-from transportation_models.utils.ctm.osm import (
+from ctm_for_dwc.utils.ctm.osm import (
     Corridor,
     MainlineSegment,
     RampJunction,

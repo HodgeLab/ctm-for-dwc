@@ -34,7 +34,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from transportation_models.utils.ctm.impute import (
+from ctm_for_dwc.utils.ctm.impute import (
     historical_slot_fill,
     knn_impute_grid,
 )
@@ -82,7 +82,7 @@ def _write_contours(out_dir, cells_df, raw, filled, n_5min, k, knn_decay):
     black; raw and augmented share a color scale per quantity so the fill is
     directly comparable.
     """
-    from transportation_models.utils.ctm.plots import plot_flow_density_contour
+    from ctm_for_dwc.utils.ctm.plots import plot_flow_density_contour
 
     n = next(iter(filled.values())).shape[0]
     if {"pm_start", "pm_end"} <= set(cells_df.columns):

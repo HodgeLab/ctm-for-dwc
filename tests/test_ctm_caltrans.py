@@ -21,7 +21,7 @@ import pytest
 from pathlib import Path
 from shapely.geometry import LineString, Point
 
-from transportation_models.utils.ctm.caltrans import (
+from ctm_for_dwc.utils.ctm.caltrans import (
     DEFAULT_POSTMILE_DIR,
     DEFAULT_POSTMILE_FILE,
     _resolve_out_path,
@@ -29,8 +29,8 @@ from transportation_models.utils.ctm.caltrans import (
     extract_route_number,
     load_postmiles,
 )
-from transportation_models.utils.ctm.cells import cells_from_corridor
-from transportation_models.utils.ctm.osm import corridor_from_graph
+from ctm_for_dwc.utils.ctm.cells import cells_from_corridor
+from ctm_for_dwc.utils.ctm.osm import corridor_from_graph
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -327,7 +327,7 @@ def test_download_cache_hit_skips_network(tmp_path, monkeypatch):
         raise AssertionError("download attempted despite cache hit")
 
     monkeypatch.setattr(
-        "transportation_models.utils.ctm.caltrans.requests.get", _explode
+        "ctm_for_dwc.utils.ctm.caltrans.requests.get", _explode
     )
     out = download_caltrans_postmiles(out_path=target, progress=False)
     assert out == target
@@ -367,7 +367,7 @@ def test_download_filtered_uses_featureserver_query(tmp_path, monkeypatch):
         })
 
     monkeypatch.setattr(
-        "transportation_models.utils.ctm.caltrans.requests.get", _fake_get
+        "ctm_for_dwc.utils.ctm.caltrans.requests.get", _fake_get
     )
     out = download_caltrans_postmiles(
         out_path=target, routes=[210], progress=False,
@@ -414,7 +414,7 @@ def test_download_filtered_paginates_until_short_page(tmp_path, monkeypatch):
         return _Resp({"features": page})
 
     monkeypatch.setattr(
-        "transportation_models.utils.ctm.caltrans.requests.get", _fake_get
+        "ctm_for_dwc.utils.ctm.caltrans.requests.get", _fake_get
     )
     download_caltrans_postmiles(out_path=target, routes=[5], progress=False)
     assert call_count["n"] == 3

@@ -53,7 +53,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from transportation_models.utils.data_downloading import (
+from ctm_for_dwc.utils.data_downloading import (
     PeMSDownloader,
     PeMSExtractor,
 )

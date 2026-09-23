@@ -40,7 +40,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from transportation_models.utils.ctm.plots import plot_metric_vs_distance
+from ctm_for_dwc.utils.ctm.plots import plot_metric_vs_distance
 
 # Patterns matching the summary lines the two per-study scripts emit.
 # The error/aggregate lines come from validate_ctm_corridor._print_summary;

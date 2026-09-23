@@ -108,7 +108,7 @@ def download_pems_station_metadata(
 ) -> Path:
     """Fetch one PeMS ``station_meta`` text file for a district + year.
 
-    Uses :class:`transportation_models.utils.data_downloading.PeMSDownloader`
+    Uses :class:`ctm_for_dwc.utils.data_downloading.PeMSDownloader`
     against the live clearinghouse (``pems.dot.ca.gov``). Credentials come
     from the ``PEMS_USERNAME`` / ``PEMS_PASSWORD`` environment variables
     (loaded from ``.env`` via ``python-dotenv`` if present) unless
@@ -153,7 +153,7 @@ def download_pems_station_metadata(
     """
     # Local imports so the rest of the module stays importable when these
     # heavy/optional deps aren't available.
-    from transportation_models.utils.data_downloading import PeMSDownloader
+    from ctm_for_dwc.utils.data_downloading import PeMSDownloader
 
     username = username or os.environ.get("PEMS_USERNAME", "").strip() or None
     password = password or os.environ.get("PEMS_PASSWORD", "").strip() or None
@@ -215,7 +215,7 @@ def download_pems_station_metadata(
                                 suffix=".txt")[1])
     try:
         # Use the underlying mechanize browser to stream the file directly.
-        from transportation_models.utils.pems_settings import BASE_URL
+        from ctm_for_dwc.utils.pems_settings import BASE_URL
         dl.browser.retrieve(
             f"{BASE_URL}{chosen['download_url']}", str(tmp),
         )

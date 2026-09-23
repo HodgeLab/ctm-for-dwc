@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from transportation_models.utils.ctm.impute import (
+from ctm_for_dwc.utils.ctm.impute import (
     historical_slot_fill,
     knn_impute_grid,
 )

@@ -1,4 +1,4 @@
-# transportation-models
+# ctm-for-dwc
 
 Code to download, process, and calibrate
 **Caltrans PeMS** freeway traffic data, assemble it into a Cell Transmission
@@ -11,8 +11,8 @@ The pipeline, end to end:
 PeMS data -> calibrated CTM corridor -> ramp flows -> CTM simulation -> DWC demand
 ```
 
-The package lives in `src/transportation_models/` (installed as
-`transportation-models`, imported as `transportation_models`). Python >= 3.10,
+The package lives in `src/ctm_for_dwc/` (installed as
+`ctm-for-dwc`, imported as `ctm_for_dwc`). Python >= 3.10,
 hatchling build.
 
 ## Layout

@@ -54,7 +54,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from transportation_models.utils.ctm import (
+from ctm_for_dwc.utils.ctm import (
     compute_metrics,
     freeway_from_dataframe,
     inflow_from_vds,
@@ -62,7 +62,7 @@ from transportation_models.utils.ctm import (
     scenario_from_dataframes,
     simulate,
 )
-from transportation_models.utils.ctm.plots import (
+from ctm_for_dwc.utils.ctm.plots import (
     downsample_to_plot_period,
     per_period_totals,
     plot_aggregate_metrics,

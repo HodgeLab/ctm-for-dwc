@@ -8,8 +8,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from transportation_models.utils.ramp_flow_estimation.features import TrainingData
-from transportation_models.utils.ramp_flow_estimation.validation import (
+from ctm_for_dwc.utils.ramp_flow_estimation.features import TrainingData
+from ctm_for_dwc.utils.ramp_flow_estimation.validation import (
     flow_metrics,
     train_val_test_split,
 )

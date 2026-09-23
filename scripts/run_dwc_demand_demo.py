@@ -13,15 +13,15 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from transportation_models.utils.ctm.engine import simulate
-from transportation_models.utils.ctm.examples import (
+from ctm_for_dwc.utils.ctm.engine import simulate
+from ctm_for_dwc.utils.ctm.examples import (
     four_cell_freeway,
     four_cell_scenario,
 )
-from transportation_models.utils.dwc import plots
-from transportation_models.utils.dwc.adapter import corridor_from_ctm, mainline_vht
-from transportation_models.utils.dwc.demand import compute
-from transportation_models.utils.dwc.model import PadSpec
+from ctm_for_dwc.utils.dwc import plots
+from ctm_for_dwc.utils.dwc.adapter import corridor_from_ctm, mainline_vht
+from ctm_for_dwc.utils.dwc.demand import compute
+from ctm_for_dwc.utils.dwc.model import PadSpec
 
 # Coarse pad + grid so the dense T_R over four 1-mile cells stays small.
 _PAD = PadSpec(

@@ -11,7 +11,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from transportation_models.utils.ramp_flow_estimation.features import (
+from ctm_for_dwc.utils.ramp_flow_estimation.features import (
     mainline_flows,
     stretch_samples,
 )

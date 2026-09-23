@@ -14,8 +14,8 @@ Planning," UCB/EECS-2007-148, 2007.
 
 import numpy as np
 
-from transportation_models.utils.ctm import examples, simulate
-from transportation_models.utils.ctm.model import Cell, Freeway, Scenario
+from ctm_for_dwc.utils.ctm import examples, simulate
+from ctm_for_dwc.utils.ctm.model import Cell, Freeway, Scenario
 
 
 def test_freeflow_pulse_propagates_at_v_f():

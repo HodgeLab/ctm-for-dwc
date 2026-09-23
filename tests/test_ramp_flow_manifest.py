@@ -9,8 +9,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from transportation_models.utils.ramp_flow_estimation.features import build_training_data
-from transportation_models.utils.ramp_flow_estimation.manifest import (
+from ctm_for_dwc.utils.ramp_flow_estimation.features import build_training_data
+from ctm_for_dwc.utils.ramp_flow_estimation.manifest import (
     corpus_digest,
     load_corpus_cache,
     load_manifest,

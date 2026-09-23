@@ -8,7 +8,7 @@ column grouping, and load-duration-curve divergence.
 import numpy as np
 import pytest
 
-from transportation_models.utils.dwc import aggregation as agg
+from ctm_for_dwc.utils.dwc import aggregation as agg
 
 _METERS_PER_MILE = 1609.344
 

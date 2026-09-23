@@ -176,10 +176,10 @@ def validate_fd_params(
 
 
 # Local imports
-import transportation_models.utils.constants as constants
-import transportation_models.utils.logs as logs
-import transportation_models.utils.validation as validation
-from transportation_models.utils.plot_style import COLUMN_W, PAPER_DPI, PAPER_RC
+import ctm_for_dwc.utils.constants as constants
+import ctm_for_dwc.utils.logs as logs
+import ctm_for_dwc.utils.validation as validation
+from ctm_for_dwc.utils.plot_style import COLUMN_W, PAPER_DPI, PAPER_RC
 
 # Default logger
 logger = logs.make_logger(log_prefix="data_processing")

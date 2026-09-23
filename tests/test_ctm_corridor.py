@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 from shapely.geometry import LineString
 
-from transportation_models.utils.ctm.osm import (
+from ctm_for_dwc.utils.ctm.osm import (
     Corridor,
     MainlineSegment,
     RampJunction,

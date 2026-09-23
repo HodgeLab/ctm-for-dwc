@@ -12,8 +12,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from transportation_models.utils.ramp_flow_estimation.gru import GruEstimator
-from transportation_models.utils.ramp_flow_estimation.manifest import load_manifest
+from ctm_for_dwc.utils.ramp_flow_estimation.gru import GruEstimator
+from ctm_for_dwc.utils.ramp_flow_estimation.manifest import load_manifest
 
 _REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO / "scripts"))

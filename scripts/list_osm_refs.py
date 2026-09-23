@@ -29,7 +29,7 @@ from pathlib import Path
 
 import osmnx as ox
 
-from transportation_models.utils.ctm.osm import summarize_refs
+from ctm_for_dwc.utils.ctm.osm import summarize_refs
 
 
 def load_graph(args) -> "ox.MultiDiGraph":   # noqa: F821 - lazy hint

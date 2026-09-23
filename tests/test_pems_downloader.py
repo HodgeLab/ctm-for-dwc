@@ -16,8 +16,8 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from transportation_models.utils.data_downloading import PeMSDownloader
-from transportation_models.utils.pems_settings import BASE_URL
+from ctm_for_dwc.utils.data_downloading import PeMSDownloader
+from ctm_for_dwc.utils.pems_settings import BASE_URL
 
 
 # ---- Helper: build a sham instance that skips the live login -------------
@@ -147,7 +147,7 @@ def test_create_data_directory_idempotent_on_existing_dir(tmp_path):
 def test_create_data_directory_falls_back_to_default_when_none(monkeypatch, tmp_path):
     sentinel = tmp_path / "default_data_path"
     monkeypatch.setattr(
-        "transportation_models.utils.data_downloading.DATA_PATH", str(sentinel)
+        "ctm_for_dwc.utils.data_downloading.DATA_PATH", str(sentinel)
     )
     out = PeMSDownloader._create_data_directory(None)
     assert out == str(sentinel)

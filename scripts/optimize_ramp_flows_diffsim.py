@@ -47,7 +47,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from transportation_models.utils.ctm import diffsim, freeway_from_dataframe
+from ctm_for_dwc.utils.ctm import diffsim, freeway_from_dataframe
 
 _EPS = 1e-4  # keeps logit()/sigmoid() away from the beta = 0/1 singularities
 

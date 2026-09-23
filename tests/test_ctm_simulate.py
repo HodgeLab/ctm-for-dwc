@@ -12,9 +12,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from transportation_models.utils.ctm import examples, simulate
-from transportation_models.utils.ctm.model import Scenario
-from transportation_models.utils.ctm.results import SimulationResult
+from ctm_for_dwc.utils.ctm import examples, simulate
+from ctm_for_dwc.utils.ctm.model import Scenario
+from ctm_for_dwc.utils.ctm.results import SimulationResult
 
 
 # ---- fixtures (module-scoped: same trajectory shared across tests) ---------

@@ -74,9 +74,9 @@ the source of assembled corridors for any downstream analysis.
   - [Cell-length rule (Step 5)](#cell-length-rule-step-5)
 
 ## Step 1: Roadway --> Cell Mapping
-Implemented in `transportation_models.utils.ctm.osm` (corridor extraction),
-`transportation_models.utils.ctm.cells` (cell layout), and
-`transportation_models.utils.ctm.caltrans` (optional Caltrans postmile
+Implemented in `ctm_for_dwc.utils.ctm.osm` (corridor extraction),
+`ctm_for_dwc.utils.ctm.cells` (cell layout), and
+`ctm_for_dwc.utils.ctm.caltrans` (optional Caltrans postmile
 annotation). End-to-end demo: `scripts/build_ctm_from_osm.py`.
 
 The mapping is a three-stage pipeline that takes an OpenStreetMap network for a
@@ -202,7 +202,7 @@ span the dissertation's PM 24-39 range when anchored at Vernon Ave and the
 SR-134 split.
 
 ## Step 2: VDS --> Cell Mapping
-Implemented in `transportation_models.utils.ctm.vds`. End-to-end demo:
+Implemented in `ctm_for_dwc.utils.ctm.vds`. End-to-end demo:
 `scripts/build_ctm_from_osm.py --pems-metadata {auto|PATH}`.
 
 Step 2 attaches a PeMS vehicle detector station (VDS) to every cell produced
@@ -305,7 +305,7 @@ with median lateral distance to the centerline under 3 m and Caltrans-PM
 projection within 0.5 mi of PeMS's reported `Abs_PM` for most stations.
 
 ## Step 3: VDS Timeseries Download
-Implemented by two classes in `transportation_models.utils.data_downloading`:
+Implemented by two classes in `ctm_for_dwc.utils.data_downloading`:
 `PeMSDownloader` (clearinghouse query + batch download) and `PeMSExtractor`
 (per-detector parsing of the downloaded `.gz` files). End-to-end demo:
 `scripts/download_pems_timeseries.py`.
@@ -391,7 +391,7 @@ indirectly by the `@pytest.mark.network` round-trip in
 
 ## Step 4: Fundamental Diagram Calibration
 Implemented by `PeMSDataProcessor` in
-`transportation_models.utils.data_processing`. End-to-end demo:
+`ctm_for_dwc.utils.data_processing`. End-to-end demo:
 `scripts/calibrate_fundamental_diagrams.py`.
 
 For each VDS produced by Step 3, this step fits the five-parameter
@@ -588,7 +588,7 @@ re-runs `flag_cell_length_warnings` on the edited table so the
 `length_warning` column stays consistent with the new lengths.
 
 ## Step 6: CTM Freeway Assembly
-Implemented in `transportation_models.utils.ctm.assembly`. End-to-end
+Implemented in `ctm_for_dwc.utils.ctm.assembly`. End-to-end
 demo: `scripts/assemble_ctm_freeway.py`.
 
 This step joins three independent artifacts into a single per-cell freeway
@@ -835,7 +835,7 @@ under-models the real corridor.
 
 ```python
 import pandas as pd
-from transportation_models.utils.ctm import freeway_from_dataframe
+from ctm_for_dwc.utils.ctm import freeway_from_dataframe
 
 df = pd.read_csv("scripts/output/ctm_corridor/I_210_W/freeway.csv")
 dt_h = 10.0 / 3600.0                          # 10 s, from Step 6 advisory
@@ -866,7 +866,7 @@ re-downloading:
 
 ```python
 import pandas as pd
-from transportation_models.utils.ctm import (
+from ctm_for_dwc.utils.ctm import (
     inflow_from_vds, initial_state_from_vds, scenario_from_dataframes,
 )
 
@@ -951,7 +951,7 @@ the true boundary.
 ### Stage 3: Run the simulation and inspect
 
 ```python
-from transportation_models.utils.ctm import simulate, compute_metrics
+from ctm_for_dwc.utils.ctm import simulate, compute_metrics
 
 result = simulate(freeway, scenario)        # SimulationResult
 frames = result.to_dataframes()             # wide frames per quantity
@@ -970,7 +970,7 @@ For users coming from CTMSIM, the same engine accepts a CTMSIM
 configuration directly:
 
 ```python
-from transportation_models.utils.ctm import (
+from ctm_for_dwc.utils.ctm import (
     freeway_from_ctmsim_mat, ctmsim_initial_densities,
     ctmsim_demand_at_sim_steps, simulate,
 )

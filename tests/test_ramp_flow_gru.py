@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 import torch
 
-from transportation_models.utils.ramp_flow_estimation.gru import GruEstimator, Normalizer
+from ctm_for_dwc.utils.ramp_flow_estimation.gru import GruEstimator, Normalizer
 
 
 def _synthetic(n=400, seed=0):

@@ -12,14 +12,14 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from transportation_models.utils.ctm import (
+from ctm_for_dwc.utils.ctm import (
     FREEWAY_COLUMNS,
     assemble_freeway_table,
     compute_cfl_advisory,
     format_cfl_advisory,
     parse_ramp_vds_ids,
 )
-from transportation_models.utils.ctm.io import freeway_from_dataframe
+from ctm_for_dwc.utils.ctm.io import freeway_from_dataframe
 
 
 # ---- Fixtures -------------------------------------------------------------

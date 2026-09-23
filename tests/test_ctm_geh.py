@@ -9,8 +9,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from transportation_models.utils.ctm import GEHResult, compute_flow_geh
-from transportation_models.utils.ctm.plots import plot_geh_heatmap
+from ctm_for_dwc.utils.ctm import GEHResult, compute_flow_geh
+from ctm_for_dwc.utils.ctm.plots import plot_geh_heatmap
 
 
 # ---- Fixture helpers -----------------------------------------------------

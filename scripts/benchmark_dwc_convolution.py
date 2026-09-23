@@ -19,7 +19,7 @@ import time
 import numpy as np
 from scipy.signal import fftconvolve
 
-from transportation_models.utils.dwc.spatial import build_S_R, build_S_T, build_T_R
+from ctm_for_dwc.utils.dwc.spatial import build_S_R, build_S_T, build_T_R
 
 _METERS_PER_MILE = 1609.344
 # Newbolt 2024a pad geometry (meters).

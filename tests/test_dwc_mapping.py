@@ -9,7 +9,7 @@ invariants) of the plan's verification strategy.
 
 import numpy as np
 
-from transportation_models.utils.dwc.mapping import build_M_CTM
+from ctm_for_dwc.utils.dwc.mapping import build_M_CTM
 
 
 # ---------------------------------------------------------------------------

@@ -15,12 +15,12 @@ import pandas as pd
 import pytest
 from shapely.geometry import LineString, Point
 
-from transportation_models.utils.ctm.osm import (
+from ctm_for_dwc.utils.ctm.osm import (
     Corridor,
     MainlineSegment,
     RampJunction,
 )
-from transportation_models.utils.ctm.vds import (
+from ctm_for_dwc.utils.ctm.vds import (
     assign_ramp_vds_to_cells,
     assign_vds_to_cells,
     load_pems_station_metadata,

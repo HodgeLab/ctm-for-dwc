@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "transportation-models"
+name = "ctm-for-dwc"
 version = "0.1.0"
 dependencies = [
     "beautifulsoup4",
@@ -39,7 +39,7 @@ classifiers = [
 test = ["pytest", "pytest-dotenv"]
 
 [project.urls]
-Repository = "https://github.com/HodgeLab/transportation-models"
+Repository = "https://github.com/HodgeLab/ctm-for-dwc"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

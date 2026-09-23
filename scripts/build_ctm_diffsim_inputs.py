@@ -45,7 +45,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from transportation_models.utils.ctm import (
+from ctm_for_dwc.utils.ctm import (
     compute_cfl_advisory,
     format_cfl_advisory,
     inflow_from_vds,
@@ -54,7 +54,7 @@ from transportation_models.utils.ctm import (
 )
 # Reused for the exact observed-density definition (total_flow*12/avg_speed)
 # and contiguity check -- the same extraction Step-9 validation scores against.
-from transportation_models.utils.ctm.validation import _load_observed_window
+from ctm_for_dwc.utils.ctm.validation import _load_observed_window
 
 _FIVE_MIN_S = 300.0
 

@@ -82,7 +82,7 @@ in the **Progress log** below; the sections between here and there are the
 A self-contained subpackage alongside `utils/ctm/`:
 
 ```
-src/transportation_models/utils/dwc/
+src/ctm_for_dwc/utils/dwc/
   __init__.py     # public API
   spatial.py      # build_S_T, build_S_R, build_T_R, build_P_y
   mapping.py      # build_M_CTM (cell→position partition-of-unity)
@@ -344,7 +344,7 @@ learned that wasn't in the plan.)*
 ### P0 — 2026-06-10 — data model + Newbolt example builder
 
 **Shipped.**
-[`src/transportation_models/utils/dwc/`](../src/transportation_models/utils/dwc/):
+[`src/ctm_for_dwc/utils/dwc/`](../src/ctm_for_dwc/utils/dwc/):
 `__init__.py`, `model.py` (`PadSpec`, `CorridorSpec`), `examples.py`
 (`newbolt_small_scale`).
 [`tests/test_dwc_model.py`](../tests/test_dwc_model.py): 22 tests
@@ -398,7 +398,7 @@ passed.
 ### P1 — 2026-06-10 — spatial pure functions
 
 **Shipped.**
-[`src/transportation_models/utils/dwc/spatial.py`](../src/transportation_models/utils/dwc/spatial.py):
+[`src/ctm_for_dwc/utils/dwc/spatial.py`](../src/ctm_for_dwc/utils/dwc/spatial.py):
 `build_S_T`, `build_S_R`, `build_T_R` (Newbolt 2024a Algorithms 1-2).
 [`tests/test_dwc_spatial.py`](../tests/test_dwc_spatial.py): 11
 hand-calc + property tests (layer 1) — `S_T` tile bit-pattern,
@@ -433,7 +433,7 @@ regression surface elsewhere.
 ### P2 — 2026-06-10 — P_y power profile
 
 **Shipped.**
-[`build_P_y`](../src/transportation_models/utils/dwc/spatial.py) in
+[`build_P_y`](../src/ctm_for_dwc/utils/dwc/spatial.py) in
 `spatial.py` — implements Newbolt 2024a Algorithm 3:
 `gamma * (T_R @ S_T) / (T_R @ S_T).max()`, so the peak equals
 `gamma = min(beta, beta_prime)`.
@@ -464,7 +464,7 @@ in `gamma`, and the Fig-4 qualitative shape (layer 3).
 ### P3 — 2026-06-10 — M_CTM cell->position map
 
 **Shipped.**
-[`build_M_CTM`](../src/transportation_models/utils/dwc/mapping.py) in
+[`build_M_CTM`](../src/ctm_for_dwc/utils/dwc/mapping.py) in
 `mapping.py` — the `(N, m)` row-partition-of-unity.
 [`tests/test_dwc_mapping.py`](../tests/test_dwc_mapping.py): 8 tests —
 hand calcs (symmetric `δ_grid=3`, even-`δ_grid` floor, `δ_grid=1` plain
@@ -474,7 +474,7 @@ column).
 
 **Decision: center-reference convention (Option C), chosen by the user**
 after evaluating three options in
-[`scripts/dwc_m_ctm_options.ipynb`](../src/transportation_models/scripts/dwc_m_ctm_options.ipynb).
+[`scripts/dwc_m_ctm_options.ipynb`](../src/ctm_for_dwc/scripts/dwc_m_ctm_options.ipynb).
 Traversal position `j` maps to corridor position `j - off`, where
 `off = (δ_grid - 1)//2` is the floored Rx-pad center; off-corridor centers
 get zero columns. This resolves the long-standing off-by-one (P0 open
@@ -502,9 +502,9 @@ boundary treatment is symmetric. Signature is grid-integer
 ### P4 — 2026-06-10 — compute_demand + DemandResult
 
 **Shipped.**
-[`compute_demand`](../src/transportation_models/utils/dwc/demand.py) in
+[`compute_demand`](../src/ctm_for_dwc/utils/dwc/demand.py) in
 `demand.py` — `eta_EV * (VHT.T @ M_CTM) * P_y`, shape `(T, m)` in Wh.
-[`DemandResult`](../src/transportation_models/utils/dwc/model.py) in
+[`DemandResult`](../src/ctm_for_dwc/utils/dwc/model.py) in
 `model.py` — frozen container holding `E` (Wh), `position_m`, `timesteps`,
 with shape validation and a `to_dataframe()` long-format helper; exported
 from the package `__init__`.
@@ -534,13 +534,13 @@ test_dwc_demand.py`) → 58 passed.
 ### P5 — 2026-06-10 — CTM adapter + compute orchestrator
 
 **Shipped.**
-- [`CorridorSpec.build_P_y()`](../src/transportation_models/utils/dwc/model.py)
+- [`CorridorSpec.build_P_y()`](../src/ctm_for_dwc/utils/dwc/model.py)
   — composes P1-P2 over the corridor's grid properties.
-- [`compute(VHT, corridor, eta_EV)`](../src/transportation_models/utils/dwc/demand.py)
+- [`compute(VHT, corridor, eta_EV)`](../src/ctm_for_dwc/utils/dwc/demand.py)
   — orchestrates `build_M_CTM` + `build_P_y` + `compute_demand` into a
   labeled `DemandResult` (center-reference `position_m`, timestep-index
   rows; validates `eta_EV ∈ [0,1]` and VHT cell count).
-- [`adapter.py`](../src/transportation_models/utils/dwc/adapter.py) (new
+- [`adapter.py`](../src/ctm_for_dwc/utils/dwc/adapter.py) (new
   module): `mainline_vht(result)` and `from_ctm(result, pad_spec, dx_grid,
   eta_EV)` — the single CTM seam.
 - `compute` and `from_ctm` exported from the package `__init__`.
@@ -576,7 +576,7 @@ end-to-end smoke test on the four-cell CTM run (Kurzhanskiy §3.4).
 ### P6 — 2026-06-10 — demo script + plotting
 
 **Shipped.**
-- [`plots.py`](../src/transportation_models/utils/dwc/plots.py):
+- [`plots.py`](../src/ctm_for_dwc/utils/dwc/plots.py):
   `plot_P_y` (power-vs-position) and `plot_demand_heatmap`
   (E space-time heatmap), following the `ctm/plots.py` convention
   (data + keyword-only `out_path`, save at 120 dpi, close).
@@ -660,7 +660,7 @@ full DWC suite → 78 passed.
 two-stage accuracy-vs-efficiency study, specified in
 [dwc_validation_spec.md](dwc_validation_spec.md) (full spec-driven workflow:
 interview → spec → plan → tasks → implement).
-[`src/transportation_models/utils/microsim/`](../src/transportation_models/utils/microsim/):
+[`src/ctm_for_dwc/utils/microsim/`](../src/ctm_for_dwc/utils/microsim/):
 `model.py` (`MicrosimSpec`/`Vehicles`/`MicrosimResult`/`GuardStats`), `gipps.py`
 (modified-Gipps eq 1-5), `seeding.py` (Poisson inflow → vehicles, `v_max ~
 U(v_f±15 mph)`), `simulate.py` (single-lane loop), `aggregate.py` (Edie
