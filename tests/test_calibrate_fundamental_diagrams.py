@@ -1,6 +1,7 @@
 """End-to-end integration tests for
-:meth:`PeMSDataProcessor.calibrate_fundamental_diagrams` and the FD-plot
-sidecar (:meth:`plot_fundamental_diagram`).
+:func:`utils.ctm.fd_calibration.calibrate_fundamental_diagrams`,
+``calibrate_ramp_capacities``, the timeseries loader, and the FD-plot
+sidecar (:func:`utils.ctm.plots.plot_fundamental_diagram`).
 
 These tests write a small synthetic PeMS dataset under ``tmp_path`` (one
 metadata CSV + one per-detector timeseries CSV per station, ~4 weeks of
@@ -20,9 +21,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ctm_for_dwc.utils.data_processing import (
+from ctm_for_dwc.utils.ctm.fd_calibration import (
     CalibrationCode,
-    PeMSDataProcessor,
+    calibrate_fundamental_diagrams,
+    calibrate_ramp_capacities,
+    load_detector_timeseries,
+    read_station_metadata,
     validate_fd_params,
 )
 
@@ -65,8 +69,7 @@ def _write_pems_dataset(
 ) -> Path:
     """Write a minimal PeMS-style dataset under ``root``.
 
-    Layout matches :func:`_write_mock_dataset` in test_data_processing.py:
-    ``root/metadata/station_metadata.csv`` + one
+    Layout: ``root/metadata/station_metadata.csv`` + one
     ``root/timeseries_data/{station_id}.csv`` per station.
     """
     metadata_dir = root / "metadata"
@@ -112,12 +115,46 @@ def _write_pems_dataset(
     return metadata_path
 
 
-def _make_processor(root: Path, metadata_path: Path) -> PeMSDataProcessor:
-    return PeMSDataProcessor(
-        root_directory=str(root),
-        metadata_filepath=str(metadata_path),
-        save_directory=str(root / "processed"),
+def _calibrate(root: Path, detectors: list[str], **kwargs) -> pd.DataFrame:
+    """Run the batch calibration on ``root`` and read back the written CSV."""
+    out_csv = root / "station_metadata_calibrated.csv"
+    calibrate_fundamental_diagrams(
+        root / "metadata" / "station_metadata.csv",
+        root / "timeseries_data",
+        detectors=detectors,
+        output_path=out_csv,
+        **kwargs,
     )
+    return pd.read_csv(out_csv)
+
+
+# ---- load_detector_timeseries -------------------------------------------
+
+
+def test_loader_keeps_contiguous_grid_with_nan_gaps(tmp_path):
+    """Rows missing from the CSV come back as NaN rows on a full 5-minute
+    grid spanning the observed year(s), not dropped."""
+    metadata_path = _write_pems_dataset(tmp_path, station_ids=[0])
+    ts0 = tmp_path / "timeseries_data" / "0.csv"
+    gap = [100, 101, 102, 500]
+    pd.read_csv(ts0).drop(index=gap).to_csv(ts0, index=False)
+
+    df = load_detector_timeseries(
+        tmp_path / "timeseries_data", "0", read_station_metadata(metadata_path),
+    )
+
+    # Full 2022 grid, strictly contiguous.
+    assert len(df) == 365 * PERIODS_PER_DAY
+    assert (df["timestamp"].diff().dropna() == pd.Timedelta("5min")).all()
+
+    # Gap rows are NaN in raw-count / pct columns.
+    assert df.loc[gap, "total_flow_[veh/5-min]"].isna().all()
+    assert df.loc[gap, "avg_speed_[mph]"].isna().all()
+    assert df.loc[gap, "pct_observed"].isna().all()
+
+    # Metadata survives the inner merge on reindexed rows.
+    assert (df.loc[gap, "Station ID"] == 0).all()
+    assert (df.loc[gap, "Lanes"] == LANES).all()
 
 
 # ---- calibrate_fundamental_diagrams (batch) -----------------------------
@@ -127,16 +164,8 @@ def test_batch_calibration_recovers_fd_for_each_station(tmp_path):
     """Two stations with identical synthetic FDs -> both rows in the output
     metadata CSV have the same calibrated parameters, within 1.5% of the
     ground-truth triangular FD."""
-    metadata_path = _write_pems_dataset(tmp_path, station_ids=[0, 1])
-    proc = _make_processor(tmp_path, metadata_path)
-    proc.calibrate_fundamental_diagrams(
-        detectors=["0", "1"],
-        make_plots=False,
-        save_params=True,
-    )
-    out_csv = tmp_path / "processed" / "station_metadata_calibrated.csv"
-    assert out_csv.exists(), "calibrated metadata CSV not written"
-    df = pd.read_csv(out_csv)
+    _write_pems_dataset(tmp_path, station_ids=[0, 1])
+    df = _calibrate(tmp_path, ["0", "1"])
     expected_cols = {
         "Station ID", "Lanes", "Type", "Abs PM", "Length",
         "capacity", "free_flow_speed", "congestion_wave_speed",
@@ -156,40 +185,22 @@ def test_batch_calibration_recovers_fd_for_each_station(tmp_path):
         assert row["calibration_status"] == "ok"
 
 
-def test_batch_calibration_skips_when_save_params_false(tmp_path):
-    """Without save_params, the calibrated CSV must not be written."""
+def test_batch_calibration_without_output_path_returns_df_only(tmp_path):
+    """Without output_path nothing is written; the result is returned."""
     metadata_path = _write_pems_dataset(tmp_path, station_ids=[0])
-    proc = _make_processor(tmp_path, metadata_path)
-    proc.calibrate_fundamental_diagrams(
-        detectors=["0"],
-        make_plots=False,
-        save_params=False,
+    df = calibrate_fundamental_diagrams(
+        metadata_path, tmp_path / "timeseries_data", detectors=["0"],
     )
-    assert not (tmp_path / "processed" / "station_metadata_calibrated.csv").exists()
-
-
-def test_batch_calibration_honors_explicit_output_path(tmp_path):
-    """An explicit output_metadata_path overrides the save_directory default."""
-    metadata_path = _write_pems_dataset(tmp_path, station_ids=[0])
-    proc = _make_processor(tmp_path, metadata_path)
-    out_dir = tmp_path / "custom_out"
-    out_dir.mkdir()
-    explicit = out_dir / "my_calibrated.csv"
-    proc.calibrate_fundamental_diagrams(
-        detectors=["0"],
-        make_plots=False,
-        save_params=True,
-        output_metadata_path=str(explicit),
-    )
-    assert explicit.exists()
-    # And the default path was NOT written.
-    assert not (tmp_path / "processed" / "station_metadata_calibrated.csv").exists()
+    row = df.loc[df["Station ID"] == 0].iloc[0]
+    assert row["calibration_code"] == CalibrationCode.OK
+    assert row["free_flow_speed"] == pytest.approx(V_F, rel=1.5e-2)
+    assert not list(tmp_path.glob("*.csv"))
 
 
 def test_batch_calibration_skips_detectors_with_too_few_observed_rows(tmp_path):
     """A station whose every row has pct_observed below the threshold should
     log + skip, leaving its metadata row uncalibrated but not crashing."""
-    metadata_path = _write_pems_dataset(tmp_path, station_ids=[0, 1])
+    _write_pems_dataset(tmp_path, station_ids=[0, 1])
     # Knock station 1's pct_observed below the imputation threshold so its
     # post-filter DataFrame is empty -- the calibration loop must continue.
     ts1 = tmp_path / "timeseries_data" / "1.csv"
@@ -197,13 +208,7 @@ def test_batch_calibration_skips_detectors_with_too_few_observed_rows(tmp_path):
     df1["pct_observed"] = 50.0
     df1.to_csv(ts1, index=False)
 
-    proc = _make_processor(tmp_path, metadata_path)
-    proc.calibrate_fundamental_diagrams(
-        detectors=["0", "1"],
-        make_plots=False,
-        save_params=True,
-    )
-    out = pd.read_csv(tmp_path / "processed" / "station_metadata_calibrated.csv")
+    out = _calibrate(tmp_path, ["0", "1"])
     row_0 = out.loc[out["Station ID"] == 0].iloc[0]
     row_1 = out.loc[out["Station ID"] == 1].iloc[0]
     assert row_0["free_flow_speed"] == pytest.approx(V_F, rel=1.5e-2)
@@ -220,14 +225,10 @@ def test_batch_calibration_skips_detectors_with_too_few_observed_rows(tmp_path):
 def test_missing_timeseries_records_missing_code(tmp_path):
     """A detector registered in metadata but with no timeseries CSV gets
     code 1 (missing_timeseries) and NaN FD params, without crashing."""
-    metadata_path = _write_pems_dataset(tmp_path, station_ids=[0, 5])
-    # Remove station 5's timeseries so load_data_by_id raises.
+    _write_pems_dataset(tmp_path, station_ids=[0, 5])
+    # Remove station 5's timeseries so load_detector_timeseries raises.
     (tmp_path / "timeseries_data" / "5.csv").unlink()
-    proc = _make_processor(tmp_path, metadata_path)
-    proc.calibrate_fundamental_diagrams(
-        detectors=["0", "5"], save_params=True,
-    )
-    out = pd.read_csv(tmp_path / "processed" / "station_metadata_calibrated.csv")
+    out = _calibrate(tmp_path, ["0", "5"])
     row_5 = out.loc[out["Station ID"] == 5].iloc[0]
     assert row_5["calibration_code"] == CalibrationCode.MISSING_TIMESERIES
     assert row_5["calibration_status"] == "missing_timeseries"
@@ -240,12 +241,10 @@ def test_missing_timeseries_records_missing_code(tmp_path):
 def test_no_congestion_points_records_code_3(tmp_path):
     """A detector that only ever observes free-flow (density <= critical)
     has no congestion branch to fit -> code 3, NaN params."""
-    metadata_path = _write_pems_dataset(
+    _write_pems_dataset(
         tmp_path, station_ids=[0], density_min=1.0, density_max=RHO_CRIT - 1.0,
     )
-    proc = _make_processor(tmp_path, metadata_path)
-    proc.calibrate_fundamental_diagrams(detectors=["0"], save_params=True)
-    out = pd.read_csv(tmp_path / "processed" / "station_metadata_calibrated.csv")
+    out = _calibrate(tmp_path, ["0"])
     row = out.loc[out["Station ID"] == 0].iloc[0]
     assert row["calibration_code"] == CalibrationCode.NO_CONGESTION_POINTS
     assert row["calibration_status"] == "no_congestion_points"
@@ -255,12 +254,8 @@ def test_no_congestion_points_records_code_3(tmp_path):
 def test_bin_knobs_are_threaded_and_recovery_holds(tmp_path):
     """Non-default bin_size / bin_iqr_multiplier flow through to the
     congestion fit without error and still recover the synthetic FD."""
-    metadata_path = _write_pems_dataset(tmp_path, station_ids=[0])
-    proc = _make_processor(tmp_path, metadata_path)
-    proc.calibrate_fundamental_diagrams(
-        detectors=["0"], save_params=True, bin_size=20, bin_iqr_multiplier=2.0,
-    )
-    out = pd.read_csv(tmp_path / "processed" / "station_metadata_calibrated.csv")
+    _write_pems_dataset(tmp_path, station_ids=[0])
+    out = _calibrate(tmp_path, ["0"], bin_size=20, bin_iqr_multiplier=2.0)
     row = out.loc[out["Station ID"] == 0].iloc[0]
     assert row["calibration_code"] == CalibrationCode.OK
     assert row["free_flow_speed"] == pytest.approx(V_F, rel=1.5e-2)
@@ -373,8 +368,8 @@ def _write_ramp_timeseries(
         "pct_observed": 100.0,
         "total_flow_[veh/5-min]": total_flow_5min,
         # avg_speed_[mph]: ramps don't report speed but the test fixture
-        # carries the column so load_data_by_id's metadata merge stays
-        # consistent with the mainline path.
+        # carries the column so load_detector_timeseries reads it the same
+        # way as on the mainline path.
         "avg_speed_[mph]": np.nan,
     })
     rows.to_csv(ts_dir / f"{station_id}.csv", index=False)
@@ -396,15 +391,22 @@ def _write_metadata_with_ramp(root: Path, ramp_station_ids: list[int]) -> Path:
     return metadata_path
 
 
+def _calibrate_ramps(root: Path, detectors: list[str], **kwargs) -> pd.DataFrame:
+    return calibrate_ramp_capacities(
+        detectors,
+        root / "metadata" / "station_metadata.csv",
+        root / "timeseries_data",
+        **kwargs,
+    )
+
+
 def test_calibrate_ramp_capacities_recovers_99th_percentile(tmp_path):
     """A synthetic ramp with uniform[0, C] flow has ~0.99*C as its 99th pctl."""
     capacity = 1200.0
-    metadata_path = _write_metadata_with_ramp(tmp_path, [100])
+    _write_metadata_with_ramp(tmp_path, [100])
     _write_ramp_timeseries(tmp_path, station_id=100, capacity_veh_hr=capacity)
-    proc = _make_processor(tmp_path, metadata_path)
-    ramp_df = proc.calibrate_ramp_capacities(
-        detectors=["100"], save_params=True,
-    )
+    out_csv = tmp_path / "ramp_metadata_calibrated.csv"
+    ramp_df = _calibrate_ramps(tmp_path, ["100"], output_path=out_csv)
     # In-memory result has the expected schema and one row.
     assert list(ramp_df.columns) == [
         "Station ID", "ramp_capacity_[veh/hr]", "n_observations",
@@ -416,8 +418,7 @@ def test_calibrate_ramp_capacities_recovers_99th_percentile(tmp_path):
     )
     assert ramp_df.iloc[0]["calibration_code"] == CalibrationCode.OK
     assert ramp_df.iloc[0]["calibration_status"] == "ok"
-    # CSV got written to the default save directory.
-    out_csv = tmp_path / "processed" / "ramp_metadata_calibrated.csv"
+    # CSV got written to output_path.
     assert out_csv.exists()
     on_disk = pd.read_csv(out_csv)
     assert on_disk.iloc[0]["ramp_capacity_[veh/hr]"] == pytest.approx(
@@ -433,12 +434,11 @@ def test_calibrate_ramp_capacities_outlier_spikes_get_filtered(tmp_path):
     distribution's 99th percentile (~0.99 * capacity).
     """
     capacity = 1200.0
-    metadata_path = _write_metadata_with_ramp(tmp_path, [100])
+    _write_metadata_with_ramp(tmp_path, [100])
     _write_ramp_timeseries(
         tmp_path, station_id=100, capacity_veh_hr=capacity, spike=True,
     )
-    proc = _make_processor(tmp_path, metadata_path)
-    ramp_df = proc.calibrate_ramp_capacities(detectors=["100"])
+    ramp_df = _calibrate_ramps(tmp_path, ["100"])
     assert ramp_df.iloc[0]["ramp_capacity_[veh/hr]"] == pytest.approx(
         0.99 * capacity, rel=5e-2,
     )
@@ -446,10 +446,9 @@ def test_calibrate_ramp_capacities_outlier_spikes_get_filtered(tmp_path):
 
 def test_calibrate_ramp_capacities_emits_nan_for_missing_timeseries(tmp_path):
     """A detector with no timeseries file should record NaN, not crash."""
-    metadata_path = _write_metadata_with_ramp(tmp_path, [100])
-    # Don't write the timeseries CSV -- load_data_by_id will FileNotFoundError.
-    proc = _make_processor(tmp_path, metadata_path)
-    ramp_df = proc.calibrate_ramp_capacities(detectors=["100"])
+    _write_metadata_with_ramp(tmp_path, [100])
+    # Don't write the timeseries CSV -- the loader will FileNotFoundError.
+    ramp_df = _calibrate_ramps(tmp_path, ["100"])
     assert len(ramp_df) == 1
     assert pd.isna(ramp_df.iloc[0]["ramp_capacity_[veh/hr]"])
     assert ramp_df.iloc[0]["n_observations"] == 0
@@ -460,11 +459,10 @@ def test_calibrate_ramp_capacities_emits_nan_for_missing_timeseries(tmp_path):
 def test_calibrate_ramp_capacities_quantile_arg_is_honored(tmp_path):
     """Asking for the median (q=0.5) should return ~capacity/2, not ~0.99*capacity."""
     capacity = 1200.0
-    metadata_path = _write_metadata_with_ramp(tmp_path, [100])
+    _write_metadata_with_ramp(tmp_path, [100])
     _write_ramp_timeseries(tmp_path, station_id=100, capacity_veh_hr=capacity)
-    proc = _make_processor(tmp_path, metadata_path)
-    median = proc.calibrate_ramp_capacities(
-        detectors=["100"], quantile=0.5,
+    median = _calibrate_ramps(
+        tmp_path, ["100"], quantile=0.5,
     ).iloc[0]["ramp_capacity_[veh/hr]"]
     assert median == pytest.approx(0.5 * capacity, rel=5e-2)
 
@@ -475,14 +473,10 @@ def test_calibrate_ramp_capacities_quantile_arg_is_honored(tmp_path):
 def test_plot_fundamental_diagram_writes_png(tmp_path):
     """The plotter shouldn't crash and should write a PNG when save_path is set."""
     metadata_path = _write_pems_dataset(tmp_path, station_ids=[0])
-    proc = _make_processor(tmp_path, metadata_path)
     out_dir = tmp_path / "plots"
-    out_dir.mkdir()
-    proc.calibrate_fundamental_diagrams(
-        detectors=["0"],
-        make_plots=True,
-        saved_plot_dir=out_dir,
-        save_params=False,
+    calibrate_fundamental_diagrams(
+        metadata_path, tmp_path / "timeseries_data",
+        detectors=["0"], plot_dir=out_dir,
     )
     png = out_dir / "0.png"
     assert png.exists() and png.stat().st_size > 0
