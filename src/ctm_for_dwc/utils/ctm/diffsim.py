@@ -7,7 +7,7 @@ ramp inputs (``demand``, ``beta``). A numerical parity test
 (``tests/test_ctm_diffsim.py``) pins this to the numpy engine.
 
 This is the engine for the Step-7 Level-3 differentiable forward-sim ramp
-optimizer ("option B" in docs/ramp_flow_estimation_module.md): backprop a
+optimizer (docs/ctm_module.md, Step 7, "Refinement with diffsim"): backprop a
 density+flow error into ``demand``/``beta`` through the *exact* dynamics, so --
 unlike the relaxed QP -- the recovered inputs round-trip by construction.
 

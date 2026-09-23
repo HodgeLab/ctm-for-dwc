@@ -1,4 +1,4 @@
-"""Step 7 Level 3: differentiable forward-sim ramp-flow optimizer ("option B").
+"""Step 7 Level 3: differentiable forward-sim ramp-flow optimizer.
 
 Rather than the relaxed convex QP this replaced (a Julia solver, since
 removed -- recover it with `git show pre-cleanup:julia/`), this fits the ramp
@@ -7,7 +7,7 @@ descending the mainline density+flow error into the ramp `demand`/`beta` via
 autograd (`utils.ctm.diffsim`). Because it never leaves the exact dynamics, the
 recovered inputs round-trip by construction -- the transfer failure that made
 the relaxed QP degrade on longer corridors cannot occur (see
-docs/ramp_flow_estimation_module.md, "density transfers, flow does not").
+docs/ctm_module.md, Step 7, "Why not a convex QP").
 
 Decision variables (free, all ramps -- observed ramp data is held out as the
 test set): on-ramp-cell `demand` (>= 0 via clamp) and off-ramp-cell `beta`
@@ -24,7 +24,7 @@ Consumes the bundle from `build_ctm_diffsim_inputs.py` (now including
 solver and `simulate_ctm_corridor.py` use, plus `optimize_report.json`.
 
 Logs per-iteration loss / density_rmse / flow_rmse to Weights & Biases
-(project `ramp-flow-estimation`, `WANDB_MODE=offline` honored; `--no-wandb` to
+(project `ctm-ramp-calibration`, `WANDB_MODE=offline` honored; `--no-wandb` to
 disable) so hyperparameter sweeps are inspectable, and early-stops on the loss
 (relative `--min-delta` improvement over `--patience` iters) with best-iterate
 restore so a sweep run doesn't burn iterations after it converges.
@@ -362,7 +362,7 @@ def main() -> None:
     p.add_argument("--min-delta", type=float, default=1e-4,
                    help="Min relative loss improvement that resets patience.")
     p.add_argument("--log-every", type=int, default=25)
-    p.add_argument("--wandb-project", default="ramp-flow-estimation")
+    p.add_argument("--wandb-project", default="ctm-ramp-calibration")
     p.add_argument("--wandb-name", default=None)
     p.add_argument("--no-wandb", action="store_true", help="Disable W&B logging.")
     p.add_argument("--out-dir", type=Path, default=None, help="Default: the bundle dir.")

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build PeMS-postmile-native ramp stretches for a freeway direction.
 
-A *stretch* (a.k.a. Kan/Zhang "unit stretch") is the span between two
+A *stretch* (a.k.a. "unit stretch") is the span between two
 consecutive mainline (``ML``) detectors along a ``(freeway, direction)``,
 together with the on-ramp (``OR``), off-ramp (``FR``), and freeway connector
 (``FF``) detectors whose postmiles fall between them. Everything comes from PeMS
@@ -11,8 +11,10 @@ to cell edges and filters detectors through cell assignment).
 
 The output ``stretches.csv`` is a **reviewable checkpoint**, like ``cells.csv``:
 inspect and fix the flagged rows (FF connectors whose on/off flow the Name can't
-resolve, open end stretches, multi-ramp interchanges) before the ramp-flow
-determinability audit consumes it.
+resolve, open end stretches, multi-ramp interchanges) before
+``build_ctm_ramp_scenario.py`` consumes it (stretch ``config_type`` decides
+whether an absent ramp is recovered by conservation, and the stretch table
+locates each off-ramp's downstream mainline detector).
 
 Role assignment
 ---------------

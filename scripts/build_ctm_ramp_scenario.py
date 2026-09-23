@@ -2,7 +2,8 @@
 
 This is the **only** home of ramp-fill logic: ``simulate_ctm_corridor.py``
 consumes the ``demand.csv`` / ``beta.csv`` written here (or simulates with
-zero demand / zero splits when none are supplied).
+zero demand / zero splits when none are supplied). The same files are the
+starting point that ``optimize_ramp_flows_diffsim.py`` refines.
 
 Dispatch per ramp VDS (following the Step-7 decision flowchart):
 
@@ -12,29 +13,14 @@ Dispatch per ramp VDS (following the Step-7 decision flowchart):
   that conservation reads;
 * **completely-absent** detectors on a type-(a)/(b) stretch are recovered
   by mainline **conservation** (no model needed);
-* **completely-absent** detectors on a type-(c) stretch are handled by the
-  ``--estimator`` chosen on the CLI:
-
-  * ``none`` -- they get **zero** flow with a warning (the no-ML baseline);
-  * ``gru`` -- the **estimator** predicts the pair from a GRU torch
-    checkpoint (``train_ramp_flow_gru.py``).
+* **completely-absent** detectors on a type-(c) stretch get **zero** flow
+  with a warning; the diffsim optimizer recovers them.
 
 Virtual VDS ids (e.g. ``'v400001'`` -- ramps that physically exist but are
-absent from PeMS) are "completely absent" by construction. Conservation and
-estimator predictions cover a stretch side's *total* ramp flow, so when an
-absent ramp shares its stretch side with measured detectors, their
-(gap-filled) flows are subtracted from the estimate before it is assigned.
-
-Warmup edge case (estimator path only). The GRU feature vector for the
-prediction step at ``--start`` needs its ``window_size - 1`` preceding lags,
-so ``_build_feature_matrix`` extends the mainline grid back by
-``(window_size - 1) * 5min`` before ``--start``. If the downloaded timeseries
-does not reach that far back, those earliest lags reindex to NaN (``gap_aware_fill``
-runs before the reindex and cannot invent rows outside the record), and the
-first ``window_size - 1`` estimator windows carry NaN features -- a warning is
-emitted. To avoid it, start the download at least ``(window_size - 1) * 5min``
-before ``--start``. Conservation and beta paths are unaffected: they only read
-the ``[start, end)`` grid, never before ``--start``.
+absent from PeMS) are "completely absent" by construction. Conservation
+covers a stretch side's *total* ramp flow, so when an absent ramp shares its
+stretch side with measured detectors, their (gap-filled) flows are
+subtracted from the estimate before it is assigned.
 
 Aggregates per CTM cell and writes demand.csv + beta.csv at sim cadence,
 ready for ``simulate_ctm_corridor.py --demand --beta``.
@@ -45,9 +31,6 @@ Run from the repo root::
         --cells     case_studies/I880N_10mi/cells.csv \\
         --stretches data/pems/stretches/880N_stretches.csv \\
         --timeseries-dir data/pems/csv_files \\
-        --estimator gru \\
-        --gru-checkpoint models/gru/best.pt \\
-        --manifest   models/gru/manifest.json \\
         --start "2023-06-01 06:00" --end "2023-06-01 10:00" \\
         --dt-seconds 10
 """
@@ -55,7 +38,6 @@ Run from the repo root::
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 
@@ -64,11 +46,8 @@ import pandas as pd
 
 from ctm_for_dwc.utils.ctm import gap_aware_fill
 from ctm_for_dwc.utils.ctm.assembly import parse_ramp_vds_ids
-from ctm_for_dwc.utils.ramp_flow_estimation.gru import GruEstimator
 
 _FLOW = "total_flow_[veh/5-min]"
-_SPEED = "avg_speed_[mph]"
-_OCC = "avg_occupancy_[%]"
 _TS = "timestamp"
 _SAMPLES_PER_HOUR = 12.0
 _FIVE_MIN = pd.Timedelta(minutes=5)
@@ -104,27 +83,6 @@ def _ml_flow_veh_hr(vds_id: int, ts_dir: Path, *, start, end) -> np.ndarray:
     return arr * _SAMPLES_PER_HOUR
 
 
-def _ml_arrays(vds_id: int, ts_dir: Path, grid: pd.DatetimeIndex) -> tuple:
-    """Return (flow_veh_hr, speed_mph, occ_pct) on grid, gap-aware filled.
-
-    Every required temporal feature (flow, speed, occupancy) is gap-aware
-    filled on the full timeseries before windowing -- so the historical
-    average sees the widest history -- matching the treatment of the ramp
-    and mainline flow series. Training excludes windows with any unobserved
-    mainline sample (features.stretch_samples); at inference there is no such
-    fallback, so gaps are filled rather than dropped.
-    """
-    df = pd.read_csv(ts_dir / f"{vds_id}.csv", parse_dates=[_TS])
-    for col in (_FLOW, _SPEED, _OCC):
-        if col in df.columns:
-            df = gap_aware_fill(df, flow_col=col, time_col=_TS)
-    a = df.set_index(_TS).reindex(grid)
-    flow = a[_FLOW].to_numpy(dtype=float) * _SAMPLES_PER_HOUR
-    speed = a[_SPEED].to_numpy(dtype=float)
-    occ = a[_OCC].to_numpy(dtype=float) if _OCC in a.columns else np.zeros(len(grid))
-    return flow, speed, occ
-
-
 # ---- Estimation strategies --------------------------------------------------
 
 def _conservation_flow(stretch: pd.Series, ts_dir: Path, *,
@@ -133,37 +91,6 @@ def _conservation_flow(stretch: pd.Series, ts_dir: Path, *,
     q_up = _ml_flow_veh_hr(int(stretch["up_ml_id"]), ts_dir, start=start, end=end)
     q_down = _ml_flow_veh_hr(int(stretch["down_ml_id"]), ts_dir, start=start, end=end)
     return np.maximum(q_down - q_up, 0.0) if is_on_ramp else np.maximum(q_up - q_down, 0.0)
-
-
-def _build_feature_matrix(up_id: int, down_id: int, ts_dir: Path, *,
-                           start, end, window_size: int) -> np.ndarray:
-    """Build (T, 6*window_size + 3) feature matrix for [start, end) in veh/hr.
-
-    Matches ``features.stretch_samples``: the per-lag [up/down x flow/speed/occ]
-    block followed by the three window-level time features
-    [day-of-week, hour, 5-min slot] at the prediction step ``t``.
-    """
-    warmup_start = pd.Timestamp(start) - (window_size - 1) * _FIVE_MIN
-    grid = pd.date_range(warmup_start, end, freq="5min", inclusive="left")
-    up = _ml_arrays(up_id, ts_dir, grid)
-    dn = _ml_arrays(down_id, ts_dir, grid)
-    n_warmup = window_size - 1
-    if n_warmup and (np.isnan(up[0][:n_warmup]).any() or np.isnan(dn[0][:n_warmup]).any()):
-        print(f"  WARN: mainline {up_id}/{down_id} timeseries has no usable data "
-              f"for the {n_warmup * 5}-min warmup before {start}; the first "
-              f"{n_warmup} estimator window(s) carry NaN lag features. Start the "
-              "download earlier to avoid this.", file=sys.stderr)
-    T = (pd.Timestamp(end) - pd.Timestamp(start)) // _FIVE_MIN
-    rows = []
-    for i in range(T):
-        feats = []
-        for lag in range(window_size):
-            j = i + lag
-            feats += [up[0][j], up[1][j], up[2][j], dn[0][j], dn[1][j], dn[2][j]]
-        t = grid[i + window_size - 1]                # prediction step
-        feats += [t.dayofweek, t.hour, t.minute // 5]
-        rows.append(feats)
-    return np.array(rows, dtype=float)
 
 
 # ---- Stretch mapping helpers ------------------------------------------------
@@ -203,7 +130,7 @@ def _subtract_measured_siblings(
 ) -> np.ndarray:
     """Remove measured same-side sibling ramp flows from a stretch-total estimate.
 
-    Conservation and GRU estimates cover the *total* on- (resp. off-) ramp
+    Conservation estimates cover the *total* on- (resp. off-) ramp
     flow of a stretch, so an absent ramp sharing its stretch side with
     measured detectors would double-count their vehicles. Siblings are
     gap-aware filled before subtraction; samples the filler leaves
@@ -265,28 +192,12 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--cells", required=True, type=Path)
     parser.add_argument("--stretches", required=True, type=Path)
     parser.add_argument("--timeseries-dir", required=True, type=Path)
-    parser.add_argument("--estimator", default="none",
-                        choices=["none", "gru"],
-                        help="Estimator for absent type-(c) ramp pairs. Gap fill "
-                             "(short gaps persisted, longer historical-averaged) "
-                             "and type-(a)/(b) conservation are always active "
-                             "regardless; this choice governs only absent "
-                             "type-(c) ramps -- none = 0 (no estimator, the "
-                             "default no-ML baseline), gru = the estimator.")
-    parser.add_argument("--gru-checkpoint", type=Path, default=None,
-                        help="GruEstimator checkpoint (required with --estimator gru).")
-    parser.add_argument("--manifest", type=Path, default=None,
-                        help="Split manifest of the GRU's training corpus; supplies "
-                             "the feature window size (required with --estimator gru).")
     parser.add_argument("--start", required=True, type=pd.Timestamp)
     parser.add_argument("--end", required=True, type=pd.Timestamp)
     parser.add_argument("--dt-seconds", required=True, type=float,
                         help="Sim timestep in seconds (must match simulate_ctm_corridor.py).")
     parser.add_argument("--out-dir", type=Path, default=None)
     args = parser.parse_args(argv)
-
-    if args.estimator == "gru" and (args.gru_checkpoint is None or args.manifest is None):
-        parser.error("--estimator gru requires --gru-checkpoint and --manifest")
 
     cells_df = pd.read_csv(args.cells)
     stretches_df = pd.read_csv(args.stretches)
@@ -300,29 +211,9 @@ def main(argv: list[str] | None = None) -> None:
     print("=== build_ctm_ramp_scenario ===", file=sys.stderr)
     print(f"  window   : [{start}, {end})", file=sys.stderr)
     print(f"  dt       : {args.dt_seconds} s", file=sys.stderr)
-    print(f"  estimator: {args.estimator}", file=sys.stderr)
-
-    if args.estimator == "gru":
-        estimator = GruEstimator.load(args.gru_checkpoint)
-        manifest = json.loads(Path(args.manifest).read_text())
-        window_size = int(manifest.get("corpus", {}).get("window_size", 3))
-    else:
-        estimator, window_size = None, None
 
     on_to_stretch = _vds_to_stretch_map(stretches_df, "on_ids")
     off_to_stretch = _vds_to_stretch_map(stretches_df, "off_ids")
-
-    # Cache estimator predictions per (up_ml_id, down_ml_id) — avoid re-running
-    # the model for stretches that contribute both an on- and off-ramp to a cell.
-    pair_cache: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]] = {}
-
-    def _estimated_pair(stretch: pd.Series) -> tuple[np.ndarray, np.ndarray]:
-        key = (int(stretch["up_ml_id"]), int(stretch["down_ml_id"]))
-        if key not in pair_cache:
-            X = _build_feature_matrix(key[0], key[1], ts_dir,
-                                      start=start, end=end, window_size=window_size)
-            pair_cache[key] = estimator.predict_flows(X)
-        return pair_cache[key]
 
     def _absent_ramp_flow(vds_id, stretch_map, ids_col, *, is_on_ramp) -> np.ndarray:
         label = "on" if is_on_ramp else "off"
@@ -331,20 +222,12 @@ def main(argv: list[str] | None = None) -> None:
             print(f"  WARN: {label}-ramp VDS {vds_id} not in stretches; using 0",
                   file=sys.stderr)
             return np.zeros(T5)
-        config = str(stretch["config_type"])
-        if config in ("a", "b"):
-            # Conservation needs only the mainline pair, so it applies under
-            # every estimator choice, including none.
-            est = _conservation_flow(stretch, ts_dir, start=start, end=end,
-                                     is_on_ramp=is_on_ramp)
-        elif args.estimator == "none":
+        if str(stretch["config_type"]) not in ("a", "b"):
             print(f"  WARN: {label}-ramp VDS {vds_id} has no data on a "
-                  "type-(c) stretch and --estimator none has "
-                  "no estimator; using 0", file=sys.stderr)
+                  "type-(c) stretch; using 0", file=sys.stderr)
             return np.zeros(T5)
-        else:
-            r_hat, s_hat = _estimated_pair(stretch)
-            est = r_hat if is_on_ramp else s_hat
+        est = _conservation_flow(stretch, ts_dir, start=start, end=end,
+                                 is_on_ramp=is_on_ramp)
         return _subtract_measured_siblings(
             est, stretch, ids_col, vds_id, ts_dir, start=start, end=end)
 
