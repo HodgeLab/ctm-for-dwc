@@ -1,8 +1,7 @@
 """Shared observation-window helpers for ramp-flow estimation.
 
 ``sliding_all`` reduces a per-sample boolean mask to window granularity; it is
-used both by ``scripts/audit_ramp_determinability.py`` (corpus determinability)
-and by :mod:`features` (which windows yield training samples).
+used by :mod:`features` to decide which windows yield training samples.
 """
 from __future__ import annotations
 

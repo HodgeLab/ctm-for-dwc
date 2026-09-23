@@ -57,7 +57,6 @@ from .ramp_flow import (
     persistence_fill,
     stochastic_historical_fill,
 )
-from .ramp_validation import ramp_fill_accuracy
 from .scenario import (
     FillStrategy,
     beta_from_off_ramp_vds,
@@ -136,7 +135,6 @@ __all__ = [
     "historical_average_fill",
     "stochastic_historical_fill",
     "gap_aware_fill",
-    "ramp_fill_accuracy",
     "compare_against_historical",
     "restrict_to_direct_tiebreak",
     "CTMSIMValidation",
