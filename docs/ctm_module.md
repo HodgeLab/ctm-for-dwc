@@ -1066,7 +1066,7 @@ CLI prints these two lines (flow and density) instead of per-cell
 median/mean/max.
 
 **Direct/tiebreak restriction (CLI).** `compare_against_historical`
-itself scores every cell with an assigned VDS (the microsim / DWPT
+itself scores every cell with an assigned VDS (the microsim / DWC
 paths rely on this). The corridor-validation CLI, however, first runs
 `restrict_to_direct_tiebreak(cells_df)` so density/flow RMSE/MAPE are
 scored on **one cell per unique `direct` / `direct_tiebreak` VDS** --

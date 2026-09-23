@@ -1,6 +1,6 @@
-"""Evaluate the effect of temporal aggregation on the DWPT energy profile.
+"""Evaluate the effect of temporal aggregation on the DWC energy profile.
 
-The DWPT demand ``E`` (Wh per CTM timestep) is a high-resolution load profile.
+The DWC demand ``E`` (Wh per CTM timestep) is a high-resolution load profile.
 Reporting it at a coarser temporal resolution -- averaging power over 10-s to
 15-min windows, the way a distribution-grid study might -- conserves total
 energy but *attenuates the peak power* a feeder must carry, and flattens the
@@ -17,7 +17,7 @@ conservation is reported as a sanity check (should be ~0).
 
 Run from the repo root, e.g.:
 
-    python scripts/analyze_dwpt_temporal_aggregation.py \\
+    python scripts/analyze_dwc_temporal_aggregation.py \\
         --ctm-result case_studies/I880N_10mi/histAve_ramps/result.npz
 
 Pad geometry / ``eta_EV`` / ``dx_grid`` default to the study's values but are
@@ -37,10 +37,10 @@ import numpy as np
 import pandas as pd
 
 from transportation_models.utils.ctm.results import SimulationResult
-from transportation_models.utils.dwpt import aggregation as agg
-from transportation_models.utils.dwpt.adapter import corridor_from_ctm, mainline_vht
-from transportation_models.utils.dwpt.demand import compute
-from transportation_models.utils.dwpt.model import PadSpec
+from transportation_models.utils.dwc import aggregation as agg
+from transportation_models.utils.dwc.adapter import corridor_from_ctm, mainline_vht
+from transportation_models.utils.dwc.demand import compute
+from transportation_models.utils.dwc.model import PadSpec
 from transportation_models.utils.plot_style import COLUMN_W, PAPER_DPI, PAPER_RC
 
 
@@ -99,7 +99,7 @@ def main() -> None:
     ).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # --- Build the native-resolution DWPT profile -------------------------
+    # --- Build the native-resolution DWC profile -------------------------
     pad = PadSpec(
         alpha=args.alpha, delta=args.delta, lambda_gap=args.lambda_gap,
         beta=args.beta, beta_prime=args.beta_prime,
@@ -223,8 +223,8 @@ def _plot_load_profiles(series, dt_h, out_path):
         lw = 0.7 if label == "native" else 1.4
         ax.step(t, power / 1e3, where="mid", lw=lw, label=label)
     ax.set_xlabel("time of day [h]")
-    ax.set_ylabel("corridor DWPT power [kW]")
-    ax.set_title("Corridor-total DWPT load vs temporal resolution")
+    ax.set_ylabel("corridor DWC power [kW]")
+    ax.set_title("Corridor-total DWC load vs temporal resolution")
     ax.grid(alpha=0.3)
     ax.legend(title="window", ncol=3)
     fig.tight_layout()
@@ -279,8 +279,8 @@ def _plot_load_duration_curves(series, out_path):
         lw = 0.9 if label == "native" else 1.4
         ax.plot(xs * 100.0, ldc / 1e3, lw=lw, label=label)
     ax.set_xlabel("% of horizon power is exceeded")
-    ax.set_ylabel("corridor DWPT power [kW]")
-    ax.set_title("DWPT load-duration curve vs temporal resolution")
+    ax.set_ylabel("corridor DWC power [kW]")
+    ax.set_title("DWC load-duration curve vs temporal resolution")
     ax.grid(alpha=0.3)
     ax.legend(title="window", ncol=3)
     fig.tight_layout()
@@ -293,7 +293,7 @@ def _print_summary(args, result, corridor, df, total_energy_wh, segment_lens_mi,
     native = df[df["window"] == "native"].iloc[0]
     seg_header = "".join(f"{L:g}mi%".rjust(8) for L in segment_lens_mi)
     lines = [
-        "=== DWPT temporal-aggregation analysis ===",
+        "=== DWC temporal-aggregation analysis ===",
         f"  CTM result        : {args.ctm_result}",
         f"  native dt         : {dt_s:g} s   |  horizon {result.n_steps * result.freeway.dt:g} h",
         f"  corridor          : {corridor.corridor_length_m / 1609.344:.2f} mi, "

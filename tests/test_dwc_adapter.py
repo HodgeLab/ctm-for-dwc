@@ -1,4 +1,4 @@
-"""End-to-end tests for the CTM -> DWPT adapter (P5).
+"""End-to-end tests for the CTM -> DWC adapter (P5).
 
 ``from_ctm`` builds a ``DemandResult`` from a CTM ``SimulationResult``:
 mainline (queue-free) VHT, cell lengths snapped to the position grid. Uses a
@@ -15,13 +15,13 @@ from transportation_models.utils.ctm.examples import (
     metered_on_ramp_scenario,
 )
 from transportation_models.utils.ctm.metrics import compute_metrics
-from transportation_models.utils.dwpt.adapter import (
+from transportation_models.utils.dwc.adapter import (
     corridor_from_ctm,
     from_ctm,
     mainline_vht,
 )
-from transportation_models.utils.dwpt.demand import compute
-from transportation_models.utils.dwpt.model import PadSpec
+from transportation_models.utils.dwc.demand import compute
+from transportation_models.utils.dwc.model import PadSpec
 
 _METERS_PER_MILE = 1609.344
 
@@ -126,7 +126,7 @@ def test_mainline_vht_below_total_on_real_queuing_run():
 
 
 def test_from_ctm_demand_excludes_queue_vht():
-    """End-to-end: DWPT demand omits exactly the on-ramp queue's contribution.
+    """End-to-end: DWC demand omits exactly the on-ramp queue's contribution.
 
     By linearity of ``compute`` in VHT, the queue-inclusive demand splits as
     mainline demand + queue-only demand; ``from_ctm`` keeps only the first.

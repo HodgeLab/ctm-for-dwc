@@ -1,4 +1,4 @@
-"""Plotting helpers for the DWPT demand module.
+"""Plotting helpers for the DWC demand module.
 
 ``plot_P_y``                    -- power-vs-position profile of the corridor.
 ``plot_demand_heatmap``         -- E(time, position) space-time heatmap.
@@ -47,7 +47,7 @@ def plot_P_y(
     P_y: np.ndarray,
     position_m: np.ndarray,
     *,
-    title: str = "DWPT power-vs-position profile",
+    title: str = "DWC power-vs-position profile",
     out_path: Path,
 ) -> None:
     """Plot the spatial power profile ``P_y`` (kW) against position (m)."""
@@ -66,7 +66,7 @@ def plot_demand_heatmap(
     result: DemandResult,
     *,
     dt_h: float,
-    title: str = "DWPT demand $E$(time, position)",
+    title: str = "DWC demand $E$(time, position)",
     cmap: str = "magma",
     out_path: Path,
 ) -> None:
@@ -222,7 +222,7 @@ def plot_peak_load_profile(
     dt_h: float,
     segment_m: float = 20.0,
     cell_edges_m: np.ndarray | None = None,
-    title: str = "DWPT instantaneous load profile at peak",
+    title: str = "DWC instantaneous load profile at peak",
     out_path: Path,
 ) -> None:
     """Plot aggregated load (MW) at the peak-aggregate timestamp vs position.
@@ -254,7 +254,7 @@ def plot_absolute_peak_profile(
     dt_h: float,
     segment_m: float = 20.0,
     cell_edges_m: np.ndarray | None = None,
-    title: str = "DWPT absolute peak load by position",
+    title: str = "DWC absolute peak load by position",
     out_path: Path,
 ) -> None:
     """Plot each bin's largest load density (MW/mi) over all timesteps.
@@ -283,7 +283,7 @@ def plot_average_load_profile(
     dt_h: float,
     segment_m: float = 20.0,
     cell_edges_m: np.ndarray | None = None,
-    title: str = "DWPT average load by position",
+    title: str = "DWC average load by position",
     out_path: Path,
 ) -> None:
     """Plot each bin's load density (MW/mi) averaged over all timesteps.
@@ -310,7 +310,7 @@ def plot_load_factor_profile(
     dt_h: float,
     segment_m: float = 20.0,
     cell_edges_m: np.ndarray | None = None,
-    title: str = "DWPT load factor by position",
+    title: str = "DWC load factor by position",
     out_path: Path,
 ) -> None:
     """Plot each bin's load factor -- its mean load over its own peak load.
@@ -384,7 +384,7 @@ def plot_load_duration_curve(
     result: DemandResult,
     *,
     dt_h: float,
-    title: str = "DWPT corridor-aggregate load duration curve",
+    title: str = "DWC corridor-aggregate load duration curve",
     out_path: Path,
 ) -> None:
     """Plot the corridor-aggregate load (MW) sorted descending vs duration (h).

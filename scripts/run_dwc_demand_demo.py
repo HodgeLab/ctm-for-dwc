@@ -1,11 +1,11 @@
-"""Demo: tiny CTM run -> DWPT demand -> plots.
+"""Demo: tiny CTM run -> DWC demand -> plots.
 
 Runs the four-cell CTM example (Kurzhanskiy diss. §3.4), maps it through the
 adapted mCONV demand module at a coarse position grid, and writes two plots:
 the corridor power-vs-position profile and the demand space-time heatmap.
-Output defaults to ``scripts/output/dwpt_demand_demo/`` (gitignored).
+Output defaults to ``scripts/output/dwc_demand_demo/`` (gitignored).
 
-    python scripts/run_dwpt_demand_demo.py [--out-dir <dir>] [--steps <n>]
+    python scripts/run_dwc_demand_demo.py [--out-dir <dir>] [--steps <n>]
 """
 
 from __future__ import annotations
@@ -18,10 +18,10 @@ from transportation_models.utils.ctm.examples import (
     four_cell_freeway,
     four_cell_scenario,
 )
-from transportation_models.utils.dwpt import plots
-from transportation_models.utils.dwpt.adapter import corridor_from_ctm, mainline_vht
-from transportation_models.utils.dwpt.demand import compute
-from transportation_models.utils.dwpt.model import PadSpec
+from transportation_models.utils.dwc import plots
+from transportation_models.utils.dwc.adapter import corridor_from_ctm, mainline_vht
+from transportation_models.utils.dwc.demand import compute
+from transportation_models.utils.dwc.model import PadSpec
 
 # Coarse pad + grid so the dense T_R over four 1-mile cells stays small.
 _PAD = PadSpec(
@@ -31,7 +31,7 @@ _DX_GRID = 10.0
 _ETA_EV = 0.3
 
 _REPO = Path(__file__).resolve().parents[1]
-_DEFAULT_OUT = _REPO / "scripts" / "output" / "dwpt_demand_demo"
+_DEFAULT_OUT = _REPO / "scripts" / "output" / "dwc_demand_demo"
 
 
 def main(out_dir: Path, *, steps: int = 60) -> Path:
@@ -45,10 +45,10 @@ def main(out_dir: Path, *, steps: int = 60) -> Path:
 
     plots.plot_P_y(
         corridor.build_P_y(), corridor.position_m,
-        out_path=out_dir / "dwpt_P_y.png",
+        out_path=out_dir / "dwc_P_y.png",
     )
     plots.plot_demand_heatmap(
-        demand, dt_h=result.freeway.dt, out_path=out_dir / "dwpt_demand_heatmap.png",
+        demand, dt_h=result.freeway.dt, out_path=out_dir / "dwc_demand_heatmap.png",
     )
     return out_dir
 
@@ -59,4 +59,4 @@ if __name__ == "__main__":
     parser.add_argument("--steps", type=int, default=60)
     args = parser.parse_args()
     written = main(args.out_dir, steps=args.steps)
-    print(f"Wrote dwpt_P_y.png and dwpt_demand_heatmap.png to {written}")
+    print(f"Wrote dwc_P_y.png and dwc_demand_heatmap.png to {written}")

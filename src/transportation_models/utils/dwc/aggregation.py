@@ -1,6 +1,6 @@
-"""Temporal-aggregation analysis for the DWPT demand profile.
+"""Temporal-aggregation analysis for the DWC demand profile.
 
-The DWPT demand ``E`` (shape ``(T, m)``, Wh) carries one row per CTM timestep
+The DWC demand ``E`` (shape ``(T, m)``, Wh) carries one row per CTM timestep
 of duration ``dt``. Reporting the corridor load at a coarser temporal
 resolution -- averaging power over 5-, 15-, 60-min windows the way a grid
 study might -- conserves total energy but *attenuates the peak power* a feeder
@@ -10,10 +10,10 @@ This module holds the pure, NumPy-only numeric core for that analysis:
 collapse ``E`` to a corridor-total (or per-mile-segment) energy-per-step series,
 re-bin it to a coarser window, and score peak / load-duration-curve fidelity
 against the native-``dt`` baseline. Orchestration, plotting, and I/O live in
-``scripts/analyze_dwpt_temporal_aggregation.py``.
+``scripts/analyze_dwc_temporal_aggregation.py``.
 
 All power is in watts, energy in watt-hours, time in hours (``dt_h``), matching
-the DWPT module's units.
+the DWC module's units.
 """
 
 from __future__ import annotations

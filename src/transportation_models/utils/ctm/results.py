@@ -106,8 +106,8 @@ class SimulationResult:
         Bundles the per-step arrays plus enough of the ``Freeway`` (``dt`` and
         every per-cell parameter) and ``Scenario`` to reconstruct an equivalent
         :class:`SimulationResult` via :meth:`from_npz` -- no original config
-        objects or CSVs needed. Intended for handing a run off to the DWPT
-        demand pipeline (``utils.dwpt.adapter``).
+        objects or CSVs needed. Intended for handing a run off to the DWC
+        demand pipeline (``utils.dwc.adapter``).
         """
         data: dict[str, np.ndarray] = {
             f"result__{name}": getattr(self, name) for name in _RESULT_ARRAYS

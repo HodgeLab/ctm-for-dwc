@@ -1,10 +1,10 @@
-"""Data model for the DWPT demand module: ``PadSpec`` and ``CorridorSpec``.
+"""Data model for the DWC demand module: ``PadSpec`` and ``CorridorSpec``.
 
 ``PadSpec`` carries the physical Tx/Rx pad parameters from Newbolt 2024a;
 ``CorridorSpec`` composes a corridor's per-cell layout with a ``PadSpec``
 and a position-grid spacing ``dx_grid``. Both validate on construction.
 
-See ``docs/dwpt_demand_module.md`` §"Spatial Dependence" for the
+See ``docs/dwc_demand_module.md`` §"Spatial Dependence" for the
 definitions of ``alpha``, ``delta``, ``lambda_gap``, ``beta``,
 ``beta_prime``, ``gamma``.
 """
@@ -165,7 +165,7 @@ class CorridorSpec:
 
 @dataclass(frozen=True)
 class DemandResult:
-    """Spatiotemporal DWPT demand: ``E`` (Wh) indexed by (timestep, position).
+    """Spatiotemporal DWC demand: ``E`` (Wh) indexed by (timestep, position).
 
     Parameters
     ----------

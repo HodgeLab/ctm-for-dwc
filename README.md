@@ -3,12 +3,12 @@
 Code to download, process, and calibrate
 **Caltrans PeMS** freeway traffic data, assemble it into a Cell Transmission
 Model (CTM) of a study corridor, simulate that corridor, and convert the result
-into **dynamic wireless power transfer (DWPT)** charging demand.
+into **dynamic wireless charging (DWC)** charging demand.
 
 The pipeline, end to end:
 
 ```
-PeMS data -> calibrated CTM corridor -> ramp flows -> CTM simulation -> DWPT demand
+PeMS data -> calibrated CTM corridor -> ramp flows -> CTM simulation -> DWC demand
 ```
 
 The package lives in `src/transportation_models/` (installed as
@@ -23,7 +23,7 @@ one-offs (run these, don't import them).
 | Module | Role |
 |---|---|
 | `utils/ctm/` | The core module: CTM data model, engine, and the whole OSM-to-simulation pipeline. See `docs/ctm_module.md`. |
-| `utils/dwpt/` | DWPT demand module: CTM `VHT` -> adapted mCONV -> spatiotemporal charging demand (`E`). See `docs/dwpt_demand_module.md`. |
+| `utils/dwc/` | DWC demand module: CTM `VHT` -> adapted mCONV -> spatiotemporal charging demand (`E`). See `docs/dwc_demand_module.md`. |
 | `utils/ramp_flow_estimation/` | Estimating missing ramp flows from mainline data (feature extraction, the GRU estimator, split manifest, scoring). See `docs/ramp_flow_estimation_module.md`. |
 | `utils/data_processing.py` | `PeMSDataProcessor` (preprocessing + fundamental-diagram calibration) and `TargetNormalization`. |
 | `utils/data_downloading.py` | `PeMSDownloader` / `PeMSExtractor` — scrape the PeMS clearinghouse. Adapted from Seb-Good/caltrans-pems. |
@@ -79,14 +79,14 @@ the ramp flows used for simulation.
 ```
 simulate_ctm_corridor.py         # Step 8
 validate_ctm_corridor.py         # Step 9: score against historical PeMS
-generate_dwpt_demand.py          # CTM result -> DWPT charging demand + plots
+generate_dwc_demand.py          # CTM result -> DWC charging demand + plots
 compare_ctm_case_studies.py      # Step 10: compare across corridor lengths
 ```
 
 Demos and profiling: `run_ctm_demo.py` (standalone, no data required),
 `run_ctm_ctmsim_demo.py` (from a CTMSIM `.mat` config),
-`run_dwpt_demand_demo.py`, `profile_ctm_dwpt_pipeline.py`,
-`benchmark_dwpt_convolution.py`, `analyze_dwpt_temporal_aggregation.py`.
+`run_dwc_demand_demo.py`, `profile_ctm_dwc_pipeline.py`,
+`benchmark_dwc_convolution.py`, `analyze_dwc_temporal_aggregation.py`.
 
 ### FD calibration outcome codes
 

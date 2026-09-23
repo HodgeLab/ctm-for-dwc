@@ -1,7 +1,7 @@
-"""Generate DWPT demand from CTM simulation.
+"""Generate DWC demand from CTM simulation.
 
-Builds a DWPT corridor from a CTM simulation result and CLI-supplied corridor specs, calculates
-DWPT demand at every timestamp and Rx pad position, and writes nine plots and a summary of
+Builds a DWC corridor from a CTM simulation result and CLI-supplied corridor specs, calculates
+DWC demand at every timestamp and Rx pad position, and writes nine plots and a summary of
 results (including the demand calculation's runtime and peak RSS).
 Plots are the corridor power-vs-position profile, the demand space-time heatmap, the
 corridor-aggregate load timeseries, the instantaneous load profile at peak, the
@@ -9,7 +9,7 @@ per-position absolute peak / average / load-factor / distribution profiles, and 
 corridor-aggregate load duration curve.
 
 Run from the repo root:
-    python scripts/generate_dwpt_demand.py \\
+    python scripts/generate_dwc_demand.py \\
         --ctm-result scripts/output/1mi_case_study/sim_no_ramps/result.npz \\
         --alpha 3.5 \\
         --lambda-gap 0.5 \\
@@ -32,10 +32,10 @@ import numpy as np
 
 from transportation_models.utils.ctm.results import SimulationResult
 
-from transportation_models.utils.dwpt import plots
-from transportation_models.utils.dwpt.adapter import corridor_from_ctm, mainline_vht
-from transportation_models.utils.dwpt.demand import compute
-from transportation_models.utils.dwpt.model import PadSpec
+from transportation_models.utils.dwc import plots
+from transportation_models.utils.dwc.adapter import corridor_from_ctm, mainline_vht
+from transportation_models.utils.dwc.demand import compute
+from transportation_models.utils.dwc.model import PadSpec
 
 
 def _peak_rss_mb() -> float:
@@ -56,31 +56,31 @@ def main() -> None:
     )
     parser.add_argument(
         "--alpha", required=True, type=float,
-        help="DWPT Tx pad length (meters)"
+        help="DWC Tx pad length (meters)"
     )
     parser.add_argument(
         "--lambda-gap", required=True, type=float,
-        help="DWPT Tx pad spacing (meters)"
+        help="DWC Tx pad spacing (meters)"
     )
     parser.add_argument(
         "--delta", required=True, type=float,
-        help="DWPT Rx pad length (meters)"
+        help="DWC Rx pad length (meters)"
     )
     parser.add_argument(
         "--beta", required=True, type=float,
-        help="DWPT Rx pad rated power (watts)"
+        help="DWC Rx pad rated power (watts)"
     )
     parser.add_argument(
         "--beta-prime", required=True, type=float,
-        help="DWPT Tx pad rated power (watts)"
+        help="DWC Tx pad rated power (watts)"
     )
     parser.add_argument(
         "--dx-grid", required=True, type=float,
-        help="DWPT spatial resolution (meters)"
+        help="DWC spatial resolution (meters)"
     )
     parser.add_argument(
         "--eta-ev", required=True, type=float,
-        help="DWPT EV fraction [0,1]"
+        help="DWC EV fraction [0,1]"
     )
     parser.add_argument(
         "--aggregate", choices=("segment", "cell"), default="segment",
@@ -95,7 +95,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--out-dir", type=Path, default=None,
-        help=("Output directory for DWPT demand profile. "
+        help=("Output directory for DWC demand profile. "
               "Defaults to <ctm-result-dir>"),
     )
     args = parser.parse_args()
@@ -127,14 +127,14 @@ def main() -> None:
 
     plots.plot_P_y(
         corridor.build_P_y(), corridor.position_m,
-        out_path=out_dir / "dwpt_P_y.png",
+        out_path=out_dir / "dwc_P_y.png",
     )
     plots.plot_demand_heatmap(
-        demand, dt_h=result.freeway.dt, out_path=out_dir / "dwpt_demand_heatmap.png",
+        demand, dt_h=result.freeway.dt, out_path=out_dir / "dwc_demand_heatmap.png",
     )
     plots.plot_aggregate_timeseries(
         demand, dt_h=result.freeway.dt, start=result.start,
-        out_path=out_dir / "dwpt_aggregate_timeseries.png",
+        out_path=out_dir / "dwc_aggregate_timeseries.png",
     )
     cell_edges_m = (
         np.concatenate([[0.0], np.cumsum(corridor.cell_lengths_m)])
@@ -143,42 +143,42 @@ def main() -> None:
     plots.plot_peak_load_profile(
         demand, dt_h=result.freeway.dt, segment_m=args.segment_m,
         cell_edges_m=cell_edges_m,
-        out_path=out_dir / "dwpt_peak_load_profile.png",
+        out_path=out_dir / "dwc_peak_load_profile.png",
     )
     plots.plot_absolute_peak_profile(
         demand, dt_h=result.freeway.dt, segment_m=args.segment_m,
         cell_edges_m=cell_edges_m,
-        out_path=out_dir / "dwpt_absolute_peak_profile.png",
+        out_path=out_dir / "dwc_absolute_peak_profile.png",
     )
     plots.plot_average_load_profile(
         demand, dt_h=result.freeway.dt, segment_m=args.segment_m,
         cell_edges_m=cell_edges_m,
-        out_path=out_dir / "dwpt_average_load_profile.png",
+        out_path=out_dir / "dwc_average_load_profile.png",
     )
     plots.plot_load_factor_profile(
         demand, dt_h=result.freeway.dt, segment_m=args.segment_m,
         cell_edges_m=cell_edges_m,
-        out_path=out_dir / "dwpt_load_factor_profile.png",
+        out_path=out_dir / "dwc_load_factor_profile.png",
     )
     plots.plot_load_distribution_profile(
         demand, dt_h=result.freeway.dt, segment_m=args.segment_m,
         cell_edges_m=cell_edges_m,
-        out_path=out_dir / "dwpt_load_distribution_profile.png",
+        out_path=out_dir / "dwc_load_distribution_profile.png",
     )
     plots.plot_load_duration_curve(
         demand, dt_h=result.freeway.dt,
-        out_path=out_dir / "dwpt_load_duration_curve.png",
+        out_path=out_dir / "dwc_load_duration_curve.png",
     )
 
     summary_lines = [
-        "=== DWPT Demand Generation Summary ===",
+        "=== DWC Demand Generation Summary ===",
         "  CTM result parameters:",
         f"  result              : {ctm_result_path}",
         f"  cells               : {result.n_cells}",
         f"  dt                  : {result.freeway.dt * 3600} s",
         f"  steps               : {result.n_steps}",
         "",
-        "  DWPT corridor parameters:",
+        "  DWC corridor parameters:",
         f"  corridor length     : {corridor.corridor_length_m:.3e} m",
         f"  alpha               : {args.alpha} m",
         f"  lambda              : {args.lambda_gap} m",
@@ -188,7 +188,7 @@ def main() -> None:
         f"  dx-grid             : {args.dx_grid} m",
         f"  eta_EV              : {args.eta_ev}",
         "",
-        "  DWPT demand:",
+        "  DWC demand:",
         f"  Energy delivered    : {demand.E.sum():.3e} Wh",
         f"  Peak corridor power : {(demand.E.sum(axis=1).max() / result.freeway.dt):.3e} W",
         "",
@@ -197,20 +197,20 @@ def main() -> None:
         f"  peak RSS            = {demand_peak_rss_mb:8.1f}  MB",
     ]
     summary = "\n".join(summary_lines) + "\n"
-    (out_dir / "dwpt_summary.txt").write_text(summary)
+    (out_dir / "dwc_summary.txt").write_text(summary)
     print()
     print(summary)
     print(f"Wrote {out_dir}/")
-    print("  dwpt_P_y.png")
-    print("  dwpt_demand_heatmap.png")
-    print("  dwpt_aggregate_timeseries.png")
-    print("  dwpt_peak_load_profile.png")
-    print("  dwpt_absolute_peak_profile.png")
-    print("  dwpt_average_load_profile.png")
-    print("  dwpt_load_factor_profile.png")
-    print("  dwpt_load_distribution_profile.png")
-    print("  dwpt_load_duration_curve.png")
-    print("  dwpt_summary.txt")
+    print("  dwc_P_y.png")
+    print("  dwc_demand_heatmap.png")
+    print("  dwc_aggregate_timeseries.png")
+    print("  dwc_peak_load_profile.png")
+    print("  dwc_absolute_peak_profile.png")
+    print("  dwc_average_load_profile.png")
+    print("  dwc_load_factor_profile.png")
+    print("  dwc_load_distribution_profile.png")
+    print("  dwc_load_duration_curve.png")
+    print("  dwc_summary.txt")
 
 
 if __name__ == "__main__":

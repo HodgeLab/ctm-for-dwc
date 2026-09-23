@@ -1,10 +1,10 @@
-# DWPT Demand Module — Implementation Plan
+# DWC Demand Module — Implementation Plan
 
-Implementation plan for a Dynamic Wireless Power Transfer (DWPT) demand
+Implementation plan for a Dynamic Wireless Charging (DWC) demand
 module that adapts the *mCONV* method of
 [Newbolt 2024a](https://ieeexplore.ieee.org/document/10750800) to consume
 macroscopic outputs from this repo's CTM engine. The spec
-[dwpt_demand_module.md](dwpt_demand_module.md) is the source of truth for
+[dwc_demand_module.md](dwc_demand_module.md) is the source of truth for
 equations, notation, and assumptions; this doc is the build plan and the
 running progress log.
 
@@ -44,7 +44,7 @@ in the **Progress log** below; the sections between here and there are the
   symmetric. *Lesson: surface index conventions early; settle them with a
   worked example, not prose.*
 
-- **The CTM's `VHT` bakes in the on-ramp queue; DWPT must exclude it.**
+- **The CTM's `VHT` bakes in the on-ramp queue; DWC must exclude it.**
   `metrics.vht_per_cell = (ρL + queue)·dt`; mainline-only is `ρL·dt`. We
   compute that from the `SimulationResult` (deviating from the planned
   `Metrics` seam, which can't separate the queue). On a real metered-on-ramp
@@ -70,7 +70,7 @@ in the **Progress log** below; the sections between here and there are the
   assembly ($\mathbf{E} = \eta_{EV}\,(\mathbf{VHT}^T \mathbf{M_{CTM}}) *
   \mathbf{P_y}$). Single-lane-equivalent corridor, single vehicle class,
   ramps excluded — per the spec's v0 assumptions.
-- **Out (for now):** per-class fleet mix, lane-specific DWPT
+- **Out (for now):** per-class fleet mix, lane-specific DWC
   infrastructure, velocity-dependent $\mathbf{P_y}$, multi-vehicle Tx-pad
   saturation. Listed in the spec; not designed for here.
 - **Couples to CTM via one seam:** reads $\mathbf{VHT}$ (shape `(N, T)`)
@@ -82,7 +82,7 @@ in the **Progress log** below; the sections between here and there are the
 A self-contained subpackage alongside `utils/ctm/`:
 
 ```
-src/transportation_models/utils/dwpt/
+src/transportation_models/utils/dwc/
   __init__.py     # public API
   spatial.py      # build_S_T, build_S_R, build_T_R, build_P_y
   mapping.py      # build_M_CTM (cell→position partition-of-unity)
@@ -90,8 +90,8 @@ src/transportation_models/utils/dwpt/
   model.py        # PadSpec, CorridorSpec, DemandResult dataclasses
   examples.py     # Newbolt small-scale system; tiny synthetic corridors
   plots.py        # P_y vs position; E heatmap vs (time, position)
-scripts/run_dwpt_demand_demo.py    # CTM run → demand → plot
-tests/test_dwpt_*.py
+scripts/run_dwc_demand_demo.py    # CTM run → demand → plot
+tests/test_dwc_*.py
 ```
 
 ## Core data model
@@ -194,7 +194,7 @@ a top-level `compute(VHT, corridor) -> DemandResult` composes 5–6.
    computation (`N_vehicles` independent traversals through the
    conventional mCONV pipeline). Should agree within numerical tolerance
    in the uniform-density limit, which is the regime in which the
-   adaptation is exact. **Lives in `tests/test_dwpt_validation.py` but
+   adaptation is exact. **Lives in `tests/test_dwc_validation.py` but
    marked `slow` / opt-in.**
 
 ## Phasing (each phase ends green)
@@ -206,19 +206,19 @@ a top-level `compute(VHT, corridor) -> DemandResult` composes 5–6.
 | **P2** | `build_P_y` | hand-calc tests + Newbolt Fig 4 qualitative match (layer 3) |
 | **P3** | `build_M_CTM` | row-sum and off-corridor invariants (layers 1+2) |
 | **P4** | `compute_demand` + `DemandResult` | energy conservation identity (layer 2) |
-| **P5** | CTM↔DWPT adapter (`from_ctm(freeway, metrics, pad_spec)`) | end-to-end smoke test on a tiny CTM run |
+| **P5** | CTM↔DWC adapter (`from_ctm(freeway, metrics, pad_spec)`) | end-to-end smoke test on a tiny CTM run |
 | **P6** | demo script + plotting | runnable sandbox |
 | **P7 (opt-in)** | macroscopic-vs-microscopic validation harness | layer 4 |
 
 **Status:** P0–P7 shipped (see progress log). P7 (macroscopic-vs-microscopic
-validation harness) is specified in [dwpt_validation_spec.md](dwpt_validation_spec.md)
-and implemented under `utils/microsim/` + `scripts/run_dwpt_validation.py`.
+validation harness) is specified in [dwc_validation_spec.md](dwc_validation_spec.md)
+and implemented under `utils/microsim/` + `scripts/run_dwc_validation.py`.
 
 ## TDD workflow per function
 
 For each function in P1–P4, **the test comes first**:
 
-1. Write the hand-calc test in the corresponding `tests/test_dwpt_*.py`.
+1. Write the hand-calc test in the corresponding `tests/test_dwc_*.py`.
    Test name encodes the property (e.g.,
    `test_build_M_CTM_rows_sum_to_one`,
    `test_compute_demand_conserves_energy`).
@@ -241,7 +241,7 @@ For each function in P1–P4, **the test comes first**:
   that all pad dims and cell lengths are integer multiples of `dx_grid` within
   a `1e-6` ratio tolerance; the CTM adapter snaps real cell lengths to the grid.
 - **Units convention:** all lengths in meters, all powers in watts inside
-  the DWPT module. The CTM adapter converts the freeway's miles → m at
+  the DWC module. The CTM adapter converts the freeway's miles → m at
   the seam.
 - **Output:** `DemandResult.E` is in **Wh** (per spec); the `to_dataframe`
   helper provides a long-format `(timestep, position_m, energy_wh)` table
@@ -264,7 +264,7 @@ What remains scales **linearly** in `n`, with small constants: `P_y` and
 demand if `m` is large. There is no quadratic wall once the dense `T_R` is
 gone.
 
-**Benchmark** (`scripts/benchmark_dwpt_convolution.py`; Rx pad δ = 1.5 m,
+**Benchmark** (`scripts/benchmark_dwc_convolution.py`; Rx pad δ = 1.5 m,
 kernel = round(δ/dx); time to form `P_A`):
 
 | corridor | resolution | n | kernel | np.convolve | fftconvolve | dense `T_R` |
@@ -315,7 +315,7 @@ log) and its disposition:
 Deferred from the spec's v0 assumptions and surfaced during the build:
 
 - **P7 — macroscopic-vs-microscopic validation harness** — **done** (2026-06-15;
-  see progress log and [dwpt_validation_spec.md](dwpt_validation_spec.md)).
+  see progress log and [dwc_validation_spec.md](dwc_validation_spec.md)).
   Remaining refinements surfaced during the build:
   - **Multi-seed confidence intervals** — the microsim is stochastic; the
     Stage-2 divergence on a single seed swings with the horizon. Average over
@@ -324,11 +324,11 @@ Deferred from the spec's v0 assumptions and surfaced during the build:
   - **Lane-changing + battery stack** — dual-lane (eq 6-14) and the
     discharge/HVAC/SOC model (eq 15-39) were deferred; the microsim
     architecture leaves both open.
-- **Heterogeneous corridors** — a `Cell`-level dataclass for DWPT-on/off
+- **Heterogeneous corridors** — a `Cell`-level dataclass for DWC-on/off
   stretches and per-cell pad variation (P0); the **split-cell** case
   (fractional positions per cell), which `CorridorSpec` currently rejects.
 - **Fleet & infrastructure realism** (spec) — per-class fleet mix
-  (class-indexed `VHT`/`P_y`), lane-specific DWPT (lane-by-lane `VHT`/`P_y`),
+  (class-indexed `VHT`/`P_y`), lane-specific DWC (lane-by-lane `VHT`/`P_y`),
   velocity-dependent `P_y`, multi-vehicle Tx-pad saturation.
 - **Output scaling** — aggregate `E`/`P_y` to per-pad / per-feeder demand so
   fine-grid, long-corridor, long-horizon `(T, m)` outputs stay tractable (the
@@ -344,10 +344,10 @@ learned that wasn't in the plan.)*
 ### P0 — 2026-06-10 — data model + Newbolt example builder
 
 **Shipped.**
-[`src/transportation_models/utils/dwpt/`](../src/transportation_models/utils/dwpt/):
+[`src/transportation_models/utils/dwc/`](../src/transportation_models/utils/dwc/):
 `__init__.py`, `model.py` (`PadSpec`, `CorridorSpec`), `examples.py`
 (`newbolt_small_scale`).
-[`tests/test_dwpt_model.py`](../tests/test_dwpt_model.py): 22 tests
+[`tests/test_dwc_model.py`](../tests/test_dwc_model.py): 22 tests
 covering field values, `gamma = min(beta, beta_prime)`, non-positive
 rejection across all `PadSpec` fields, grid-alignment validation for
 both pad dims and cell lengths, derived integer-grid properties
@@ -379,7 +379,7 @@ the example builder.
    miles→meter conversion. May need to raise the tolerance or accept
    small rounding in tile counts.
 2. **No `Cell`-level dataclass.** `CorridorSpec.cell_lengths_m` is just
-   a tuple of floats — no per-cell metadata (e.g., DWPT-on vs DWPT-off
+   a tuple of floats — no per-cell metadata (e.g., DWC-on vs DWC-off
    stretches, or per-cell pad variations). If the corridor ever has
    heterogeneous Tx layouts (one of the deferred items in the spec),
    we'll need a `Cell` struct. Not blocking v0.
@@ -390,7 +390,7 @@ the example builder.
    `T_R` indexing in P1, since an off-by-one here propagates into
    every downstream array shape.
 
-**Verify.** `pytest tests/test_dwpt_model.py` → 22 passed in 0.02s.
+**Verify.** `pytest tests/test_dwc_model.py` → 22 passed in 0.02s.
 Full suite (excluding pre-existing failures in
 `tests/test_model_prototyping.py`, which is unrelated GRU work): 400
 passed.
@@ -398,9 +398,9 @@ passed.
 ### P1 — 2026-06-10 — spatial pure functions
 
 **Shipped.**
-[`src/transportation_models/utils/dwpt/spatial.py`](../src/transportation_models/utils/dwpt/spatial.py):
+[`src/transportation_models/utils/dwc/spatial.py`](../src/transportation_models/utils/dwc/spatial.py):
 `build_S_T`, `build_S_R`, `build_T_R` (Newbolt 2024a Algorithms 1-2).
-[`tests/test_dwpt_spatial.py`](../tests/test_dwpt_spatial.py): 11
+[`tests/test_dwc_spatial.py`](../tests/test_dwc_spatial.py): 11
 hand-calc + property tests (layer 1) — `S_T` tile bit-pattern,
 truncation, and value set; `S_R` constant magnitude and length; `T_R`
 banded-Toeplitz entries by hand, `(n + δ_grid - 1) × n` shape,
@@ -425,19 +425,19 @@ off-band zeros, and the `δ_grid = 1` diagonal case.
    the approach/exit positions it zeroes are the first/last partial-
    overlap rows of this `T_R`. Verify the column alignment there.
 
-**Verify.** `pytest tests/test_dwpt_spatial.py` → 11 passed in 0.07s;
-`tests/test_dwpt_model.py tests/test_dwpt_spatial.py` → 33 passed.
+**Verify.** `pytest tests/test_dwc_spatial.py` → 11 passed in 0.07s;
+`tests/test_dwc_model.py tests/test_dwc_spatial.py` → 33 passed.
 Purely additive (no existing module imports `spatial` yet), so no
 regression surface elsewhere.
 
 ### P2 — 2026-06-10 — P_y power profile
 
 **Shipped.**
-[`build_P_y`](../src/transportation_models/utils/dwpt/spatial.py) in
+[`build_P_y`](../src/transportation_models/utils/dwc/spatial.py) in
 `spatial.py` — implements Newbolt 2024a Algorithm 3:
 `gamma * (T_R @ S_T) / (T_R @ S_T).max()`, so the peak equals
 `gamma = min(beta, beta_prime)`.
-[`tests/test_dwpt_spatial.py`](../tests/test_dwpt_spatial.py): 6 new
+[`tests/test_dwc_spatial.py`](../tests/test_dwc_spatial.py): 6 new
 tests — exact two-pad hand-calc (`[5,10,5,0,5,10,5]`), peak-equals-gamma
 (150 kW), `P_y <= gamma` and `P_y >= 0` invariants (layer 2), linearity
 in `gamma`, and the Fig-4 qualitative shape (layer 3).
@@ -458,15 +458,15 @@ in `gamma`, and the Fig-4 qualitative shape (layer 3).
    (always has pads) and `CorridorSpec` rejects empty cells, so no guard
    was added per "no error handling for impossible scenarios."
 
-**Verify.** `pytest tests/test_dwpt_spatial.py` → 17 passed in 0.07s;
-`tests/test_dwpt_model.py tests/test_dwpt_spatial.py` → 39 passed.
+**Verify.** `pytest tests/test_dwc_spatial.py` → 17 passed in 0.07s;
+`tests/test_dwc_model.py tests/test_dwc_spatial.py` → 39 passed.
 
 ### P3 — 2026-06-10 — M_CTM cell->position map
 
 **Shipped.**
-[`build_M_CTM`](../src/transportation_models/utils/dwpt/mapping.py) in
+[`build_M_CTM`](../src/transportation_models/utils/dwc/mapping.py) in
 `mapping.py` — the `(N, m)` row-partition-of-unity.
-[`tests/test_dwpt_mapping.py`](../tests/test_dwpt_mapping.py): 8 tests —
+[`tests/test_dwc_mapping.py`](../tests/test_dwc_mapping.py): 8 tests —
 hand calcs (symmetric `δ_grid=3`, even-`δ_grid` floor, `δ_grid=1` plain
 partition) plus invariants (shape, rows sum to 1, `n_i` entries each
 `1/n_i`, exactly `δ_grid-1` zeroed boundary columns, one cell per mapped
@@ -474,7 +474,7 @@ column).
 
 **Decision: center-reference convention (Option C), chosen by the user**
 after evaluating three options in
-[`scripts/dwpt_m_ctm_options.ipynb`](../src/transportation_models/scripts/dwpt_m_ctm_options.ipynb).
+[`scripts/dwc_m_ctm_options.ipynb`](../src/transportation_models/scripts/dwc_m_ctm_options.ipynb).
 Traversal position `j` maps to corridor position `j - off`, where
 `off = (δ_grid - 1)//2` is the floored Rx-pad center; off-corridor centers
 get zero columns. This resolves the long-standing off-by-one (P0 open
@@ -495,24 +495,24 @@ boundary treatment is symmetric. Signature is grid-integer
    spec could name the center-reference convention. Left for a spec touch-up
    so the build stays moving; not blocking.
 
-**Verify.** `pytest tests/test_dwpt_mapping.py` → 8 passed in 0.07s;
-`tests/test_dwpt_model.py tests/test_dwpt_spatial.py tests/test_dwpt_mapping.py`
+**Verify.** `pytest tests/test_dwc_mapping.py` → 8 passed in 0.07s;
+`tests/test_dwc_model.py tests/test_dwc_spatial.py tests/test_dwc_mapping.py`
 → 47 passed.
 
 ### P4 — 2026-06-10 — compute_demand + DemandResult
 
 **Shipped.**
-[`compute_demand`](../src/transportation_models/utils/dwpt/demand.py) in
+[`compute_demand`](../src/transportation_models/utils/dwc/demand.py) in
 `demand.py` — `eta_EV * (VHT.T @ M_CTM) * P_y`, shape `(T, m)` in Wh.
-[`DemandResult`](../src/transportation_models/utils/dwpt/model.py) in
+[`DemandResult`](../src/transportation_models/utils/dwc/model.py) in
 `model.py` — frozen container holding `E` (Wh), `position_m`, `timesteps`,
 with shape validation and a `to_dataframe()` long-format helper; exported
 from the package `__init__`.
-[`tests/test_dwpt_demand.py`](../tests/test_dwpt_demand.py): 7 tests —
+[`tests/test_dwc_demand.py`](../tests/test_dwc_demand.py): 7 tests —
 single-cell hand calc, shape, the energy-conservation identity (checked
 against a per-cell mean power computed directly from `P_y`), linearity in
 `eta_EV` and `VHT`, non-negativity, and zero-where-`VHT`-zero.
-4 `DemandResult` tests added to `tests/test_dwpt_model.py`.
+4 `DemandResult` tests added to `tests/test_dwc_model.py`.
 
 **Scope decision (user): container only; orchestrator deferred to P5.**
 P4 delivers `compute_demand` + the `DemandResult` container. The
@@ -527,25 +527,25 @@ the CTM adapter (`from_ctm`).
 - `to_dataframe` imports pandas lazily so importing `PadSpec`/`CorridorSpec`
   does not pull in pandas.
 
-**Verify.** `pytest tests/test_dwpt_demand.py` → 7 passed; full DWPT suite
-(`test_dwpt_model.py test_dwpt_spatial.py test_dwpt_mapping.py
-test_dwpt_demand.py`) → 58 passed.
+**Verify.** `pytest tests/test_dwc_demand.py` → 7 passed; full DWC suite
+(`test_dwc_model.py test_dwc_spatial.py test_dwc_mapping.py
+test_dwc_demand.py`) → 58 passed.
 
 ### P5 — 2026-06-10 — CTM adapter + compute orchestrator
 
 **Shipped.**
-- [`CorridorSpec.build_P_y()`](../src/transportation_models/utils/dwpt/model.py)
+- [`CorridorSpec.build_P_y()`](../src/transportation_models/utils/dwc/model.py)
   — composes P1-P2 over the corridor's grid properties.
-- [`compute(VHT, corridor, eta_EV)`](../src/transportation_models/utils/dwpt/demand.py)
+- [`compute(VHT, corridor, eta_EV)`](../src/transportation_models/utils/dwc/demand.py)
   — orchestrates `build_M_CTM` + `build_P_y` + `compute_demand` into a
   labeled `DemandResult` (center-reference `position_m`, timestep-index
   rows; validates `eta_EV ∈ [0,1]` and VHT cell count).
-- [`adapter.py`](../src/transportation_models/utils/dwpt/adapter.py) (new
+- [`adapter.py`](../src/transportation_models/utils/dwc/adapter.py) (new
   module): `mainline_vht(result)` and `from_ctm(result, pad_spec, dx_grid,
   eta_EV)` — the single CTM seam.
 - `compute` and `from_ctm` exported from the package `__init__`.
-[`tests/test_dwpt_compute.py`](../tests/test_dwpt_compute.py) (6) and
-[`tests/test_dwpt_adapter.py`](../tests/test_dwpt_adapter.py) (4), incl. an
+[`tests/test_dwc_compute.py`](../tests/test_dwc_compute.py) (6) and
+[`tests/test_dwc_adapter.py`](../tests/test_dwc_adapter.py) (4), incl. an
 end-to-end smoke test on the four-cell CTM run (Kurzhanskiy §3.4).
 
 **Decisions (user, after CTM-code review).**
@@ -563,29 +563,29 @@ end-to-end smoke test on the four-cell CTM run (Kurzhanskiy §3.4).
 
 **Implementation notes (not pre-specified by the plan).**
 - New `adapter.py` module (not in the original layout list) isolates the
-  CTM import; the DWPT package has no runtime CTM dependency (`from_ctm`
+  CTM import; the DWC package has no runtime CTM dependency (`from_ctm`
   duck-types the passed result; CTM types are `TYPE_CHECKING`-only).
 - **The four-cell example never spills back into an on-ramp queue**, so
   `mainline_vht`'s queue exclusion is proven on a controlled synthetic
   result (`test_mainline_vht_excludes_queue_contribution`); the real-run
   test checks `mainline = metrics_VHT − queue·dt`.
 
-**Verify.** `pytest tests/test_dwpt_compute.py tests/test_dwpt_adapter.py`
-→ 10 passed; full DWPT suite (6 files) → 68 passed.
+**Verify.** `pytest tests/test_dwc_compute.py tests/test_dwc_adapter.py`
+→ 10 passed; full DWC suite (6 files) → 68 passed.
 
 ### P6 — 2026-06-10 — demo script + plotting
 
 **Shipped.**
-- [`plots.py`](../src/transportation_models/utils/dwpt/plots.py):
+- [`plots.py`](../src/transportation_models/utils/dwc/plots.py):
   `plot_P_y` (power-vs-position) and `plot_demand_heatmap`
   (E space-time heatmap), following the `ctm/plots.py` convention
   (data + keyword-only `out_path`, save at 120 dpi, close).
-- [`scripts/run_dwpt_demand_demo.py`](../scripts/run_dwpt_demand_demo.py):
+- [`scripts/run_dwc_demand_demo.py`](../scripts/run_dwc_demand_demo.py):
   four-cell CTM run -> `compute` -> both plots; run via
-  `python scripts/run_dwpt_demand_demo.py`. Lives in the repo-root `scripts/`
+  `python scripts/run_dwc_demand_demo.py`. Lives in the repo-root `scripts/`
   (the CTM module's entrypoint convention), **not** in the package — only
   importable library code belongs under `src/`.
-[`tests/test_dwpt_plots.py`](../tests/test_dwpt_plots.py): 4 tests
+[`tests/test_dwc_plots.py`](../tests/test_dwc_plots.py): 4 tests
 (`position_m` property, `corridor_from_ctm` snapping, two plot smoke
 tests under the Agg backend). The demo entrypoint is not unit-tested
 (its pieces are), matching the CTM convention for runnable scripts.
@@ -602,8 +602,8 @@ gamma) to 75 kW (gap valleys, overlap 2->1 at `delta_grid=2`); the heatmap
 shows the pad striping, per-cell VHT bands, and the empty-start fill-in
 transient (downstream cells dark until vehicles arrive). Both sensible.
 
-**Verify.** `pytest tests/test_dwpt_plots.py` → 4 passed;
-`python scripts/run_dwpt_demand_demo.py` writes two PNGs; full DWPT suite
+**Verify.** `pytest tests/test_dwc_plots.py` → 4 passed;
+`python scripts/run_dwc_demand_demo.py` writes two PNGs; full DWC suite
 (7 files) → 72 passed.
 
 ### Follow-up — 2026-06-10 — queuing confirmation
@@ -612,15 +612,15 @@ The P5 caveat — that the four-cell example never spills back into a queue,
 so the queue exclusion was only proven synthetically — is now closed. A new
 CTM example, `metered_on_ramp_scenario` (capacity-limited on-ramp, demand
 1000 > R=600 veh/h), drives a real on-ramp queue. Three tests in
-[`tests/test_dwpt_adapter.py`](../tests/test_dwpt_adapter.py) confirm
-end-to-end that DWPT demand excludes queue VHT: the scenario builds queue;
+[`tests/test_dwc_adapter.py`](../tests/test_dwc_adapter.py) confirm
+end-to-end that DWC demand excludes queue VHT: the scenario builds queue;
 `mainline_vht` is strictly below the CTM's (queue-inclusive) VHT; and, by
 linearity of `compute`, demand splits as mainline + queue-only with
 `from_ctm` keeping only the mainline part. On a 40-step run the excluded
 queue contribution is ~277 kWh — **21.9 % of the queue-inclusive total** —
 so the exclusion is materially significant, not cosmetic.
 
-**Verify.** `pytest tests/test_dwpt_adapter.py` → 7 passed; full DWPT suite
+**Verify.** `pytest tests/test_dwc_adapter.py` → 7 passed; full DWC suite
 → 75 passed.
 
 ### Follow-up — 2026-06-11 — build_P_y via convolution
@@ -637,28 +637,28 @@ so the exclusion is materially significant, not cosmetic.
 - `E` is **unchanged** — only how `P_y` is computed differs (identical values
   to float round-off), so everything downstream is untouched.
 
-[`scripts/benchmark_dwpt_convolution.py`](../scripts/benchmark_dwpt_convolution.py)
+[`scripts/benchmark_dwc_convolution.py`](../scripts/benchmark_dwc_convolution.py)
 sweeps corridor length × resolution (physical units) across all three methods;
 results are tabled in the Resolution-vs-compute section. Headline: the dense
 `T_R` is OOM beyond ~1 coarse mile; convolution keeps memory `O(n)` and runs
 50 mi / 0.1 m in ~5–12 ms.
 
-New tests in [`tests/test_dwpt_spatial.py`](../tests/test_dwpt_spatial.py):
+New tests in [`tests/test_dwc_spatial.py`](../tests/test_dwc_spatial.py):
 all three methods agree, a 200k-position corridor runs with no dense matrix,
 and an unknown `method` is rejected. The "Resolution vs. compute" section and
 "Defaults chosen" / Functions-map / `T_R` open item were corrected — the
 earlier "no representation trick escapes this" framing overstated a bottleneck
 that convolution removes.
 
-**Verify.** `pytest tests/test_dwpt_spatial.py` → passed;
-`python scripts/benchmark_dwpt_convolution.py` prints the sweep;
-full DWPT suite → 78 passed.
+**Verify.** `pytest tests/test_dwc_spatial.py` → passed;
+`python scripts/benchmark_dwc_convolution.py` prints the sweep;
+full DWC suite → 78 passed.
 
 ### P7 — 2026-06-15 — macroscopic-vs-microscopic validation harness
 
 **Shipped.** A from-scratch single-lane **Newbolt microsimulation** and a
 two-stage accuracy-vs-efficiency study, specified in
-[dwpt_validation_spec.md](dwpt_validation_spec.md) (full spec-driven workflow:
+[dwc_validation_spec.md](dwc_validation_spec.md) (full spec-driven workflow:
 interview → spec → plan → tasks → implement).
 [`src/transportation_models/utils/microsim/`](../src/transportation_models/utils/microsim/):
 `model.py` (`MicrosimSpec`/`Vehicles`/`MicrosimResult`/`GuardStats`), `gipps.py`
@@ -666,9 +666,9 @@ interview → spec → plan → tasks → implement).
 U(v_f±15 mph)`), `simulate.py` (single-lane loop), `aggregate.py` (Edie
 per-cell density/flow → reused `compare_against_historical`), `charging.py`
 (original mCONV eq 30-32), `examples.py` (uniform-limit fixture).
-[`scripts/run_dwpt_validation.py`](../scripts/run_dwpt_validation.py): the
+[`scripts/run_dwc_validation.py`](../scripts/run_dwc_validation.py): the
 study driver. 47 tests across `tests/test_microsim_*.py` +
-`tests/test_dwpt_validation.py`.
+`tests/test_dwc_validation.py`.
 
 **Decisions (user, via interview + spec gates).**
 - **Two stages, isolated by construction:** Stage 1 scores micro *and* CTM
@@ -701,10 +701,10 @@ study driver. 47 tests across `tests/test_microsim_*.py` +
   plus single-seed sampling noise. **Multi-seed CIs** (cf. Newbolt's 30 runs)
   are the natural next refinement.
 
-**Verify.** `pytest tests/test_microsim_*.py tests/test_dwpt_validation.py` →
+**Verify.** `pytest tests/test_microsim_*.py tests/test_dwc_validation.py` →
 passes; `pytest -m slow` runs the end-to-end driver smoke; full suite green
 (excluding the pre-existing unrelated `test_model_prototyping.py` GRU
-failures). `python scripts/run_dwpt_validation.py --case-dir
+failures). `python scripts/run_dwc_validation.py --case-dir
 scripts/output/1mi_case_study` writes a validation summary.
 
 ### P7 v2 — 2026-06-15 — N-lane (lane-changing) rewrite
@@ -714,12 +714,12 @@ scripts/output/1mi_case_study` writes a validation summary.
 could not be scored fairly against multi-lane PeMS over congested periods. A
 review also surfaced v1 assumptions made without sign-off (invented `a`/`b`,
 boundary-admission rule, admitted-vs-offered inflow); all are recorded and
-dispositioned in [dwpt_validation_spec.md](dwpt_validation_spec.md).
+dispositioned in [dwc_validation_spec.md](dwc_validation_spec.md).
 
 **Shipped (v1 committed first at `5329ca1` as a restore point).**
 - `lanechange.py` (new): Newbolt's incentive + random lane change (eq 6–14,
   Alg 3) **generalized to N lanes**, evaluated per subject; the EV
-  charging-lane-seeking term (eq 13) is dropped because DWPT spans all lanes (so
+  charging-lane-seeking term (eq 13) is dropped because DWC spans all lanes (so
   EVs/non-EVs share the rule). Backward gap matches eq 7 (back-to-back);
   selection among feasible lanes is lowest-index (v2 audit V2/V3).
 - `simulate.py`: rewritten to a **sequential per-vehicle loop** (Newbolt Alg 1):
@@ -737,7 +737,7 @@ dispositioned in [dwpt_validation_spec.md](dwpt_validation_spec.md).
   when PeMS absent), paper Gipps params with CLI overrides.
 
 **Decisions (user).** Faithful Poisson (not Newbolt's TTF MC — that estimates
-arrivals from junction turning, unnecessary with direct flow counts); DWPT all
+arrivals from junction turning, unnecessary with direct flow counts); DWC all
 lanes; paper params + CLI overrides.
 
 **What we learned.** Multi-lane makes the model markedly healthier: the
@@ -749,6 +749,6 @@ unflagged assumptions; all are dispositioned in the spec (V2 backward-gap →
 match eq 7; V3 lane choice → lowest index; V4 → sequential loop; the rest
 kept/confirmed with the user).
 
-**Verify.** `pytest tests/test_microsim_*.py tests/test_dwpt_validation.py
+**Verify.** `pytest tests/test_microsim_*.py tests/test_dwc_validation.py
 -m "slow or not slow"` → 68 passed (incl. end-to-end). Multi-seed CIs and
-lane-specific DWPT (per-cell lane counts + merge logic) remain future work.
+lane-specific DWC (per-cell lane counts + merge logic) remain future work.

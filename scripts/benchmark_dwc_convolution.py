@@ -5,7 +5,7 @@ forming the cross-sectional-area profile P_A = S_R * S_T three ways, alongside
 the dense T_R memory. Demonstrates why ``build_P_y`` avoids materializing the
 dense matrix and auto-selects convolve vs fft by kernel size.
 
-    python scripts/benchmark_dwpt_convolution.py
+    python scripts/benchmark_dwc_convolution.py
 
 All lengths are physical (miles / meters); the grid-unit position count ``n``
 and kernel size are shown only as secondary context.
@@ -19,7 +19,7 @@ import time
 import numpy as np
 from scipy.signal import fftconvolve
 
-from transportation_models.utils.dwpt.spatial import build_S_R, build_S_T, build_T_R
+from transportation_models.utils.dwc.spatial import build_S_R, build_S_T, build_T_R
 
 _METERS_PER_MILE = 1609.344
 # Newbolt 2024a pad geometry (meters).

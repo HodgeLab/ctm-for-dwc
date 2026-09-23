@@ -1,6 +1,6 @@
-"""Hand-calc and property tests for the DWPT temporal-aggregation core.
+"""Hand-calc and property tests for the DWC temporal-aggregation core.
 
-Covers the pure numeric helpers in ``utils/dwpt/aggregation.py``: energy-
+Covers the pure numeric helpers in ``utils/dwc/aggregation.py``: energy-
 conserving re-binning, window-average power (peak attenuation), mile-segment
 column grouping, and load-duration-curve divergence.
 """
@@ -8,7 +8,7 @@ column grouping, and load-duration-curve divergence.
 import numpy as np
 import pytest
 
-from transportation_models.utils.dwpt import aggregation as agg
+from transportation_models.utils.dwc import aggregation as agg
 
 _METERS_PER_MILE = 1609.344
 

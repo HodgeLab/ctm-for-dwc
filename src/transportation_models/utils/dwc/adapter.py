@@ -1,4 +1,4 @@
-"""CTM -> DWPT adapter: build a ``DemandResult`` from a CTM run.
+"""CTM -> DWC adapter: build a ``DemandResult`` from a CTM run.
 
 This is the module's single coupling to the CTM engine. It reads the
 post-step density and cell geometry off a ``SimulationResult``, forms the
@@ -24,7 +24,7 @@ _METERS_PER_MILE = 1609.344
 def mainline_vht(result: SimulationResult) -> np.ndarray:
     """Queue-free mainline VHT per cell, shape ``(n_cells, T)`` in veh*h.
 
-    The CTM's VHT (metrics eq. 4.10) is ``(rho * L + queue) * dt``; DWPT demand
+    The CTM's VHT (metrics eq. 4.10) is ``(rho * L + queue) * dt``; DWC demand
     is generated only on the mainline, so we drop the on-ramp ``queue`` term
     and use ``rho * L * dt``.
     """
@@ -55,7 +55,7 @@ def from_ctm(
     dx_grid: float,
     eta_EV: float,
 ) -> DemandResult:
-    """Assemble DWPT demand from a CTM ``SimulationResult``.
+    """Assemble DWC demand from a CTM ``SimulationResult``.
 
     Mainline (queue-free) VHT drives the demand over the snapped corridor.
     """

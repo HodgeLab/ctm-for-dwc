@@ -1,9 +1,9 @@
-"""Tests for the DWPT P6 sandbox: position_m property, corridor_from_ctm,
+"""Tests for the DWC P6 sandbox: position_m property, corridor_from_ctm,
 and the plot helpers.
 
 Plots are verified as smoke tests (run without error, write a non-empty
 file) under the Agg backend; the numeric helpers get real assertions. The
-demo entrypoint (``scripts/run_dwpt_demand_demo.py``) is not unit-tested,
+demo entrypoint (``scripts/run_dwc_demand_demo.py``) is not unit-tested,
 matching the CTM convention for runnable scripts.
 """
 
@@ -18,9 +18,9 @@ from transportation_models.utils.ctm.examples import (
     four_cell_freeway,
     four_cell_scenario,
 )
-from transportation_models.utils.dwpt import plots
-from transportation_models.utils.dwpt.adapter import corridor_from_ctm
-from transportation_models.utils.dwpt.model import CorridorSpec, DemandResult, PadSpec
+from transportation_models.utils.dwc import plots
+from transportation_models.utils.dwc.adapter import corridor_from_ctm
+from transportation_models.utils.dwc.model import CorridorSpec, DemandResult, PadSpec
 
 
 _MI = 1609.344  # meters per mile, matching plots._METERS_PER_MILE

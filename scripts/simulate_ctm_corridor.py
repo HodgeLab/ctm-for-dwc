@@ -22,7 +22,7 @@ corridor:
    series to ``--out-dir`` as one CSV per quantity (the dict that
    :meth:`SimulationResult.to_dataframes` returns) plus a
    self-contained ``result.npz`` (:meth:`SimulationResult.to_npz`, the
-   input the DWPT demand pipeline reloads), plus a
+   input the DWC demand pipeline reloads), plus a
    ``summary.txt`` with horizon totals and the simulation's runtime and
    peak RSS, and four figures matching the ``run_ctm_ctmsim_demo`` style:
 
@@ -256,7 +256,7 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     for name, frame in result.to_dataframes().items():
         frame.to_csv(out_dir / f"{name}.csv")
-    # Self-contained bundle for the DWPT demand pipeline (utils.dwpt.adapter
+    # Self-contained bundle for the DWC demand pipeline (utils.dwc.adapter
     # reloads it via SimulationResult.from_npz).
     result.to_npz(out_dir / "result.npz")
 

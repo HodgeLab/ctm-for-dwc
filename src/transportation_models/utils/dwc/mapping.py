@@ -1,8 +1,8 @@
-"""Cell->position mapping for the DWPT demand module: ``build_M_CTM``.
+"""Cell->position mapping for the DWC demand module: ``build_M_CTM``.
 
 ``M_CTM`` is the ``(N, m)`` row-partition-of-unity that relates CTM cell
 index to Rx-pad traversal position and distributes each cell's vehicle-hours
-across its positions. See ``docs/dwpt_demand_module.md`` for the definition.
+across its positions. See ``docs/dwc_demand_module.md`` for the definition.
 
 Convention (center-reference): traversal position ``j`` carries the Rx pad
 spanning corridor positions ``[j - delta_grid + 1, j]``, whose center sits at

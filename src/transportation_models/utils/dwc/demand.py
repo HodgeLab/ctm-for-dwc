@@ -1,8 +1,8 @@
-"""Demand assembly for the DWPT module: ``compute_demand``.
+"""Demand assembly for the DWC module: ``compute_demand``.
 
 Combines the temporal (``VHT``), mapping (``M_CTM``), and spatial (``P_y``)
 pieces into the spatiotemporal demand
-``E = eta_EV * (VHT^T M_CTM) * P_y``. See ``docs/dwpt_demand_module.md``
+``E = eta_EV * (VHT^T M_CTM) * P_y``. See ``docs/dwc_demand_module.md``
 §"Putting It All Together".
 """
 
@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 def compute_demand(
     VHT: np.ndarray, M_CTM: np.ndarray, P_y: np.ndarray, eta_EV: float
 ) -> np.ndarray:
-    """Spatiotemporal DWPT demand, shape ``(T, m)`` in Wh.
+    """Spatiotemporal DWC demand, shape ``(T, m)`` in Wh.
 
     Parameters
     ----------

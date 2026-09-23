@@ -1,4 +1,4 @@
-"""Reference DWPT systems for testing and demos."""
+"""Reference DWC systems for testing and demos."""
 
 from .model import CorridorSpec, PadSpec
 

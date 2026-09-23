@@ -1,4 +1,4 @@
-"""Hand-calculation tests for the DWPT spatial submodule (P1).
+"""Hand-calculation tests for the DWC spatial submodule (P1).
 
 Covers the three pure array-construction functions of the conventional
 mCONV spatial dependence (Newbolt 2024a, Algorithms 1-2): ``build_S_T``,
@@ -10,7 +10,7 @@ verification strategy).
 import numpy as np
 import pytest
 
-from transportation_models.utils.dwpt.spatial import (
+from transportation_models.utils.dwc.spatial import (
     build_P_y,
     build_S_R,
     build_S_T,

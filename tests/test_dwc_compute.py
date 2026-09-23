@@ -8,9 +8,9 @@ by the energy-conservation identity plus shape/label/validation checks.
 import numpy as np
 import pytest
 
-from transportation_models.utils.dwpt.demand import compute
-from transportation_models.utils.dwpt.mapping import build_M_CTM
-from transportation_models.utils.dwpt.model import CorridorSpec, PadSpec
+from transportation_models.utils.dwc.demand import compute
+from transportation_models.utils.dwc.mapping import build_M_CTM
+from transportation_models.utils.dwc.model import CorridorSpec, PadSpec
 
 
 def _pad(delta: float = 3.0) -> PadSpec:

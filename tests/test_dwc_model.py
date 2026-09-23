@@ -1,14 +1,14 @@
-"""Validation and construction tests for the DWPT module's data model (P0).
+"""Validation and construction tests for the DWC module's data model (P0).
 
 Each test pins one property of ``PadSpec`` or ``CorridorSpec`` from
-``docs/dwpt_demand_module.md`` (spec) and
-``docs/dwpt_demand_implementation_plan.md`` (plan, P0 row).
+``docs/dwc_demand_module.md`` (spec) and
+``docs/dwc_demand_implementation_plan.md`` (plan, P0 row).
 """
 
 import numpy as np
 import pytest
 
-from transportation_models.utils.dwpt.model import (
+from transportation_models.utils.dwc.model import (
     CorridorSpec,
     DemandResult,
     PadSpec,
@@ -154,7 +154,7 @@ def test_corridor_spec_rejects_nonpositive_cell_length():
 
 
 def test_newbolt_small_scale_pad_matches_paper_table_1():
-    from transportation_models.utils.dwpt.examples import newbolt_small_scale
+    from transportation_models.utils.dwc.examples import newbolt_small_scale
 
     spec = newbolt_small_scale()
     assert spec.pad.alpha == 2.0
@@ -165,7 +165,7 @@ def test_newbolt_small_scale_pad_matches_paper_table_1():
 
 
 def test_newbolt_small_scale_corridor_holds_three_tiles():
-    from transportation_models.utils.dwpt.examples import newbolt_small_scale
+    from transportation_models.utils.dwc.examples import newbolt_small_scale
 
     spec = newbolt_small_scale()
     assert len(spec.cell_lengths_m) == 1

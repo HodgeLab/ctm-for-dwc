@@ -1,11 +1,11 @@
-"""Profile the fused CTM sim -> DWPT demand pipeline in a single process.
+"""Profile the fused CTM sim -> DWC demand pipeline in a single process.
 
-``scripts/simulate_ctm_corridor.py`` and ``scripts/generate_dwpt_demand.py``
+``scripts/simulate_ctm_corridor.py`` and ``scripts/generate_dwc_demand.py``
 each report their own runtime and peak RSS, but those numbers come from two
 separate processes. Summing the runtimes is fine -- the stages are sequential.
 Taking ``max()`` of the two peak-RSS figures answers "how much RAM does the
 pipeline need when run as two commands", but it *understates* a fused run: in
-one process the CTM result arrays stay live while the finer DWPT position grid
+one process the CTM result arrays stay live while the finer DWC position grid
 is allocated, so the true fused peak lands somewhere between ``max(a, b)`` and
 ``a + b``. This script runs both stages back-to-back in one process and
 measures that peak directly, with no ``.npz`` round-trip between them.
@@ -21,20 +21,20 @@ which dominates for short corridors, hence the "net of startup baseline" line.
 And because this script never imports matplotlib, its baseline sits below the
 one both production scripts carry; compare fused-vs-split peaks using the
 breakdown here, not against the numbers in ``summary.txt`` /
-``dwpt_summary.txt``. The headline ``runtime =`` / ``peak RSS =``
+``dwc_summary.txt``. The headline ``runtime =`` / ``peak RSS =``
 lines match the format ``scripts/compare_ctm_case_studies.py`` greps for, and
 lead the summary so its first-match search picks up the pipeline totals.
 
-CLI: the CTM stage takes ``simulate_ctm_corridor.py``'s arguments and the DWPT
-stage takes ``generate_dwpt_demand.py``'s. Two renames avoid a collision --
+CLI: the CTM stage takes ``simulate_ctm_corridor.py``'s arguments and the DWC
+stage takes ``generate_dwc_demand.py``'s. Two renames avoid a collision --
 ``--beta`` is the off-ramp split-ratio CSV in one script and the Rx pad rated
-power in the other, so here they are ``--ctm-beta`` and ``--dwpt-beta``
-(with ``--beta-prime`` following its partner to ``--dwpt-beta-prime``). Every
+power in the other, so here they are ``--ctm-beta`` and ``--dwc-beta``
+(with ``--beta-prime`` following its partner to ``--dwc-beta-prime``). Every
 other flag keeps the name it has in its source script.
 
 Run from the repo root::
 
-    python scripts/profile_ctm_dwpt_pipeline.py \\
+    python scripts/profile_ctm_dwc_pipeline.py \\
         --freeway scripts/output/1mi_case_study/freeway.csv \\
         --cells   scripts/output/1mi_case_study/cells.csv \\
         --timeseries-dir data/pems/csv_files \\
@@ -42,7 +42,7 @@ Run from the repo root::
         --start "2022-04-12 06:00" \\
         --end   "2022-04-12 09:00" \\
         --alpha 3.5 --lambda-gap 0.5 --delta 1.0 \\
-        --dwpt-beta 150000 --dwpt-beta-prime 150000 \\
+        --dwc-beta 150000 --dwc-beta-prime 150000 \\
         --dx-grid 0.5 --eta-ev 0.3
 """
 
@@ -65,9 +65,9 @@ from transportation_models.utils.ctm import (
     scenario_from_dataframes,
     simulate,
 )
-from transportation_models.utils.dwpt.adapter import corridor_from_ctm, mainline_vht
-from transportation_models.utils.dwpt.demand import compute
-from transportation_models.utils.dwpt.model import PadSpec
+from transportation_models.utils.dwc.adapter import corridor_from_ctm, mainline_vht
+from transportation_models.utils.dwc.demand import compute
+from transportation_models.utils.dwc.model import PadSpec
 
 
 # Both helpers are verbatim copies from the two scripts this one fuses; kept
@@ -143,34 +143,34 @@ def main() -> None:
               "This is simulate_ctm_corridor.py's --beta, renamed here."),
     )
 
-    dwpt = parser.add_argument_group("DWPT stage (scripts/generate_dwpt_demand.py)")
-    dwpt.add_argument(
-        "--alpha", required=True, type=float, help="DWPT Tx pad length (meters)",
+    dwc = parser.add_argument_group("DWC stage (scripts/generate_dwc_demand.py)")
+    dwc.add_argument(
+        "--alpha", required=True, type=float, help="DWC Tx pad length (meters)",
     )
-    dwpt.add_argument(
+    dwc.add_argument(
         "--lambda-gap", required=True, type=float,
-        help="DWPT Tx pad spacing (meters)",
+        help="DWC Tx pad spacing (meters)",
     )
-    dwpt.add_argument(
-        "--delta", required=True, type=float, help="DWPT Rx pad length (meters)",
+    dwc.add_argument(
+        "--delta", required=True, type=float, help="DWC Rx pad length (meters)",
     )
-    dwpt.add_argument(
-        "--dwpt-beta", required=True, type=float,
-        help=("DWPT Rx pad rated power (watts). This is "
-              "generate_dwpt_demand.py's --beta, renamed here."),
+    dwc.add_argument(
+        "--dwc-beta", required=True, type=float,
+        help=("DWC Rx pad rated power (watts). This is "
+              "generate_dwc_demand.py's --beta, renamed here."),
     )
-    dwpt.add_argument(
-        "--dwpt-beta-prime", required=True, type=float,
-        help=("DWPT Tx pad rated power (watts). This is "
-              "generate_dwpt_demand.py's --beta-prime, renamed to stay "
-              "paired with --dwpt-beta."),
+    dwc.add_argument(
+        "--dwc-beta-prime", required=True, type=float,
+        help=("DWC Tx pad rated power (watts). This is "
+              "generate_dwc_demand.py's --beta-prime, renamed to stay "
+              "paired with --dwc-beta."),
     )
-    dwpt.add_argument(
+    dwc.add_argument(
         "--dx-grid", required=True, type=float,
-        help="DWPT spatial resolution (meters)",
+        help="DWC spatial resolution (meters)",
     )
-    dwpt.add_argument(
-        "--eta-ev", required=True, type=float, help="DWPT EV fraction [0,1]",
+    dwc.add_argument(
+        "--eta-ev", required=True, type=float, help="DWC EV fraction [0,1]",
     )
 
     parser.add_argument(
@@ -183,7 +183,7 @@ def main() -> None:
     rss_baseline_mb = _peak_rss_mb()
     dt_h = float(args.dt_seconds) / 3600.0
 
-    print("=== fused CTM -> DWPT pipeline profile ===", file=sys.stderr)
+    print("=== fused CTM -> DWC pipeline profile ===", file=sys.stderr)
     print(f"  freeway      : {args.freeway}", file=sys.stderr)
     print(f"  ts dir       : {args.timeseries_dir}", file=sys.stderr)
     print(f"  dt           : {args.dt_seconds:.3f} s ({dt_h:.5f} h)", file=sys.stderr)
@@ -227,24 +227,24 @@ def main() -> None:
     ctm_wall_s = time.perf_counter() - t0
     rss_after_ctm_mb = _peak_rss_mb()
 
-    # ---- Stage 2: DWPT demand --------------------------------------------
-    # Same timed region as generate_dwpt_demand.py. sim_result stays live
+    # ---- Stage 2: DWC demand --------------------------------------------
+    # Same timed region as generate_dwc_demand.py. sim_result stays live
     # throughout -- that overlap is exactly what the fused peak captures.
     pad = PadSpec(
         alpha=args.alpha, delta=args.delta, lambda_gap=args.lambda_gap,
-        beta=args.dwpt_beta, beta_prime=args.dwpt_beta_prime,
+        beta=args.dwc_beta, beta_prime=args.dwc_beta_prime,
     )
     t0 = time.perf_counter()
     corridor = corridor_from_ctm(sim_result, pad, args.dx_grid)
     demand = compute(mainline_vht(sim_result), corridor, args.eta_ev)
-    dwpt_wall_s = time.perf_counter() - t0
-    rss_after_dwpt_mb = _peak_rss_mb()
+    dwc_wall_s = time.perf_counter() - t0
+    rss_after_dwc_mb = _peak_rss_mb()
 
     # Untimed, matching both source scripts.
     metrics = compute_metrics(sim_result)
 
-    pipeline_wall_s = setup_wall_s + ctm_wall_s + dwpt_wall_s
-    pipeline_peak_rss_mb = rss_after_dwpt_mb
+    pipeline_wall_s = setup_wall_s + ctm_wall_s + dwc_wall_s
+    pipeline_peak_rss_mb = rss_after_dwc_mb
     horizon_h = n_steps * dt_h
 
     out_dir = (
@@ -255,7 +255,7 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     summary_lines = [
-        "=== fused CTM -> DWPT pipeline profile ===",
+        "=== fused CTM -> DWC pipeline profile ===",
         f"  freeway      : {args.freeway}",
         f"  cells        : {freeway.n_cells}",
         f"  window       : [{args.start}, {args.end})  ({horizon_h:.3f} h)",
@@ -274,15 +274,15 @@ def main() -> None:
         "  runtime breakdown:",
         f"    input loading : {setup_wall_s:8.3f}  s",
         f"    CTM sim       : {ctm_wall_s:8.3f}  s",
-        f"    DWPT demand   : {dwpt_wall_s:8.3f}  s",
+        f"    DWC demand   : {dwc_wall_s:8.3f}  s",
         "",
         "  RSS high-water marks (monotonic -- each includes all prior stages):",
         f"    at startup      : {rss_baseline_mb:8.1f}  MB",
         f"    after loading   : {rss_after_setup_mb:8.1f}  MB",
         f"    after CTM sim   : {rss_after_ctm_mb:8.1f}  MB",
-        f"    after DWPT      : {rss_after_dwpt_mb:8.1f}  MB   <- pipeline peak",
-        f"    DWPT stage raised the high-water mark by "
-        f"{rss_after_dwpt_mb - rss_after_ctm_mb:.1f} MB",
+        f"    after DWC      : {rss_after_dwc_mb:8.1f}  MB   <- pipeline peak",
+        f"    DWC stage raised the high-water mark by "
+        f"{rss_after_dwc_mb - rss_after_ctm_mb:.1f} MB",
         f"    peak net of startup baseline: "
         f"{pipeline_peak_rss_mb - rss_baseline_mb:.1f} MB",
         "",
@@ -292,7 +292,7 @@ def main() -> None:
         f"    delay              = {metrics.delay.sum():12.3f}  veh*h",
         f"    productivity loss  = {metrics.productivity_loss.sum():12.3f}  mi*h",
         "",
-        "  DWPT demand:",
+        "  DWC demand:",
         f"    corridor length     : {corridor.corridor_length_m:.3e} m",
         f"    Energy delivered    : {demand.E.sum():.3e} Wh",
         f"    Peak corridor power : "

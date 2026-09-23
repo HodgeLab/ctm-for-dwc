@@ -1,10 +1,10 @@
-"""DWPT demand module.
+"""DWC demand module.
 
 Adapts the mCONV method of Newbolt 2024a to consume macroscopic CTM
-outputs and produce a spatiotemporal DWPT demand profile.
+outputs and produce a spatiotemporal DWC demand profile.
 
-- Spec: ``docs/dwpt_demand_module.md``
-- Plan: ``docs/dwpt_demand_implementation_plan.md``
+- Spec: ``docs/dwc_demand_module.md``
+- Plan: ``docs/dwc_demand_implementation_plan.md``
 """
 
 from .adapter import corridor_from_ctm, from_ctm

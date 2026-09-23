@@ -1,4 +1,4 @@
-"""Spatial submodule for the DWPT demand module.
+"""Spatial submodule for the DWC demand module.
 
 Pure NumPy array-construction functions for the conventional mCONV spatial
 dependence (Newbolt 2024a, Algorithms 1-2): the Tx pad profile ``S_T``, the
@@ -7,7 +7,7 @@ Rx pad kernel ``S_R``, and the modified Toeplitz traversal matrix ``T_R``.
 All functions operate on grid-unit integers (positions), not meters. The
 meter->grid conversion and its validation live in ``CorridorSpec`` (see
 ``model.py``), whose ``*_grid`` properties feed these functions. See
-``docs/dwpt_demand_module.md`` §"Reference Algorithms (Newbolt 2024a)".
+``docs/dwc_demand_module.md`` §"Reference Algorithms (Newbolt 2024a)".
 """
 
 from __future__ import annotations
@@ -57,7 +57,7 @@ def build_T_R(S_R: np.ndarray, n: int) -> np.ndarray:
     return T_R
 
 
-# Empirical crossover (see scripts/benchmark_dwpt_convolution.py): direct
+# Empirical crossover (see scripts/benchmark_dwc_convolution.py): direct
 # np.convolve is O(n * delta_grid) and wins for small kernels; fftconvolve is
 # O(n log n) and wins once the Rx kernel exceeds ~this many grid positions.
 _AUTO_FFT_THRESHOLD = 256

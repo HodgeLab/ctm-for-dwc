@@ -1,26 +1,26 @@
-# Spec: DWPT Macro-vs-Micro Validation Harness (P7)
+# Spec: DWC Macro-vs-Micro Validation Harness (P7)
 
 > **SUPERSEDED.** The code this document specifies — `utils/microsim/` and
-> `scripts/run_dwpt_validation.py` — was removed when the repository was
-> refocused on the CTM-corridor-simulation → DWPT-charging-demand workstream.
+> `scripts/run_dwc_validation.py` — was removed when the repository was
+> refocused on the CTM-corridor-simulation → DWC-charging-demand workstream.
 > The macro-vs-micro validation is not part of that workstream. This spec is
 > kept for reference only; recover the implementation with
 > `git show pre-cleanup:<path>`.
 
 > Status: **DRAFT — awaiting review.** This is the Phase-1 specification for P7
-> of [dwpt_demand_implementation_plan.md](dwpt_demand_implementation_plan.md).
-> The plan/spec for the DWPT demand module itself remains
-> [dwpt_demand_module.md](dwpt_demand_module.md); this document specifies only
+> of [dwc_demand_implementation_plan.md](dwc_demand_implementation_plan.md).
+> The plan/spec for the DWC demand module itself remains
+> [dwc_demand_module.md](dwc_demand_module.md); this document specifies only
 > the validation harness and the microscopic reference it requires.
 
 ## Objective
 
 Build a **two-stage accuracy-vs-efficiency study** that grounds this repo's
-macroscopic (CTM + adapted mCONV) DWPT-demand pipeline against a from-scratch
+macroscopic (CTM + adapted mCONV) DWC-demand pipeline against a from-scratch
 implementation of the Newbolt microscopic simulation.
 
 **Source lineage (two papers, same authors).** The plan's "Newbolt 2024b" is
-*DWPT-Integrated Microscopic Traffic Flow for Distribution Grid Voltage
+*DWC-Integrated Microscopic Traffic Flow for Distribution Grid Voltage
 Stability Analysis* (NAPS 2024) — the two-lane microsim, but with a crude binary
 `±v` car-following rule (its eq 2). Its expanded successor, *A Novel Approach to
 Dual-Lane Microscopic Simulations…* (IEEE TTE 12(1), 2026), replaces that with a
@@ -70,7 +70,7 @@ In:
   (4 for I-880), using Newbolt's incentive + random lane-change model
   (eq 6–14, Table I, Alg 3) generalized from 2 to `N` lanes. Required to
   reproduce multi-lane flow and congestion for a fair comparison to PeMS.
-- **DWPT in all lanes; EVs have no charging-lane preference.** Tx pads span
+- **DWC in all lanes; EVs have no charging-lane preference.** Tx pads span
   every lane, so the macro (lane-agnostic `E = η_EV · VHT · P_y`) stays
   comparable in Stage 2. Consequently EVs and non-EVs share the **same**
   lane-change logic — Newbolt's EV charging-lane-seeking incentive (eq 13) is
@@ -88,11 +88,11 @@ In:
 Out of scope, **architecture left open**:
 - EV discharge / HVAC / lighting / SOC battery stack + priority-charging
   cutoff (eq 15–29, 33–39).
-- Lane-specific DWPT (single charging lane + Newbolt EV-seeking, eq 13) and a
+- Lane-specific DWC (single charging lane + Newbolt EV-seeking, eq 13) and a
   matching lane-specific macro mCONV — the faithful-Newbolt alternative to
-  "DWPT all lanes", deferred to keep Stage 2 macro-comparable now.
+  "DWC all lanes", deferred to keep Stage 2 macro-comparable now.
 - Per-class fleet mix (Newbolt's 10 vehicle models, Tables II–III); a single
-  homogeneous class is used, consistent with the DWPT module's v0.
+  homogeneous class is used, consistent with the DWC module's v0.
 
 ## Inputs (per corridor)
 
@@ -119,20 +119,20 @@ driver fails loudly with the missing path if it is absent.
 
 ## Tech Stack
 
-- Python ≥ 3.10, NumPy core (matching the DWPT module). `pandas` for the
+- Python ≥ 3.10, NumPy core (matching the DWC module). `pandas` for the
   validation-CSV / timeseries I/O. `matplotlib` (Agg in tests) for figures.
   No new heavy dependencies.
 - Reuses `transportation_models.utils.ctm` (`SimulationResult`,
-  `compare_against_historical`) and `transportation_models.utils.dwpt`
+  `compare_against_historical`) and `transportation_models.utils.dwc`
   (`build_P_y`, `compute`, `CorridorSpec`, `PadSpec`).
 
 ## Commands
 
 ```
-Test (this work):  pytest tests/test_microsim_*.py tests/test_dwpt_validation*.py
+Test (this work):  pytest tests/test_microsim_*.py tests/test_dwc_validation*.py
 Test (full suite): pytest
 Lint:              (none configured in repo; match existing style)
-Run the study:     python scripts/run_dwpt_validation.py --case-dir scripts/output/1mi_case_study
+Run the study:     python scripts/run_dwc_validation.py --case-dir scripts/output/1mi_case_study
 Slow/opt-in tests: pytest -m slow      # macro-vs-micro equivalence harness
 ```
 
@@ -154,14 +154,14 @@ src/transportation_models/utils/microsim/
   charging.py        # original mCONV over trajectories (eq 30–32), reuses build_P_y
   examples.py        # synthetic corridors; uniform-density fixture
 
-scripts/run_dwpt_validation.py   # case-dir → micro run → Stage 1 + Stage 2 → figures/tables
+scripts/run_dwc_validation.py   # case-dir → micro run → Stage 1 + Stage 2 → figures/tables
 tests/test_microsim_*.py         # gipps, seeding, aggregate, charging — hand-calc + property
-tests/test_dwpt_validation.py    # Stage-2 macro-vs-micro equivalence (marked slow)
+tests/test_dwc_validation.py    # Stage-2 macro-vs-micro equivalence (marked slow)
 ```
 
 ## Code Style
 
-Match the DWPT/CTM modules: NumPy-only pure functions where possible, frozen
+Match the DWC/CTM modules: NumPy-only pure functions where possible, frozen
 dataclasses with `__post_init__` validation, NumPy-style docstrings, grid/SI
 units fixed at one validated boundary. Example (the Gipps safe-velocity step):
 
@@ -188,11 +188,11 @@ def safe_velocity(v: float, gap: float, *, b: float, dt: float, s0: float) -> fl
 
 Units convention: microsim internals in **SI (m, s, m/s)** (Gipps is naturally
 metric); the aggregator converts to the validation schema's **veh/mi, veh/h,
-mi/h** at the seam, mirroring how the DWPT adapter converts miles→m once.
+mi/h** at the seam, mirroring how the DWC adapter converts miles→m once.
 
 ## Testing Strategy
 
-`pytest` (config in `pyproject.toml`, `testpaths=["tests"]`). Mirror the DWPT
+`pytest` (config in `pyproject.toml`, `testpaths=["tests"]`). Mirror the DWC
 module's four-layer strategy:
 
 1. **Per-function hand calculations** — small inputs, round numbers:
@@ -226,7 +226,7 @@ slow harness is opt-in (not on the default `pytest` path's fast subset).
 - **Ask first:** adding any dependency (e.g., a traffic-sim library — the intent
   is from-scratch); changing the `validation.csv` schema; introducing the
   dual-lane or battery-stack code paths now (deferred); editing the shared
-  `dwpt_demand_module.md` source-of-truth.
+  `dwc_demand_module.md` source-of-truth.
 - **Never:** commit data or secrets; remove or weaken the `< 1e-6` uniform-limit
   test to make a run pass; "clean" NaN rows out of PeMS 5-min grids; vendor or
   copy Newbolt source (we have only the paper).
@@ -247,7 +247,7 @@ slow harness is opt-in (not on the default `pytest` path's fast subset).
 5. The study runs across **≥2 corridor lengths** (starting with
    `1mi_case_study`) and the results are presented comparably across lengths.
 6. README/module map updated to mention the `microsim` package and the
-   `run_dwpt_validation.py` entrypoint.
+   `run_dwc_validation.py` entrypoint.
 
 ## Resolved Decisions
 
@@ -260,10 +260,10 @@ slow harness is opt-in (not on the default `pytest` path's fast subset).
 2. **On-ramp inflow — mainline-only.** The microsim models upstream mainline
    inflow only, mirroring the `sim_no_ramps/` CTM artifact the study consumes
    and keeping Stage 1 like-for-like. The 1-mile on-ramp (`on_ramp_vds_id
-   402960`) is not injected. (Consistent with the DWPT ramp-handling assumption.)
+   402960`) is not injected. (Consistent with the DWC ramp-handling assumption.)
 3. **Stage-2 realistic regime — actual corridor now, sweep later.** Report the
    divergence on the real CTM/micro density field of the case-study corridor
-   this round. The synthetic within-cell gradient sweep (`dwpt_demand_module.md`
+   this round. The synthetic within-cell gradient sweep (`dwc_demand_module.md`
    validation item 2) is a documented future/stretch item, not built now.
 
 ### Adopted defaults (in effect unless flagged before the Plan phase)
@@ -291,9 +291,9 @@ slow harness is opt-in (not on the default `pytest` path's fast subset).
    Newbolt's incentive + random lane-change (eq 6–14, Table I, Alg 3)
    generalized to `N` lanes. Replaces the single-lane scope, which could not
    reproduce multi-lane capacity/congestion vs. PeMS.
-7. **DWPT in all lanes; EVs no lane preference.** Keeps the lane-agnostic macro
+7. **DWC in all lanes; EVs no lane preference.** Keeps the lane-agnostic macro
    comparable in Stage 2; EVs and non-EVs share lane-change logic (Newbolt's
-   EV-seeking eq 13 dropped — see Deviations). Lane-specific DWPT + a
+   EV-seeking eq 13 dropped — see Deviations). Lane-specific DWC + a
    lane-specific macro is the deferred faithful-Newbolt alternative.
 8. **Seed from raw PeMS timeseries via a Poisson process.** Both macro and
    micro inputs derive from the same raw PeMS source (mainline boundary VDS
@@ -362,7 +362,7 @@ Grouped by kind; **awaiting disposition**.
 Faithful reproduction is the goal, but some of the published model is not
 usable as-is for this study; each divergence is documented:
 
-- **EV charging-lane-seeking dropped (eq 13).** Because DWPT spans all lanes
+- **EV charging-lane-seeking dropped (eq 13).** Because DWC spans all lanes
   here (decision 7, to keep the macro comparable), EVs have no reason to prefer
   a lane, so EVs and non-EVs share the same lane-change logic. Newbolt's
   EV-specific incentive (eq 13), which presumes a single charging lane, is not
@@ -397,9 +397,9 @@ usable as-is for this study; each divergence is documented:
 model.py ─┬─→ gipps.py ──────┐
           ├─→ seeding.py ─────┼─→ simulate.py ─┬─→ aggregate.py ─┐
           └─→ examples.py ────┘                └─→ charging.py ──┤
-                                                                 └─→ scripts/run_dwpt_validation.py
+                                                                 └─→ scripts/run_dwc_validation.py
                        (reuse) ctm.compare_against_historical ───┘
-                       (reuse) dwpt.build_P_y / dwpt.compute  ───┘
+                       (reuse) dwc.build_P_y / dwc.compute  ───┘
 ```
 
 | Component | Role | Depends on | New/Reuse |
@@ -409,9 +409,9 @@ model.py ─┬─→ gipps.py ──────┐
 | `seeding.py` | `boundary_inflow.csv` → vehicle entry times (Monte-Carlo) + initial velocity ~ `U(45,90 mph)` (→ per-vehicle `v_MAX`) | `model` | New |
 | `simulate.py` | single-lane main loop (Alg 1–2), vectorized across active vehicles → `MicrosimResult` | `gipps`, `seeding`, `model` | New |
 | `aggregate.py` | trajectories → per-cell (density, flow) via Edie, on the 5-min grid | `model` | New |
-| `charging.py` | original mCONV (eq 30–32): index `P_y` at each vehicle position, integrate over time → micro demand | `dwpt.build_P_y`, `model` | New + reuse |
+| `charging.py` | original mCONV (eq 30–32): index `P_y` at each vehicle position, integrate over time → micro demand | `dwc.build_P_y`, `model` | New + reuse |
 | `examples.py` | synthetic corridors; deterministic uniform-density fixture | `model` | New |
-| `run_dwpt_validation.py` | case-dir → micro run → Stage 1 + Stage 2 → tables/figures | all + `ctm`, `dwpt` | New |
+| `run_dwc_validation.py` | case-dir → micro run → Stage 1 + Stage 2 → tables/figures | all + `ctm`, `dwc` | New |
 
 ### Implementation order (critical path + parallelism)
 
@@ -421,12 +421,12 @@ model.py ─┬─→ gipps.py ──────┐
 3. **`simulate.py`** — composes 1–2 into the loop. Critical path.
 4. **`aggregate.py`** and **`charging.py`** — both consume `simulate` output but
    are independent of each other; parallelizable.
-5. **`run_dwpt_validation.py`** — last; wires everything to the case dir and the
+5. **`run_dwc_validation.py`** — last; wires everything to the case dir and the
    reused `compare_against_historical` / `compute`.
 
 Sequential critical path: `model → gipps → simulate → {aggregate | charging} →
 driver`. Parallel opportunities: (gipps ∥ seeding ∥ examples), then (aggregate ∥
-charging). TDD per function throughout (test-first, per the DWPT module's habit).
+charging). TDD per function throughout (test-first, per the DWC module's habit).
 
 ### Stage wiring at the seams
 
@@ -438,7 +438,7 @@ charging). TDD per function throughout (test-first, per the DWPT module's habit)
   comparator is **reused unchanged**; the CTM-side `validation.csv` already
   exists. Add wall-clock timing around each engine.
 - **Stage 2:** `charging.py` produces the micro demand profile; the adapted side
-  is the existing `dwpt.compute`/`from_ctm`. Compare corridor-aggregate energy.
+  is the existing `dwc.compute`/`from_ctm`. Compare corridor-aggregate energy.
 
 ### Risks and mitigations
 
@@ -480,8 +480,8 @@ charging). TDD per function throughout (test-first, per the DWPT module's habit)
 | CP2 | `seeding` | constant inflow → expected vehicle count + headways; velocity draws in `[45,90] mph` |
 | CP3 | `simulate` | invariants on a synthetic corridor: `gap ≥ 0` (no overlap), `v ∈ [v_MIN, v_MAX]` |
 | CP4 | `aggregate` | Edie exact on uniform fixture (`ρ=N/L`, `q=N·v/L`); micro `validation.csv` produced via reused comparator |
-| CP5 | `charging` | single-vehicle constant-v hand-calc (`∫P_y dt`); **uniform-density `< 1e-6`** equivalence vs `dwpt.compute` |
-| CP6 | `run_dwpt_validation.py` | end-to-end on `1mi_case_study`: Stage-1 table (micro vs PeMS + compute) + Stage-2 divergence; marked `slow` |
+| CP5 | `charging` | single-vehicle constant-v hand-calc (`∫P_y dt`); **uniform-density `< 1e-6`** equivalence vs `dwc.compute` |
+| CP6 | `run_dwc_validation.py` | end-to-end on `1mi_case_study`: Stage-1 table (micro vs PeMS + compute) + Stage-2 divergence; marked `slow` |
 
 CP5's `< 1e-6` is the headline regression test; CP1–CP4 are fast unit layers; CP6
 is the opt-in end-to-end harness.
@@ -499,7 +499,7 @@ is the opt-in end-to-end harness.
     `seed`, `PadSpec`, per-cell `length`/`v_f`), `Vehicle` (position, velocity,
     `v_max`, `is_ev`, entry step), `MicrosimResult` (trajectory arrays +
     timestep/cell axes). `__post_init__` validates positivity and units (SI
-    internally), mirroring `dwpt/model.py`.
+    internally), mirroring `dwc/model.py`.
   - Verify: `pytest tests/test_microsim_model.py` — field values, validation
     rejects non-positive params, derived properties.
   - Files: `utils/microsim/__init__.py`, `utils/microsim/model.py`,
@@ -553,35 +553,35 @@ is the opt-in end-to-end harness.
   - Files: `utils/microsim/aggregate.py`, `tests/test_microsim_aggregate.py`.
 
 - [ ] **T7 — `charging.py`: original mCONV + uniform-limit equivalence (CP5).**
-  - Acceptance: `micro_demand(result, pad, eta_EV)` indexes `dwpt.build_P_y` at
+  - Acceptance: `micro_demand(result, pad, eta_EV)` indexes `dwc.build_P_y` at
     each vehicle's position per step and integrates (eq 30–32) → micro demand
     profile + corridor-aggregate energy. No SOC/discharge.
   - Verify: `pytest tests/test_microsim_charging.py` — single-vehicle constant-v
-    hand calc (`∫ P_y dt`). `pytest -m slow tests/test_dwpt_validation.py` —
-    **uniform-density limit: corridor-aggregate micro energy vs `dwpt.compute`
+    hand calc (`∫ P_y dt`). `pytest -m slow tests/test_dwc_validation.py` —
+    **uniform-density limit: corridor-aggregate micro energy vs `dwc.compute`
     relative error `< 1e-6`** (the headline regression test).
   - Files: `utils/microsim/charging.py`, `tests/test_microsim_charging.py`,
-    `tests/test_dwpt_validation.py`.
+    `tests/test_dwc_validation.py`.
 
-- [ ] **T8 — `run_dwpt_validation.py`: study driver (CP6).**
+- [ ] **T8 — `run_dwc_validation.py`: study driver (CP6).**
   - Acceptance: `--case-dir` → seed + simulate micro → Stage 1 (Edie aggregate +
     `compare_against_historical` for micro; read existing CTM `validation.csv`;
-    wall-clock time both engines) → Stage 2 (`micro_demand` vs `dwpt.compute`
+    wall-clock time both engines) → Stage 2 (`micro_demand` vs `dwc.compute`
     divergence on the actual corridor field) → writes a Stage-1 comparison table
     and Stage-2 divergence + figures. Fails loudly if PeMS timeseries absent.
     Register the `slow` marker in `pyproject.toml` if not present.
-  - Verify: `python scripts/run_dwpt_validation.py --case-dir
+  - Verify: `python scripts/run_dwc_validation.py --case-dir
     scripts/output/1mi_case_study` emits the table + figures;
-    `pytest -m slow tests/test_dwpt_validation.py` end-to-end smoke passes.
-  - Files: `scripts/run_dwpt_validation.py`, `tests/test_dwpt_validation.py`,
+    `pytest -m slow tests/test_dwc_validation.py` end-to-end smoke passes.
+  - Files: `scripts/run_dwc_validation.py`, `tests/test_dwc_validation.py`,
     `pyproject.toml`.
 
 - [ ] **T9 — Wire-up + docs.**
   - Acceptance: `utils/microsim/__init__.py` exports the public API; `README.md`
-    module map mentions `microsim` + the driver; `dwpt_demand_implementation_plan.md`
+    module map mentions `microsim` + the driver; `dwc_demand_implementation_plan.md`
     P7 progress-log entry added (date, what shipped, what was learned).
   - Verify: `pytest` (full suite green); `python -c "import
     transportation_models.utils.microsim"` succeeds; README/plan reviewed.
   - Files: `utils/microsim/__init__.py`, `README.md`,
-    `docs/dwpt_demand_implementation_plan.md`.
+    `docs/dwc_demand_implementation_plan.md`.
 ```
