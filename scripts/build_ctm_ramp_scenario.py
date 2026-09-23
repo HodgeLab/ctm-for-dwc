@@ -16,11 +16,8 @@ Dispatch per ramp VDS (following the Step-7 decision flowchart):
   ``--estimator`` chosen on the CLI:
 
   * ``none`` -- they get **zero** flow with a warning (the no-ML baseline);
-  * ``gru`` / ``kan`` -- the chosen **estimator** predicts the pair (GRU
-    torch checkpoint / Kan joblib checkpoint from
-    ``compare_ramp_flow_estimators.py --save-kan``). Kan additionally needs
-    ``--station-meta`` (calibrated) to rebuild its weaving capacity ``C_w``
-    per stretch.
+  * ``gru`` -- the **estimator** predicts the pair from a GRU torch
+    checkpoint (``train_ramp_flow_gru.py``).
 
 Virtual VDS ids (e.g. ``'v400001'`` -- ramps that physically exist but are
 absent from PeMS) are "completely absent" by construction. Conservation and
@@ -28,7 +25,7 @@ estimator predictions cover a stretch side's *total* ramp flow, so when an
 absent ramp shares its stretch side with measured detectors, their
 (gap-filled) flows are subtracted from the estimate before it is assigned.
 
-Warmup edge case (estimator path only). The GRU/Kan feature vector for the
+Warmup edge case (estimator path only). The GRU feature vector for the
 prediction step at ``--start`` needs its ``window_size - 1`` preceding lags,
 so ``_build_feature_matrix`` extends the mainline grid back by
 ``(window_size - 1) * 5min`` before ``--start``. If the downloaded timeseries
@@ -68,7 +65,6 @@ import pandas as pd
 from transportation_models.utils.ctm import gap_aware_fill
 from transportation_models.utils.ctm.assembly import parse_ramp_vds_ids
 from transportation_models.utils.ramp_flow_estimation.gru import GruEstimator
-from transportation_models.utils.ramp_flow_estimation.kan import KanEstimator
 
 _FLOW = "total_flow_[veh/5-min]"
 _SPEED = "avg_speed_[mph]"
@@ -270,27 +266,18 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--stretches", required=True, type=Path)
     parser.add_argument("--timeseries-dir", required=True, type=Path)
     parser.add_argument("--estimator", default="none",
-                        choices=["none", "gru", "kan"],
+                        choices=["none", "gru"],
                         help="Estimator for absent type-(c) ramp pairs. Gap fill "
                              "(short gaps persisted, longer historical-averaged) "
                              "and type-(a)/(b) conservation are always active "
                              "regardless; this choice governs only absent "
                              "type-(c) ramps -- none = 0 (no estimator, the "
-                             "default no-ML baseline), gru/kan = the chosen "
-                             "estimator.")
+                             "default no-ML baseline), gru = the estimator.")
     parser.add_argument("--gru-checkpoint", type=Path, default=None,
                         help="GruEstimator checkpoint (required with --estimator gru).")
     parser.add_argument("--manifest", type=Path, default=None,
                         help="Split manifest of the GRU's training corpus; supplies "
                              "the feature window size (required with --estimator gru).")
-    parser.add_argument("--kan-checkpoint", type=Path, default=None,
-                        help="KanEstimator joblib checkpoint from "
-                             "compare_ramp_flow_estimators.py --save-kan "
-                             "(required with --estimator kan).")
-    parser.add_argument("--station-meta", type=Path, default=None,
-                        help="Calibrated station metadata (Station ID, capacity, "
-                             "Lanes) for Kan's weaving capacity C_w "
-                             "(required with --estimator kan).")
     parser.add_argument("--start", required=True, type=pd.Timestamp)
     parser.add_argument("--end", required=True, type=pd.Timestamp)
     parser.add_argument("--dt-seconds", required=True, type=float,
@@ -300,8 +287,6 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.estimator == "gru" and (args.gru_checkpoint is None or args.manifest is None):
         parser.error("--estimator gru requires --gru-checkpoint and --manifest")
-    if args.estimator == "kan" and (args.kan_checkpoint is None or args.station_meta is None):
-        parser.error("--estimator kan requires --kan-checkpoint and --station-meta")
 
     cells_df = pd.read_csv(args.cells)
     stretches_df = pd.read_csv(args.stretches)
@@ -321,14 +306,8 @@ def main(argv: list[str] | None = None) -> None:
         estimator = GruEstimator.load(args.gru_checkpoint)
         manifest = json.loads(Path(args.manifest).read_text())
         window_size = int(manifest.get("corpus", {}).get("window_size", 3))
-        c_w_by_ml = None
-    elif args.estimator == "kan":
-        estimator = KanEstimator.load(args.kan_checkpoint)
-        window_size = estimator.n_feature_lags
-        meta = pd.read_csv(args.station_meta).set_index("Station ID")
-        c_w_by_ml = (meta["capacity"] * meta["Lanes"]).to_dict()
     else:
-        estimator, window_size, c_w_by_ml = None, None, None
+        estimator, window_size = None, None
 
     on_to_stretch = _vds_to_stretch_map(stretches_df, "on_ids")
     off_to_stretch = _vds_to_stretch_map(stretches_df, "off_ids")
@@ -342,18 +321,7 @@ def main(argv: list[str] | None = None) -> None:
         if key not in pair_cache:
             X = _build_feature_matrix(key[0], key[1], ts_dir,
                                       start=start, end=end, window_size=window_size)
-            if args.estimator == "gru":
-                pair_cache[key] = estimator.predict_flows(X)
-            else:                                        # kan
-                c_w = float(c_w_by_ml.get(key[0], np.nan))
-                if not np.isfinite(c_w):
-                    print(f"  WARN: up ML {key[0]} has no calibrated capacity; "
-                          "Kan cannot reconstruct this stretch; using 0",
-                          file=sys.stderr)
-                    pair_cache[key] = (np.zeros(T5), np.zeros(T5))
-                else:
-                    ctx = {"c_w": np.full(T5, c_w)}
-                    pair_cache[key] = estimator.predict_flows(X, ctx=ctx)
+            pair_cache[key] = estimator.predict_flows(X)
         return pair_cache[key]
 
     def _absent_ramp_flow(vds_id, stretch_map, ids_col, *, is_on_ramp) -> np.ndarray:

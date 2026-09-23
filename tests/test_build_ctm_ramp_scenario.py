@@ -230,34 +230,6 @@ def test_estimator_gru_estimates_absent_ramp(tmp_path):
     assert (beta["1"] > 0).all() and (beta["1"] < 1).all()
 
 
-def test_estimator_kan_estimates_absent_ramp(tmp_path):
-    from transportation_models.utils.ramp_flow_estimation.kan import KanEstimator
-    from transportation_models.utils.ramp_flow_estimation import bounds
-
-    base, out_dir = _estimator_case(tmp_path)
-    rng = np.random.default_rng(0)
-    q_up = rng.uniform(800.0, 1600.0, 200)
-    q_down = q_up + 200.0
-    # window_size 1 -> 6 traffic features + [dow, hour, slot] = 9 columns.
-    X = np.column_stack([q_up, np.full(200, 60.0), np.full(200, 0.05),
-                         q_down, np.full(200, 55.0), np.full(200, 0.06),
-                         rng.integers(0, 7, 200), rng.integers(0, 24, 200),
-                         rng.integers(0, 12, 200)])
-    alpha = np.full(200, 0.3)
-    r, s = bounds.reconstruct_pair(alpha, q_up, q_down, 6000.0)
-    kan = KanEstimator("rf", n_estimators=10, random_state=0).fit(
-        X, r, s, ctx={"c_w": np.full(200, 6000.0)})
-    ckpt = tmp_path / "kan.joblib"; kan.save(ckpt)
-    meta = tmp_path / "meta.csv"
-    pd.DataFrame({"Station ID": [100], "capacity": [2000.0],
-                  "Lanes": [3]}).to_csv(meta, index=False)
-
-    main(base + ["--estimator", "kan", "--kan-checkpoint", str(ckpt),
-                 "--station-meta", str(meta)])
-    beta = pd.read_csv(out_dir / "beta.csv")
-    assert (beta["1"] >= 0).all() and (beta["1"] < 1).all()
-
-
 def test_estimator_gru_requires_checkpoint_and_manifest(tmp_path):
     import pytest
     base, _ = _estimator_case(tmp_path)

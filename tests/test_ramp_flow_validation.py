@@ -11,29 +11,8 @@ import pytest
 from transportation_models.utils.ramp_flow_estimation.features import TrainingData
 from transportation_models.utils.ramp_flow_estimation.validation import (
     flow_metrics,
-    leave_k_out,
-    run_scenarios,
-    slice_ctx,
     train_val_test_split,
 )
-
-
-class _FakeEstimator:
-    """Fits nothing; always predicts zero ramp flows. Records the ctx it saw."""
-
-    def __init__(self):
-        self.fit_ctx = None
-
-    def fit(self, X, r, s, ctx=None):
-        self.fit_ctx = ctx
-        return self
-
-    def predict_flows(self, X, ctx=None):
-        return np.zeros(len(X)), np.zeros(len(X))
-
-
-def _fake_factory():
-    return lambda: _FakeEstimator()
 
 
 def _data(n_stretch=3, per=10, seed=0, r_value=None):
@@ -86,50 +65,6 @@ def test_flow_metrics_nbias_nan_when_true_flows_sum_to_zero():
     assert np.isnan(m["nbias_on"])
 
 
-def test_leave_one_out_covers_each_stretch_once():
-    res = leave_k_out(_data(3), k=1, estimator_factory=_fake_factory())
-    assert res["n_combos"] == 3
-    assert sorted(c["holdout"] for c in res["per_combo"]) == [(0,), (1,), (2,)]
-    assert "mean" in res and "nrmse" in res["mean"]
-
-
-def test_leave_k_out_enumerates_all_pairs():
-    res = leave_k_out(_data(4), k=2, estimator_factory=_fake_factory())
-    assert res["n_combos"] == 6                    # C(4, 2)
-
-
-def test_leave_k_out_samples_when_capped():
-    res = leave_k_out(_data(4), k=2, estimator_factory=_fake_factory(),
-                      max_combos=3, random_state=0)
-    assert res["n_combos"] == 3
-    assert all(len(c["holdout"]) == 2 for c in res["per_combo"])
-    assert len({c["holdout"] for c in res["per_combo"]}) == 3   # distinct
-
-
-def test_ctx_sliced_with_the_same_masks():
-    data = _data(3)
-    seen = []
-
-    class _Spy(_FakeEstimator):
-        def fit(self, X, r, s, ctx=None):
-            seen.append((len(X), None if ctx is None else len(ctx["c_w"])))
-            return self
-
-    ctx = {"c_w": np.arange(len(data.r_true), dtype=float)}
-    leave_k_out(data, k=1, ctx=ctx, estimator_factory=lambda: _Spy())
-    assert all(n_rows == n_ctx for n_rows, n_ctx in seen)
-
-
-def test_slice_ctx_none_passes_through():
-    assert slice_ctx(None, np.array([True, False])) is None
-
-
-def test_run_scenarios_one_row_per_k():
-    df = run_scenarios(_data(4), ks=(1, 2), estimator_factory=_fake_factory())
-    assert list(df["k"]) == [1, 2]
-    assert "nrmse_mean" in df.columns and "nrmse_std" in df.columns
-
-
 def test_split_partitions_rows_by_stretch():
     data = _data(4)
     sp = train_val_test_split(data, seed=0)
@@ -165,8 +100,3 @@ def test_split_rejects_bad_ids():
         train_val_test_split(_data(2))
 
 
-def test_all_nan_metric_aggregates_to_nan_without_warning(recwarn):
-    # constant on-ramp target -> undefined R^2
-    res = leave_k_out(_data(3, r_value=500.0), k=1, estimator_factory=_fake_factory())
-    assert np.isnan(res["mean"]["r2_on"])
-    assert not any(issubclass(w.category, RuntimeWarning) for w in recwarn.list)

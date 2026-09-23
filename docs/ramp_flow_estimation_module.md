@@ -8,9 +8,14 @@
 > optimize (`optimize_ramp_flows_diffsim.py`).
 >
 > Removed, and described here for reference only: the **Julia inverse-CTM QP**
-> (`julia/ramp_qp/`, `scripts/verify_ramp_qp.py`) and the **Zhang estimator**
-> (`zhang.py`, `zhang_features.py`, and the `*_zhang_*` scripts). Recover with
-> `git show pre-cleanup:<path>`.
+> (`julia/ramp_qp/`, `scripts/verify_ramp_qp.py`), the **Zhang estimator**
+> (`zhang.py`, `zhang_features.py`, and the `*_zhang_*` scripts), and the
+> **Kan estimator** (`kan.py`, `bounds.py`, `estimate_ramp_flows_kan.py`,
+> `compare_ramp_flow_estimators.py`) together with the leave-k-stretches-out
+> CV harness that scored it. Recover with `git show pre-cleanup:<path>`.
+>
+> The GRU is therefore the only estimator, and `validation.py` now provides
+> scoring (`flow_metrics`) and the fixed stretch-level split only.
 
 A fundamental issue in traffic flow modeling is the existence of missing ramp flows, which are critical boundary conditions for freeway traffic simulation.
 The problem is described in detail in [ctm_module](ctm_module.md); here, we describe the different methods for estimating missing ramp flows. Most methods are specific to Type 1 estimation on stretches which are configuration type (c), except for the model-based optimization method.
