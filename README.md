@@ -24,7 +24,6 @@ one-offs (run these, don't import them).
 |---|---|
 | `utils/ctm/` | The core module: CTM data model, engine, and the whole OSM-to-simulation pipeline. See `docs/ctm_module.md`. |
 | `utils/dwc/` | DWC demand module: CTM `VHT` -> adapted mCONV -> spatiotemporal charging demand (`E`). See `docs/dwc_demand_module.md`. |
-| `utils/ramp_flow_estimation/` | Estimating missing ramp flows from mainline data (feature extraction, the GRU estimator, split manifest, scoring). See `docs/ramp_flow_estimation_module.md`. |
 | `utils/data_downloading.py` | `PeMSDownloader` / `PeMSExtractor` — scrape the PeMS clearinghouse. Adapted from Seb-Good/caltrans-pems. |
 | `utils/pems_settings.py` | PeMS URLs and district list for the downloader. |
 | `utils/plot_style.py` | Shared matplotlib style for paper figures (`PAPER_RC`, `COLUMN_W`, `PAPER_DPI`). |
@@ -57,19 +56,20 @@ assemble_ctm_freeway.py          # Step 6: -> freeway.csv
 
 Assembled corridors live in `case_studies/<corridor>/`.
 
-**Ramp flow estimation** (Step 7) — mainline detectors are well covered, ramps
-are not, so the missing ramp flows are estimated and then refined:
+**Ramp flows** (Step 7) — mainline detectors are well covered, ramps are not,
+so a starting ramp profile is built from the data and then refined through the
+CTM:
 
 ```
-build_pems_stretches.py          # the stretch corpus the estimator trains on
-train_ramp_flow_gru.py           # GRU estimator -> checkpoint
-build_ctm_ramp_scenario.py       # --estimator gru -> demand.csv, beta.csv
+build_pems_stretches.py          # stretch table (ramp configuration types)
+build_ctm_ramp_scenario.py       # gap fill + conservation -> demand.csv, beta.csv
 build_ctm_diffsim_inputs.py      # -> <case>/diffsim_inputs/ bundle
 augment_observed_grid.py         # impute unobserved cells of the bundle's grids
 optimize_ramp_flows_diffsim.py   # refine the ramp profiles through the exact CTM
 ```
 
-The GRU result seeds the optimizer; `optimize_ramp_flows_diffsim.py` produces
+`build_ctm_ramp_scenario.py` output seeds the optimizer (absent ramps with no
+conservation relation start at 0); `optimize_ramp_flows_diffsim.py` produces
 the ramp flows used for simulation.
 
 **Simulation and demand** (Steps 8-10):
