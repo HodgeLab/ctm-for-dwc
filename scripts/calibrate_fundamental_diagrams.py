@@ -33,8 +33,8 @@ Run from the repo root::
 
     # Override paths (e.g. when timeseries data lives on an external drive):
     python scripts/calibrate_fundamental_diagrams.py \\
-        --root-directory /Volumes/data/pems \\
-        --metadata /Volumes/data/pems/metadata/station_metadata.csv \\
+        --root-directory /path/to/pems \\
+        --metadata /path/to/pems/metadata/station_metadata.csv \\
         --out-dir scripts/output/fd_calibration
 """
 

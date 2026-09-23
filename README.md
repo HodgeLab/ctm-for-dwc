@@ -27,7 +27,6 @@ one-offs (run these, don't import them).
 | `utils/data_downloading.py` | `PeMSDownloader` / `PeMSExtractor` — scrape the PeMS clearinghouse. Adapted from Seb-Good/caltrans-pems. |
 | `utils/pems_settings.py` | PeMS URLs and district list for the downloader. |
 | `utils/plot_style.py` | Shared matplotlib style for paper figures (`PAPER_RC`, `COLUMN_W`, `PAPER_DPI`). |
-| `utils/constants.py` | Filesystem paths to the local PeMS data store. |
 
 Inside `utils/ctm/`, the pipeline stages map to modules: `osm.py` + `cells.py`
 (Step 1), `vds.py` (Step 2), `fd_calibration.py` (Step 4: fundamental
@@ -125,8 +124,10 @@ binning), and `--triangle-rtol` (triangle-consistency tolerance).
   `pytest -m network` / `pytest -m slow`.
 - Secrets are read from a gitignored `.env`: PeMS credentials
   (`PEMS_USERNAME` / `PEMS_PASSWORD`) and `WANDB_*`. Loaded via `python-dotenv`.
-- **Data is not in the repo.** Paths in `constants.py` point at an external
-  drive (`/Volumes/easystore/...`); some scripts hardcode HPC paths
-  (`/projects/rost5691/...`). Expect to repoint these for the current machine.
+- **Data is not in the repo.** Scripts take data locations as CLI flags
+  (`--timeseries-dir`, `--root-directory`, `--metadata`, ...), defaulting to
+  the gitignored `data/` directory under the repo root. Point the flags at
+  wherever the data lives on the current machine (or symlink it into
+  `data/`); no machine-specific paths are stored in tracked files.
 - `requirements.txt` is a full `pip freeze` snapshot and is not the source of
   truth for direct dependencies — `pyproject.toml` is.

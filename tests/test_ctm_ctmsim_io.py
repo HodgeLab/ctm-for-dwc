@@ -1,8 +1,7 @@
 """Tests for the CTMSIM .mat adapter in utils/ctm/io.py.
 
-Uses the I-210W ``w060412.mat`` config that ships with CTMSIM v1.1 as a
-fixture. The file lives outside the repo; tests skip cleanly if it's
-absent so the suite stays green in any environment.
+Uses the I-210W ``w060412.mat`` config that ships with CTMSIM v1.1 (bundled
+under ``utils/ctm/ctmsim_configs/``) as a fixture.
 """
 
 from __future__ import annotations
@@ -18,13 +17,12 @@ from ctm_for_dwc.utils.ctm import (
     freeway_from_ctmsim_mat,
 )
 
-CTMSIM_MAT = Path("/Users/robstallman/projects/ctmsim_v1_1/ctmsim_v1_1/i210/w060412.mat")
+REPO = Path(__file__).resolve().parents[1]
+CTMSIM_MAT = REPO / "src/ctm_for_dwc/utils/ctm/ctmsim_configs/w060412.mat"
 
 
 @pytest.fixture(scope="module")
 def mat_path() -> Path:
-    if not CTMSIM_MAT.exists():
-        pytest.skip(f"CTMSIM .mat file not found at {CTMSIM_MAT}")
     return CTMSIM_MAT
 
 
