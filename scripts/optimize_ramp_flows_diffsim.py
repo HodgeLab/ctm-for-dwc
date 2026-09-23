@@ -1,4 +1,4 @@
-"""Step 7 Level 3: differentiable forward-sim ramp-flow optimizer ("option B").
+"""Step 7 Level 3: differentiable forward-sim ramp-flow optimizer.
 
 Rather than the relaxed convex QP this replaced (a Julia solver, since
 removed -- recover it with `git show pre-cleanup:julia/`), this fits the ramp
@@ -7,7 +7,7 @@ descending the mainline density+flow error into the ramp `demand`/`beta` via
 autograd (`utils.ctm.diffsim`). Because it never leaves the exact dynamics, the
 recovered inputs round-trip by construction -- the transfer failure that made
 the relaxed QP degrade on longer corridors cannot occur (see
-docs/ramp_flow_estimation_module.md, "density transfers, flow does not").
+docs/ctm_module.md, Step 7, "Why not a convex QP").
 
 Decision variables (free, all ramps -- observed ramp data is held out as the
 test set): on-ramp-cell `demand` (>= 0 via clamp) and off-ramp-cell `beta`

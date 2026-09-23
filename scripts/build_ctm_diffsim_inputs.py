@@ -2,8 +2,8 @@
 
 The model-based ramp-flow imputer fits the CTM's mainline density and flow to
 observed PeMS data, with on-ramp admitted flow ``r_i(k)`` and off-ramp flow
-``s_i(k)`` as the free variables (see the Level 3 subsection of
-docs/ctm_module.md). This script prepares its inputs from the existing Python
+``s_i(k)`` as the free variables (see Step 7, "Refinement with diffsim (Level 3)",
+in docs/ctm_module.md). This script prepares its inputs from the existing Python
 pipeline and writes a self-contained CSV/JSON bundle.
 
 The bundle is consumed by ``scripts/optimize_ramp_flows_diffsim.py``, the
@@ -21,7 +21,7 @@ Bundle contents (written to ``--out-dir``):
                               masking as observed_density. Consumed by the
                               differentiable forward-sim optimizer, whose loss
                               also matches mainline flow (Step 7 Level 3,
-                              docs/ramp_flow_estimation_module.md).
+                              docs/ctm_module.md).
 * ``meta.json``            -- dt, horizon, 5-min stride, ramp structure +
                               capacities, direct/tiebreak cells, gamma/xi.
 

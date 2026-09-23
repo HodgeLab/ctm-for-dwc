@@ -4,7 +4,7 @@ The differentiable ramp optimizer (`optimize_ramp_flows_diffsim.py`) scores the
 mainline density+flow only at cells with a direct VDS, leaving unobserved cells
 free to drift to unrealistic values. This step fills the full
 ``(n_cells, n_5min)`` grid from the PeMS measurements before scoring
-(docs/ramp_flow_estimation_module.md, "Model-based optimization"):
+(docs/ctm_module.md, Step 7, "Refinement with diffsim"):
 
 * **Type 2** (a direct-VDS cell missing at some 5-min steps) is filled from the
   detector's own ``(day-of-week, time-of-day)`` history;

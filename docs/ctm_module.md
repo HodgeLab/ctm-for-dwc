@@ -715,9 +715,6 @@ schema as `freeway_to_dataframe`'s output minus the `gamma` / `xi`
 columns (which fall back to the cell defaults).
 
 ## Step 7: Ramp Flow Estimation
-Implemented in `scripts/build_ctm_ramp_scenario.py`; writes the `demand.csv` / `beta.csv` that 
-`scripts/simulate_ctm_corridor.py --demand --beta` consumes.
-
 Ramp flows are required boundary conditions in the CTM; they determine the number of vehicles 
 entering or exiting the simulation at each cell in each timestep. We obtain ramp flows directly 
 from the PeMS timeseries data, which presents a challenge for simulation when the data are missing.
@@ -728,13 +725,45 @@ treatment. We enumerate the two types of missing data as follows:
 the ramp is unavailable.
 2. In the ramps where VDSs have been installed, there may be gaps in the timeseries data.
 
-In either case, the missing data must be filled in with some kind of estimation, such that a 
-complete timeseries exists for the `demand` and `beta` calculations. The purpose of Step 7 is to
-perform this estimation.
+Step 7 runs in two stages:
 
-To handle the different cases, we follow the decision flowchart below. Each estimation strategy is discussed in detail.
+1. **Starting profile** (`scripts/build_ctm_ramp_scenario.py`) -- fill every ramp from the data
+   it has, following the decision flowchart below, and write `demand.csv` / `beta.csv`.
+2. **Refinement with diffsim** (`scripts/optimize_ramp_flows_diffsim.py`) -- fit *every* ramp's
+   `demand` / `beta` so the exact CTM reproduces observed mainline density and flow, starting
+   from the stage-1 profile. Its `demand.csv` / `beta.csv` are what
+   `scripts/simulate_ctm_corridor.py --demand --beta` consumes.
 
-![ramp_configs](ramp_estimation_decision_flowchart.png)
+```mermaid
+flowchart TD
+    start([start]) --> full{"ramp flow data<br/>completely present<br/>in window?"}
+    full -- yes --> seed
+    full -- no --> partial{"ramp flow data<br/>partially present?"}
+    partial -- yes --> hist["fill missing values using<br/>historical average & persistence"]
+    partial -- no --> config["determine ramp<br/>configuration"]
+    config -- "type (a), (b)" --> cons["fill missing values using<br/>flow conservation"]
+    config -- "type (c)" --> zero["start from zero flow"]
+    hist --> seed
+    cons --> seed
+    zero --> seed
+    seed["starting profile<br/>(demand.csv, beta.csv)"] --> refine["refine all ramps with diffsim"]
+    refine --> stop([stop])
+```
+
+### Stretch identification
+
+Ramp-configuration type and the mainline↔ramp topology are determined **directly
+from PeMS station postmiles**, not from the CTM cell grid (which snaps ramps to
+cell edges and filters detectors through cell assignment).
+`scripts/build_pems_stretches.py` reads the PeMS station metadata and, per
+`(Fwy, Dir)`, forms a *unit stretch* between each pair of consecutive mainline
+(`ML`) detectors, ordered by `Abs_PM`, with the on-ramp (`OR`), off-ramp (`FR`),
+and connector (`FF`) stations in between. It writes a reviewable `stretches.csv`
+(one per direction) whose `config_type` column drives the dispatch below: type
+(a) or (b) when the stretch holds a single ramp, type (c) when it holds ≥1
+on-ramp and ≥1 off-ramp. Review the flagged rows (unresolved `FF` connectors,
+open end stretches, multi-ramp interchanges) before use; rebuilding overwrites
+manual edits.
 
 ### Historical Average & Persistence
 This strategy is used for all Type 2 scenarios; the specific method (historical average vs. persistence) is determined based on the duration of the gap in the timeseries data.
@@ -752,27 +781,38 @@ $$ q_{up} + r = q_{down} + s $$
 
 We solve this equation for the missing ramp flow by setting whichever ramp is not present to 0 and using the mainline flow data, which we assume exists. If there are any gaps in the mainline flow, they are filled using historical average and persistence, following the same heuristic as described above.
 
-### Trained estimators
-The final scenario is the most difficult; we cannot rely on historical data from the ramps, nor can
-we rely on conservation of flow. For this scenario, we are currently investigating the best estimation method. The problem has been addressed previously in the literature by [Muralidharan and Horowitz 2009](https://doi.org/10.3141/2099-07), [Kan et al. 2021](https://doi.org/10.1109/TITS.2020.2989365), and [Zhang et al. 2024](https://doi.org/10.1109/TITS.2023.3315693). We are currently investigating the best method: a previously-published method, or a new method. Further details are in [ramp_flow_estimation_module.md](ramp_flow_estimation_module.md)
+**Caveat: raw PeMS flows do not conserve.** On fully measured type-(c) stretches
+(I-880), the residual $q_{up} + r - s - q_{down}$ has a median of about
+$-336$ veh/hr, and about 45% of windows have a measured on-ramp flow below the
+conservation minimum $q_{down} - q_{up}$. That error is about the size of a
+typical on-ramp flow (median $r \approx 348$ veh/hr). Conservation-derived
+starting values can therefore be biased, and they are clipped at zero. This is
+one reason diffsim refines every ramp rather than trusting the starting profile.
+
+### Absent ramps on type-(c) stretches
+With no ramp data and no conservation relation, a completely absent ramp on a
+type-(c) stretch starts at **zero** flow (with a warning), and diffsim recovers
+it. Earlier versions estimated these ramps with a trained model (a GRU, and the
+methods of [Kan et al. 2021](https://doi.org/10.1109/TITS.2020.2989365) and
+[Zhang et al. 2024](https://doi.org/10.1109/TITS.2023.3315693)); those were
+removed once diffsim made a careful starting profile unnecessary, and remain in
+git history.
 
 ### CLI
 
-Ramp filling lives entirely in `scripts/build_ctm_ramp_scenario.py
---estimator {none,gru,kan}`. Gap fill (short gaps persisted, longer gaps
-historical-averaged) and type-(a)/(b) conservation are always active; the
-`--estimator` choice governs only the absent type-(c) ramp pair (`none`
-gives those ramps zero flow — the no-ML baseline). The script generates an on-ramp demand and off-ramp split ratio profile for downstream simulation.
-`scripts/simulate_ctm_corridor.py` takes the resulting `--demand` /
-`--beta` CSVs; when they are omitted, every cell gets zero demand and
-zero split ratio (ramps are effectively ignored).
+The starting profile is built by `scripts/build_ctm_ramp_scenario.py`: gap fill
+(short gaps persisted, longer gaps historical-averaged), type-(a)/(b)
+conservation, and zero for absent type-(c) ramps. It writes an on-ramp demand
+and off-ramp split ratio profile at sim cadence.
+`scripts/simulate_ctm_corridor.py` takes `--demand` / `--beta` CSVs; when they
+are omitted, every cell gets zero demand and zero split ratio (ramps are
+effectively ignored).
 
 ```
 python scripts/build_ctm_ramp_scenario.py \
     --cells case_studies/I880N_10mi/cells.csv \
     --stretches data/pems/stretches/880_N.csv \
     --timeseries-dir data/pems/csv_files \
-    --estimator gru \
     --start "2022-04-12 06:00" --end "2022-04-12 09:00" \
     --dt-seconds 10
 python scripts/simulate_ctm_corridor.py \
@@ -784,6 +824,85 @@ python scripts/simulate_ctm_corridor.py \
     --demand case_studies/I880N_10mi/demand.csv \
     --beta   case_studies/I880N_10mi/beta.csv
 ```
+
+### Refinement with diffsim (Level 3)
+
+The starting profile is refined by fitting the *whole corridor* at once: find
+the ramp inputs that make the CTM's mainline density **and flow** match
+observed PeMS, running the **exact** forward simulator every iteration and
+descending the error into the ramp inputs via autograd. `utils/ctm/diffsim.py`
+is a PyTorch reimplementation of the engine step (pinned to the numpy engine by
+`tests/test_ctm_diffsim.py`).
+
+* **Decision variables** -- on-ramp-cell `demand` (kept $\ge 0$ by a clamp) and
+  off-ramp-cell `beta` (kept in $(0, 1)$ by a sigmoid), for **every** ramp,
+  piecewise-constant over 5-min blocks (the PeMS cadence; per-step values would
+  be badly underdetermined). Observed ramp data is deliberately **not** used in
+  the fit, so it stays an honest test set.
+* **Objective** -- scale-normalized MSE of mainline density and flow at the
+  direct/tiebreak cells on the 5-min grid, sampled exactly as Step 9 validation
+  does (density at 5-min boundaries, flow block-averaged). No regularization.
+* **Boundary and initial conditions** -- initial density and upstream inflow
+  come from PeMS (`initial_state_from_vds`, `inflow_from_vds`) and are fixed.
+* **Stopping** -- early stop on the loss (relative `--min-delta` over
+  `--patience` iterations) with best-iterate restore. Per-iteration loss and
+  density/flow RMSE are logged to Weights & Biases (project
+  `ctm-ramp-calibration`; `--no-wandb` disables it).
+
+**Unobserved cells (optional).** Scoring only direct-VDS cells leaves the others
+free to drift. `scripts/augment_observed_grid.py` fills the full
+`(n_cells, n_5min)` grid first (`utils/ctm/impute.py`): a direct-VDS cell
+missing some 5-min steps is filled from the detector's own
+(day-of-week, time-of-day) history, and a cell with no direct VDS by a
+spatial-temporal KNN over observed and history-filled cells. The optimizer
+reads these with `--imputed-dir` and weights them with `--imputed-weight`.
+
+```
+# 1. Build the input bundle (freeway, rho0, inflow, observed density/flow, meta)
+python scripts/build_ctm_diffsim_inputs.py \
+    --freeway case_studies/I880N_5mi/freeway.csv \
+    --cells   case_studies/I880N_5mi/cells.csv \
+    --timeseries-dir data/pems/csv_files \
+    --start "2023-06-01 00:00" --end "2023-06-02 00:00"
+# 2. (optional) impute unobserved cells of the observed grids
+python scripts/augment_observed_grid.py \
+    --bundle case_studies/I880N_5mi/diffsim_inputs \
+    --cells  case_studies/I880N_5mi/cells.csv \
+    --timeseries-dir data/pems/csv_files --k 2 --knn-decay 1.0
+# 3. Optimize, starting from the build_ctm_ramp_scenario.py profile
+python scripts/optimize_ramp_flows_diffsim.py \
+    --bundle case_studies/I880N_5mi/diffsim_inputs \
+    --init-demand case_studies/I880N_5mi/demand.csv \
+    --init-beta   case_studies/I880N_5mi/beta.csv \
+    --iters 3000
+# -> demand.csv, beta.csv, optimize_report.json in the bundle dir
+```
+
+The starting profile must cover the same window and `dt` as the bundle (the
+optimizer checks): build it with the bundle's `--start` / `--end` and
+`--dt-seconds` set to the bundle's `meta.json` `dt_s`. Without `--init-demand` / `--init-beta` the
+optimizer starts from zero demand and `--beta-init` at every off-ramp.
+
+**Why not a convex QP.** Diffsim replaced an inverse-CTM quadratic program
+(Julia/JuMP, removed; recover with `git show pre-cleanup:julia/`) that solved
+for ramp flows with the CTM update equations as constraints, the CTM `min`
+operators relaxed to $\le$ to stay convex, and only density in the objective.
+It matched observed density almost exactly, but the recovered ramp flows were
+non-unique and not a valid CTM trajectory: fed back through the exact
+simulator, the results did not transfer, and got worse with corridor length.
+On I-880 N (2023-06-01, 24 h), scored against historical PeMS and compared to
+the historical-average ramp fill:
+
+| case | metric | QP | histAve |
+|---|---|---|---|
+| 1mi (2 cells)  | density RMSE / flow RMSE | **19.9** / 638 | 24.6 / **342** |
+| 1mi            | flow MAPE / GEH<5        | 12.3% / 62%    | 11.8% / 60%    |
+| 5mi (14 cells) | density MAPE / flow MAPE | 47% / 50%      | **27% / 17%**  |
+| 5mi            | flow RMSE / GEH<5        | 955 / 24%      | **443 / 44%**  |
+
+Density alone does not pin the ramp flows, and a relaxed solution need not be a
+physical one. Diffsim answers both: it never leaves the exact dynamics, so its
+inputs round-trip by construction, and it matches flow as well as density.
 
 ### Virtual ramp detectors
 
@@ -804,7 +923,7 @@ timeseries behind such an id, so each consumer handles it explicitly:
 * **Offline scenario builder** (`scripts/build_ctm_ramp_scenario.py`) --
   a virtual id is "VDS completely absent" by construction and dispatches
   on the `config_type` of the stretch that lists it: conservation for
-  type (a)/(b), a CLI-passed estimator for type (c). Both estimates cover the stretch
+  type (a)/(b), zero for type (c). Conservation covers the stretch
   side's **total** ramp flow, so when the virtual ramp shares its stretch
   side with measured detectors, their historical-average-filled flows are
   subtracted from the estimate (clipped at 0) before it is assigned --
@@ -992,10 +1111,9 @@ this path end-to-end against the dissertation's MATLAB output.
 
 All four PeMS → scenario adapters are now in place
 (`inflow_from_vds`, `initial_state_from_vds`, `demand_from_ramp_vds`,
-`beta_from_off_ramp_vds`), and `build_ctm_ramp_scenario.py --estimator
-{none,gru,kan}` wires always-on gap fill + type-(a)/(b) conservation with
-an optional GRU/Kan estimator for absent type-(c) pairs end-to-end. The
-remaining follow-ups are:
+`beta_from_off_ramp_vds`), and `build_ctm_ramp_scenario.py` wires gap
+fill + type-(a)/(b) conservation end-to-end, with diffsim refining the
+result. The remaining follow-ups are:
 
 * **Standalone scenario CSV builder.** A thin
   `scripts/build_ctm_scenario.py` that bundles the four adapters

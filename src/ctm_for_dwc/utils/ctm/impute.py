@@ -1,8 +1,8 @@
 """PeMS-based imputation of unobserved cells on the CTM ``(n_cells, n_5min)`` grid.
 
 Two kinds of unobserved index are filled before the diffsim ramp optimizer
-scores the grid (docs/ramp_flow_estimation_module.md, "Model-based
-optimization"):
+scores the grid (docs/ctm_module.md, Step 7, "Refinement with
+diffsim"):
 
 * **Type 2** -- a cell has a direct VDS assignment but the measurement is
   missing at some 5-min steps. Filled from the detector's own history via the
