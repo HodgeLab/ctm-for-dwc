@@ -25,13 +25,10 @@ one-offs (run these, don't import them).
 | `utils/ctm/` | The core module: CTM data model, engine, and the whole OSM-to-simulation pipeline. See `docs/ctm_module.md`. |
 | `utils/dwc/` | DWC demand module: CTM `VHT` -> adapted mCONV -> spatiotemporal charging demand (`E`). See `docs/dwc_demand_module.md`. |
 | `utils/ramp_flow_estimation/` | Estimating missing ramp flows from mainline data (feature extraction, the GRU estimator, split manifest, scoring). See `docs/ramp_flow_estimation_module.md`. |
-| `utils/data_processing.py` | `PeMSDataProcessor` and `TargetNormalization` (deep-learning preprocessing; unused). |
 | `utils/data_downloading.py` | `PeMSDownloader` / `PeMSExtractor` — scrape the PeMS clearinghouse. Adapted from Seb-Good/caltrans-pems. |
 | `utils/pems_settings.py` | PeMS URLs and district list for the downloader. |
-| `utils/validation.py` | DataFrame structure/value checks and diagnostic plots. |
 | `utils/plot_style.py` | Shared matplotlib style for paper figures (`PAPER_RC`, `COLUMN_W`, `PAPER_DPI`). |
 | `utils/constants.py` | Filesystem paths to the local PeMS data store. |
-| `utils/logs.py` | `make_logger()` — timestamped file logger under `./logs/`. |
 
 Inside `utils/ctm/`, the pipeline stages map to modules: `osm.py` + `cells.py`
 (Step 1), `vds.py` (Step 2), `fd_calibration.py` (Step 4: fundamental
