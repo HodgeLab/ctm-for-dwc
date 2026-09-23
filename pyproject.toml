@@ -19,8 +19,6 @@ dependencies = [
     "python-dotenv",
     "scikit-learn",
     "scipy",
-    "seaborn",
-    "statsmodels",
     "torch",
     "torchvision",
     "wandb"

@@ -390,8 +390,8 @@ indirectly by the `@pytest.mark.network` round-trip in
 `PeMSDownloader.__init__`).
 
 ## Step 4: Fundamental Diagram Calibration
-Implemented by `PeMSDataProcessor` in
-`ctm_for_dwc.utils.data_processing`. End-to-end demo:
+Implemented in `ctm_for_dwc.utils.ctm.fd_calibration` (the FD plot is
+`utils.ctm.plots.plot_fundamental_diagram`). End-to-end demo:
 `scripts/calibrate_fundamental_diagrams.py`.
 
 For each VDS produced by Step 3, this step fits the five-parameter
@@ -404,19 +404,19 @@ freeway schema required by `utils.ctm.io.freeway_from_dataframe`.
 **Per-detector pipeline.** For each detector,
 `calibrate_fundamental_diagrams`:
 
-1. `load_data_by_id` reindexes the per-VDS CSV from Step 3 to a complete
+1. `load_detector_timeseries` reindexes the per-VDS CSV from Step 3 to a complete
    5-minute grid (gaps become NaN rows).
 2. `standardize_timeseries` converts the PeMS-native
    `total_flow_[veh/5-min]` + `avg_speed_[mph]` into per-lane flow
    `flow_[veh/hr-lane]` and per-lane density `density_[veh/mi-lane]`.
 3. Rows with `pct_observed < imputation_threshold` (default 100) are
    dropped.
-4. `whiten_timeseries` z-scores flow and density against their per-
+4. `whiten_flow` z-scores flow against its per-
    (weekday, 5-min-block) statistics so the outlier rejector below
    doesn't get fooled by morning-peak vs midnight-shoulder differences.
 5. `filter_flow_outliers` drops rows outside an IQR fence on
    `whitened_flow` (default `iqr_multiplier=1.0`).
-6. `extract_fundamental_diagram_params_from_timeseries` fits the FD:
+6. `fit_fundamental_diagram` fits the FD:
 
    * **Free-flow regime**: seed the critical-density estimate from the
      row with the highest observed flow, then fit
@@ -431,14 +431,16 @@ freeway schema required by `utils.ctm.io.freeway_from_dataframe`.
    * **Peak**: intersect the two fitted lines analytically. The
      intersection's $x$ is $\rho_{crit,i}$ and $y$ is $q_{max,i}$.
 
-7. If `make_plots=True`, render the raw scatter + fitted lines + binned
+7. If `plot_dir` is given, render the raw scatter + fitted lines + binned
    congestion points + capacity/critical/jam reference lines into a
    per-detector PNG via `plot_fundamental_diagram`.
 
-**Batch writeback.** With `save_params=True`, the loop assigns the five
-calibrated columns onto each row of `metadata_df` and writes
-`station_metadata_calibrated.csv` (under `save_directory`, or to the
-path the caller passes via `output_metadata_path`). Subsequent runs of
+**Batch writeback.** `calibrate_fundamental_diagrams` returns the station
+metadata with the five calibrated columns (plus `calibration_code` /
+`calibration_status`) filled in, and with `output_path` writes it as
+`station_metadata_calibrated.csv`. An existing output file is updated
+incrementally: detectors not in the current run keep their previous
+calibration. Subsequent runs of
 Step 1 can read this CSV directly as a drop-in replacement for the raw
 PeMS metadata.
 
@@ -459,23 +461,25 @@ mainline), `--imputation-threshold`, `--iqr-multiplier`,
 written to `<out-dir>/station_metadata_calibrated.csv`; PNGs land under
 `<out-dir>/plots/` when requested.
 
-**Test surface.** 14 unit + integration tests across
+**Test surface.** 29 unit + integration tests across
 `tests/test_fundamental_diagram.py` and
 `tests/test_calibrate_fundamental_diagrams.py` cover the primitives
 (`estimate_free_flow_speed` recovers the line slope; the cutoff drops
 congestion points; `estimate_congestion_wave_speed` recovers the wave
 speed and jam density; `find_fundamental_diagram_peak` intersects two
 fitted lines correctly), the per-detector wrapper (synthetic triangular
-FD → recovered parameters within 1.5%), and the batch driver
-(`calibrate_fundamental_diagrams` writes the right CSV; honors an
-explicit output path; gracefully skips detectors whose post-filter
-DataFrame is empty; the plotter emits a non-empty PNG). The integration
+FD → recovered parameters within 1.5%), `validate_fd_params`, the loader
+(gaps stay NaN rows on a contiguous grid), the batch driver
+(`calibrate_fundamental_diagrams` writes the right CSV only when given
+`output_path`; records a calibration code for missing, empty and
+free-flow-only detectors; the plotter emits a non-empty PNG), and
+`calibrate_ramp_capacities`. The integration
 tests use ~4 weeks of synthetic 5-minute CSVs under `tmp_path` so the
 suite stays light without hitting real PeMS data.
 
 **Ramp capacities.** Ramp VDSs (PeMS `Type ∈ {OR, FR}`) report total
 5-minute flow but not speed, so a full FD calibration isn't possible.
-`PeMSDataProcessor.calibrate_ramp_capacities(detectors, *, quantile=0.99)`
+`calibrate_ramp_capacities(detectors, metadata_path, timeseries_dir, *, quantile=0.99)`
 runs a lighter pipeline on each ramp VDS:
 
 1. Load the 5-min timeseries and drop rows below the imputation threshold

@@ -35,6 +35,12 @@ extracted one.
 * :func:`plot_qq_percell`            -- per-direct/tiebreak-cell faceted
   two-sample QQ grid.
 
+**Fundamental-diagram calibration** (used by
+:mod:`utils.ctm.fd_calibration`):
+
+* :func:`plot_fundamental_diagram`   -- one detector's (density, flow)
+  cloud with the fitted triangular FD.
+
 **Cross-study comparison** (used by
 :mod:`scripts.compare_ctm_case_studies`):
 
@@ -46,6 +52,7 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -54,6 +61,9 @@ from matplotlib.collections import LineCollection
 
 from ..plot_style import COLUMN_W, PAPER_DPI, PAPER_RC
 from .osm import Corridor
+
+if TYPE_CHECKING:
+    from sklearn.linear_model import LinearRegression
 
 # Distinct colors per lane count so the corridor map reads at a glance.
 _LANE_COLORS = {
@@ -470,6 +480,132 @@ def plot_qq_percell(
     fig.tight_layout()
     fig.savefig(out_path, dpi=120)
     plt.close(fig)
+
+
+# ---- Fundamental-diagram calibration plots --------------------------------
+
+
+def plot_fundamental_diagram(
+    timeseries_df: pd.DataFrame,
+    bin_df: pd.DataFrame,
+    free_flow_model: LinearRegression,
+    congestion_model: LinearRegression,
+    params: dict[str, float],
+    *,
+    out_path: Path,
+) -> None:
+    """Fundamental-diagram plot for one calibrated detector.
+
+    Overlays the raw (density, flow) scatter, the binned congestion
+    points, the fitted free-flow and congestion lines, horizontal /
+    vertical reference lines at capacity / critical / jam densities, and
+    a text box summarizing the calibrated parameters. Drawn at printed
+    column width with no title -- the detector ID belongs in the caption.
+
+    ``bin_df`` and the two models come from
+    :mod:`utils.ctm.fd_calibration`; ``params`` must contain
+    ``capacity``, ``free_flow_speed``, ``congestion_wave_speed``,
+    ``jam_density`` and ``critical_density``.
+    """
+    # Generate some prediction points using the models
+    free_flow_xvals = np.linspace(0, params["critical_density"]).reshape(-1, 1)
+    free_flow_pred = free_flow_model.predict(free_flow_xvals)
+
+    congestion_xvals = np.linspace(
+        params["critical_density"], params["jam_density"], 100
+    )
+    congestion_pred = (
+        congestion_model.coef_[0] * (congestion_xvals - params["critical_density"])
+        + params["capacity"]
+    )
+
+    with plt.rc_context(PAPER_RC):
+        fig, ax = plt.subplots(figsize=(COLUMN_W, 3.1))
+
+        # Plot the data points
+        ax.scatter(
+            timeseries_df["density_[veh/mi-lane]"],
+            timeseries_df["flow_[veh/hr-lane]"],
+            label="Raw (data)",
+            color="tab:blue",
+            marker=".",
+            s=2,
+            alpha=0.3,
+        )
+        ax.plot(
+            bin_df["BinDensity"],
+            bin_df["BinFlow"],
+            color="gray",
+            alpha=0.4,
+            marker="o",
+            markersize=1.5,
+            linewidth=0.6,
+            linestyle="-",
+            label="Congestion bins",
+        )
+
+        # Plot the regression lines
+        ax.plot(
+            free_flow_xvals,
+            free_flow_pred,
+            color="tab:orange",
+            linewidth=1.8,
+            label="Free flow (fit)",
+        )
+        ax.plot(
+            congestion_xvals,
+            congestion_pred,
+            color="tab:green",
+            linewidth=1.8,
+            label="Congestion (fit)",
+        )
+
+        # The three reference lines are labelled with the symbols the
+        # parameter box uses, which keeps the legend narrow enough to sit
+        # inside the panel at column width.
+        ax.axhline(
+            y=params["capacity"], color="gray", lw=0.8, linestyle="--",
+            label=r"$q_{\max}$",
+        )
+        ax.axvline(
+            x=params["critical_density"], color="gray", lw=0.8, linestyle="-.",
+            label=r"$\rho_{\mathrm{crit}}$",
+        )
+        ax.axvline(
+            x=params["jam_density"], color="gray", lw=0.8, linestyle=":",
+            label=r"$\rho_{\mathrm{jam}}$",
+        )
+
+        ax.set_ylim(-25, 2000)
+        ax.set_xlim(-10, 1.05 * params["jam_density"])
+        ax.set_xlabel("Density [veh/mi-lane]")
+        ax.set_ylabel("Flow [veh/h-lane]")
+        # Two columns: seven entries stacked would fill half the panel.
+        ax.legend(loc="upper right", ncol=2, framealpha=0.9,
+                  handlelength=1.2, columnspacing=0.8, borderpad=0.3,
+                  handletextpad=0.5, labelspacing=0.3)
+
+        params_as_text = "\n".join(
+            [
+                rf"$q_{{\max}}$ = {params['capacity']:.0f} vphpl",
+                rf"$\rho_{{\mathrm{{jam}}}}$ = {params['jam_density']:.0f} vpmpl",
+                rf"$\rho_{{\mathrm{{crit}}}}$ = {params['critical_density']:.0f} vpmpl",
+                rf"$v_f$ = {params['free_flow_speed']:.1f} mph",
+                rf"$w$ = {params['congestion_wave_speed']:.1f} mph",
+            ]
+        )
+        # Low center, in the empty wedge under the congestion fit.
+        ax.annotate(
+            text=params_as_text,
+            xy=(0.30, 0.18),
+            xycoords="axes fraction",
+            va="center",
+            fontsize=7,
+            bbox=dict(boxstyle="square,pad=0.3", fc="white", ec="black", lw=0.8),
+        )
+        fig.tight_layout()
+        fig.savefig(out_path, dpi=PAPER_DPI)
+        plt.close(fig)
 
 
 # ---- Cross-study comparison plots -----------------------------------------

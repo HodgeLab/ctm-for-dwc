@@ -6,7 +6,7 @@ count varies by station). Real exports are hundreds of MB per file; these
 tests build tiny in-memory ``.gz`` files (≈ 10 rows × 2 lanes, < 2 KB)
 written to ``tmp_path`` so the test suite stays lightweight.
 
-The synthetic-fixture pattern matches ``test_data_processing.py``.
+The synthetic-fixture pattern matches ``test_calibrate_fundamental_diagrams.py``.
 """
 
 from __future__ import annotations
