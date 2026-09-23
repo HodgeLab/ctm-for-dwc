@@ -73,7 +73,7 @@ def _resample_5min_to_sim_cadence(
     The shared core of :func:`inflow_from_vds`,
     :func:`demand_from_ramp_vds`, and :func:`beta_from_off_ramp_vds`.
     Inputs may have been gap-filled by a
-    :mod:`utils.ctm.ramp_flow` strategy before being passed in; the
+    :mod:`utils.ctm.ramp_fill` strategy before being passed in; the
     resampler doesn't care where the values came from, only that the
     window contains no NaN.
 
@@ -269,7 +269,7 @@ def demand_from_ramp_vds(
         :func:`inflow_from_vds`.
     fill_strategy : callable, optional
         Gap-filler applied to each ramp VDS's full timeseries before
-        windowing. See :mod:`utils.ctm.ramp_flow` for ready-made
+        windowing. See :mod:`utils.ctm.ramp_fill` for ready-made
         Level 1 / 2 / 2b strategies. With ``None`` (the default), any
         NaN sample in the sim window raises -- matching
         :func:`inflow_from_vds`'s strict default.

@@ -51,11 +51,9 @@ from .osm import (
     summarize_refs,
 )
 from .results import SimulationResult
-from .ramp_flow import (
+from .ramp_fill import (
     gap_aware_fill,
-    historical_average_fill,
     persistence_fill,
-    stochastic_historical_fill,
 )
 from .scenario import (
     FillStrategy,
@@ -132,8 +130,6 @@ __all__ = [
     "demand_from_ramp_vds",
     "beta_from_off_ramp_vds",
     "persistence_fill",
-    "historical_average_fill",
-    "stochastic_historical_fill",
     "gap_aware_fill",
     "compare_against_historical",
     "restrict_to_direct_tiebreak",

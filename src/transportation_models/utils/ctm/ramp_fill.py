@@ -3,7 +3,7 @@
 Ramp detectors (PeMS Type ∈ {OR, FR}) suffer more outages than mainline
 detectors, so the raw 5-min CSVs Step 3 downloads often have NaN samples
 that the scenario adapters (:mod:`utils.ctm.scenario`) can't consume
-directly. This module provides three pure-function fillers, all sharing
+directly. This module provides two pure-function fillers, both sharing
 the signature::
 
     fill(df, *, flow_col, time_col="timestamp", ...) -> pd.DataFrame
@@ -11,28 +11,22 @@ the signature::
 Each returns a copy of ``df`` with NaN values in ``flow_col`` filled and
 all other columns passed through unchanged. They operate on the **full
 downloaded timeseries** (not the sim window) -- the historical-average
-versions use every non-NaN sample available in the input to estimate
+binning uses every non-NaN sample available in the input to estimate
 per-(weekday, time-of-day) statistics, so a wider input window gives
 better stats.
 
-Four fillers of increasing sophistication
-=========================================
+The fillers
+===========
 
 * :func:`persistence_fill` (Level 1) -- forward-fill with the last known
   value. Best for short outages (a few samples) where the underlying
   rate is unlikely to have moved much.
-* :func:`historical_average_fill` (Level 2) -- per-(weekday,
-  time-of-day) mean from non-NaN samples. Captures the typical diurnal
-  + weekday pattern; best for longer outages where persistence drifts.
-* :func:`stochastic_historical_fill` (Level 2b) -- same binning, but
-  draw each fill from ``Normal(mean, stddev)`` of the bin and clip to
-  ``>= 0``. Useful for Monte Carlo sensitivity studies.
-* :func:`gap_aware_fill` -- outage-duration-aware composition of the two
-  rules above: short gaps (<= ``short_gap_max`` samples with a prior
-  value) are persisted, everything else takes the historical-average.
-  This is the always-on gap fill used by
-  ``scripts/build_ctm_ramp_scenario.py`` for both ramp and mainline
-  series.
+* :func:`gap_aware_fill` -- outage-duration-aware composition: short gaps
+  (<= ``short_gap_max`` samples with a prior value) are persisted,
+  everything else takes the per-(weekday, time-of-day) historical
+  average computed by :func:`_bin_stats`. This is the always-on gap fill
+  used by ``scripts/build_ctm_ramp_scenario.py`` for both ramp and
+  mainline series.
 """
 
 from __future__ import annotations
@@ -123,43 +117,6 @@ def _bin_stats(
     return stats
 
 
-def historical_average_fill(
-    df: pd.DataFrame, *,
-    flow_col: str,
-    time_col: str = "timestamp",
-    history_df: pd.DataFrame | None = None,
-) -> pd.DataFrame:
-    """Fill NaN ``flow_col`` with the per-(weekday, time-of-day) mean.
-
-    Statistics are computed from **the full input timeseries** (every
-    non-NaN sample in ``df``), not the simulation window. Use
-    ``history_df`` to override -- e.g. pass a 3-month baseline CSV when
-    filling a 1-week sim window's gaps.
-
-    Bins with zero non-NaN samples can't yield a mean; rows in those
-    bins remain NaN and a warning lists the affected bins.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        Per-VDS 5-minute timeseries; must have ``flow_col`` and
-        ``time_col`` columns.
-    flow_col, time_col : str
-        Column names; same defaults as :func:`persistence_fill`.
-    history_df : pandas.DataFrame, optional
-        Source of bin statistics. Defaults to ``df`` itself.
-
-    Returns
-    -------
-    pandas.DataFrame
-        Copy of ``df`` with NaN ``flow_col`` filled by the matching
-        bin's mean.
-    """
-    src = df if history_df is None else history_df
-    stats = _bin_stats(src, flow_col=flow_col, time_col=time_col)
-    return _apply_bin_fill(df, stats, flow_col=flow_col, time_col=time_col)
-
-
 def _apply_bin_fill(
     df: pd.DataFrame,
     stats: pd.DataFrame,
@@ -223,36 +180,6 @@ def _apply_bin_fill(
 
     out = out.drop(columns=["_weekday", "_tod_s"])
     return out
-
-
-# ---- Level 2b: stochastic historical average -----------------------------
-
-
-def stochastic_historical_fill(
-    df: pd.DataFrame, *,
-    flow_col: str,
-    time_col: str = "timestamp",
-    history_df: pd.DataFrame | None = None,
-    seed: int = 0,
-) -> pd.DataFrame:
-    """Fill NaN ``flow_col`` by sampling from ``Normal(mean, stddev)`` per bin.
-
-    Same binning as :func:`historical_average_fill` and same
-    ``history_df`` override. ``seed`` controls the random draws (default
-    ``0`` for reproducibility); pass any int for a different reproducible
-    sequence.
-
-    Bins with fewer than 2 non-NaN samples have no usable stddev; they
-    fall back to the bin mean (deterministic). Negative draws are clipped
-    to 0 (flow can't be negative). Bins with no samples emit the same
-    warning as :func:`historical_average_fill`.
-    """
-    src = df if history_df is None else history_df
-    stats = _bin_stats(src, flow_col=flow_col, time_col=time_col)
-    rng = np.random.default_rng(seed)
-    return _apply_bin_fill(
-        df, stats, flow_col=flow_col, time_col=time_col, rng=rng,
-    )
 
 
 # ---- Gap-aware composition -----------------------------------------------
