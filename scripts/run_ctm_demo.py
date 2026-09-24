@@ -14,7 +14,7 @@ Run from the repo root:
 
 from __future__ import annotations
 
-from ctm_for_dwc.utils.ctm import compute_metrics, examples, simulate
+from ctm_for_dwc.ctm import compute_metrics, examples, simulate
 
 
 def report(start: str, steps: int = 2400) -> None:

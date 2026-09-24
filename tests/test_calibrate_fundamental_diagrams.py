@@ -1,7 +1,7 @@
 """End-to-end integration tests for
-:func:`utils.ctm.fd_calibration.calibrate_fundamental_diagrams`,
+:func:`ctm.fd_calibration.calibrate_fundamental_diagrams`,
 ``calibrate_ramp_capacities``, the timeseries loader, and the FD-plot
-sidecar (:func:`utils.ctm.plots.plot_fundamental_diagram`).
+sidecar (:func:`ctm.plots.plot_fundamental_diagram`).
 
 These tests write a small synthetic PeMS dataset under ``tmp_path`` (one
 metadata CSV + one per-detector timeseries CSV per station, ~4 weeks of
@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ctm_for_dwc.utils.ctm.fd_calibration import (
+from ctm_for_dwc.ctm.fd_calibration import (
     CalibrationCode,
     calibrate_fundamental_diagrams,
     calibrate_ramp_capacities,

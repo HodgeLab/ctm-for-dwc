@@ -1,4 +1,4 @@
-"""Tests for :func:`ctm_for_dwc.utils.pems.resolve_credentials`.
+"""Tests for :func:`ctm_for_dwc.pems.resolve_credentials`.
 
 Every test points the ``.env`` lookup at ``tmp_path`` so the developer's real
 repo-root ``.env`` is never read.
@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import pytest
 
-from ctm_for_dwc.utils.pems import credentials
-from ctm_for_dwc.utils.pems.credentials import resolve_credentials
+from ctm_for_dwc.pems import credentials
+from ctm_for_dwc.pems.credentials import resolve_credentials
 
 
 @pytest.fixture

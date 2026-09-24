@@ -10,7 +10,7 @@ verification strategy).
 import numpy as np
 import pytest
 
-from ctm_for_dwc.utils.dwc.spatial import (
+from ctm_for_dwc.dwc.spatial import (
     build_P_y,
     build_S_R,
     build_S_T,

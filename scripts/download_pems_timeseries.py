@@ -1,6 +1,6 @@
 """Step 3a: download PeMS 5-minute station timeseries (.gz) from the clearinghouse.
 
-Wraps :class:`ctm_for_dwc.utils.pems.PeMSDownloader` in a CLI matching the
+Wraps :class:`ctm_for_dwc.pems.PeMSDownloader` in a CLI matching the
 style of the other CTM-module downloaders (:mod:`scripts.build_ctm_from_osm`,
 ``download_caltrans_postmiles``, ``download_pems_station_metadata``). The
 script queries the PeMS clearinghouse for ``station_5min`` files matching the
@@ -40,7 +40,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from ctm_for_dwc.utils.pems import PeMSDownloader, resolve_credentials
+from ctm_for_dwc.pems import PeMSDownloader, resolve_credentials
 
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_OUT_DIR = REPO / "data" / "pems" / "timeseries"

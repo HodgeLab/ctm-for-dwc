@@ -537,7 +537,7 @@ def fit_fundamental_diagram(
         0.05.
     plot_path : Path, optional
         If given and the fit is valid, write an FD plot here via
-        :func:`utils.ctm.plots.plot_fundamental_diagram`.
+        :func:`ctm.plots.plot_fundamental_diagram`.
 
     Returns
     -------

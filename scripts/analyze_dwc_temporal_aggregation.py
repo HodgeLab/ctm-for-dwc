@@ -36,12 +36,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from ctm_for_dwc.utils.ctm.results import SimulationResult
-from ctm_for_dwc.utils.dwc import aggregation as agg
-from ctm_for_dwc.utils.dwc.adapter import corridor_from_ctm, mainline_vht
-from ctm_for_dwc.utils.dwc.demand import compute
-from ctm_for_dwc.utils.dwc.model import PadSpec
-from ctm_for_dwc.utils.plot_style import COLUMN_W, PAPER_DPI, PAPER_RC
+from ctm_for_dwc.ctm.results import SimulationResult
+from ctm_for_dwc.dwc import aggregation as agg
+from ctm_for_dwc.dwc.adapter import corridor_from_ctm, mainline_vht
+from ctm_for_dwc.dwc.demand import compute
+from ctm_for_dwc.dwc.model import PadSpec
+from ctm_for_dwc.plot_style import COLUMN_W, PAPER_DPI, PAPER_RC
 
 
 def _parse_args() -> argparse.Namespace:

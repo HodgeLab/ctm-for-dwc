@@ -10,11 +10,11 @@
 ``plot_load_distribution_profile`` -- per-position load percentile bands over time.
 ``plot_load_duration_curve``    -- sorted corridor-aggregate load vs duration.
 
-All follow the repo's ``utils/ctm/plots.py`` convention: take the data plus
+All follow the repo's ``ctm/plots.py`` convention: take the data plus
 a keyword-only ``out_path``, render, save, and close the figure. Most save
 at 120 dpi; ``plot_aggregate_timeseries`` and
 ``plot_load_distribution_profile`` are the paper figures, drawn at printed
-size with ``utils.plot_style.PAPER_RC`` and saved at ``PAPER_DPI`` with no
+size with ``plot_style.PAPER_RC`` and saved at ``PAPER_DPI`` with no
 title (their caption carries that).
 The corridor-aggregate plots express power in megawatts (energy divided by
 ``dt_h``). The per-position profiles divide that by the bin's length as well,

@@ -4,7 +4,7 @@ Rather than the relaxed convex QP this replaced (a Julia solver, since
 removed -- recover it with `git show pre-cleanup:julia/`), this fits the ramp
 inputs by running the *exact* CTM forward simulator each iteration and
 descending the mainline density+flow error into the ramp `demand`/`beta` via
-autograd (`utils.ctm.diffsim`). Because it never leaves the exact dynamics, the
+autograd (`ctm.diffsim`). Because it never leaves the exact dynamics, the
 recovered inputs round-trip by construction -- the transfer failure that made
 the relaxed QP degrade on longer corridors cannot occur (see
 docs/ctm_module.md, Step 7, "Why not a convex QP").
@@ -49,7 +49,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from ctm_for_dwc.utils.ctm import diffsim, freeway_from_dataframe
+from ctm_for_dwc.ctm import diffsim, freeway_from_dataframe
 
 _EPS = 1e-4  # keeps logit()/sigmoid() away from the beta = 0/1 singularities
 

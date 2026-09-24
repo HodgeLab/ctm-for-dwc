@@ -1,13 +1,13 @@
 """Step 6: assemble a CTM-ready freeway table from cells.csv + calibrated VDS data.
 
 This module joins three independent artifacts into a single per-cell freeway
-table that slots directly into :func:`utils.ctm.io.freeway_from_dataframe`:
+table that slots directly into :func:`ctm.io.freeway_from_dataframe`:
 
   * Step 1+2 (`cells.csv`)
       One row per cell with cell geometry, lane count, ramp presence, and
       the mainline / on-ramp / off-ramp ``vds_id`` columns from
-      :func:`utils.ctm.vds.assign_vds_to_cells` and
-      :func:`utils.ctm.vds.assign_ramp_vds_to_cells`.
+      :func:`ctm.vds.assign_vds_to_cells` and
+      :func:`ctm.vds.assign_ramp_vds_to_cells`.
   * Step 4 mainline (`station_metadata_calibrated.csv`)
       Per-VDS triangular FD parameters in **per-lane** units (``capacity``
       [veh/hr-lane], ``jam_density`` [veh/mi-lane], ``critical_density``
@@ -30,12 +30,12 @@ The assembly does three things:
      Cells with no matching ramp VDS (or a missing/NaN calibrated
      capacity) get NaN, which :func:`freeway_from_dataframe` translates
      into :math:`R_i = \\infty` (resp. :math:`S_i = \\infty`) per the
-     :class:`utils.ctm.model.Cell` defaults -- a deliberate "no constraint"
+     :class:`ctm.model.Cell` defaults -- a deliberate "no constraint"
      fall-back when no measurement is available.
   3. **CFL advisory.** Computes per-cell :math:`\\Delta T_{\\max,i} =
      l_i / v_{f,i}` (Kurzhanskiy 2007 eq. 4.1) and surfaces the binding
      cell so users can pick a sim ``dt`` confidently. Stop short of
-     building a :class:`utils.ctm.model.Freeway` -- the user decides
+     building a :class:`ctm.model.Freeway` -- the user decides
      ``dt`` from this advisory and passes the table into
      :func:`freeway_from_dataframe` themselves at simulation time.
 """
@@ -54,7 +54,7 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 # Output schema for assemble_freeway_table -- matches the required +
-# optional columns of utils.ctm.io.freeway_from_dataframe.
+# optional columns of ctm.io.freeway_from_dataframe.
 FREEWAY_COLUMNS: tuple[str, ...] = (
     "length", "q_max", "v_f", "w", "rho_jam", "rho_crit",
     "on_ramp", "off_ramp",
@@ -213,7 +213,7 @@ def assemble_freeway_table(
     pandas.DataFrame
         One row per input cell, in input order, with the columns listed
         in :data:`FREEWAY_COLUMNS`. The result is ready to hand to
-        :func:`utils.ctm.io.freeway_from_dataframe` once the user picks a
+        :func:`ctm.io.freeway_from_dataframe` once the user picks a
         ``dt`` (see :func:`compute_cfl_advisory`).
 
     Raises

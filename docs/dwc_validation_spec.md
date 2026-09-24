@@ -1,6 +1,6 @@
 # Spec: DWC Macro-vs-Micro Validation Harness (P7)
 
-> **SUPERSEDED.** The code this document specifies — `utils/microsim/` and
+> **SUPERSEDED.** The code this document specifies — `microsim/` and
 > `scripts/run_dwc_validation.py` — was removed when the repository was
 > refocused on the CTM-corridor-simulation → DWC-charging-demand workstream.
 > The macro-vs-micro validation is not part of that workstream. This spec is
@@ -122,8 +122,8 @@ driver fails loudly with the missing path if it is absent.
 - Python ≥ 3.10, NumPy core (matching the DWC module). `pandas` for the
   validation-CSV / timeseries I/O. `matplotlib` (Agg in tests) for figures.
   No new heavy dependencies.
-- Reuses `ctm_for_dwc.utils.ctm` (`SimulationResult`,
-  `compare_against_historical`) and `ctm_for_dwc.utils.dwc`
+- Reuses `ctm_for_dwc.ctm` (`SimulationResult`,
+  `compare_against_historical`) and `ctm_for_dwc.dwc`
   (`build_P_y`, `compute`, `CorridorSpec`, `PadSpec`).
 
 ## Commands
@@ -139,11 +139,11 @@ Slow/opt-in tests: pytest -m slow      # macro-vs-micro equivalence harness
 ## Project Structure
 
 Library code under `src/` (importable); the study driver is a repo-root
-entrypoint (run, don't import) — matching the repo's `utils/` vs `scripts/`
+entrypoint (run, don't import) — matching the repo's `src/ctm_for_dwc/` vs `scripts/`
 convention.
 
 ```
-src/ctm_for_dwc/utils/microsim/
+src/ctm_for_dwc/microsim/
   __init__.py        # public API
   model.py           # MicrosimSpec / Vehicles / MicrosimResult / GuardStats
   gipps.py           # modified Gipps longitudinal update (eq 1–5)
@@ -502,7 +502,7 @@ is the opt-in end-to-end harness.
     internally), mirroring `dwc/model.py`.
   - Verify: `pytest tests/test_microsim_model.py` — field values, validation
     rejects non-positive params, derived properties.
-  - Files: `utils/microsim/__init__.py`, `utils/microsim/model.py`,
+  - Files: `microsim/__init__.py`, `microsim/model.py`,
     `tests/test_microsim_model.py`.
 
 - [ ] **T2 — `gipps.py`: longitudinal update (CP1).**
@@ -512,7 +512,7 @@ is the opt-in end-to-end harness.
   - Verify: `pytest tests/test_microsim_gipps.py` — hand calc: far leader →
     accelerate, clamped to `v_max`; near leader → decelerate to `v_SAFE`;
     property: output in `[v_MIN, v_max]`.
-  - Files: `utils/microsim/gipps.py`, `tests/test_microsim_gipps.py`.
+  - Files: `microsim/gipps.py`, `tests/test_microsim_gipps.py`.
 
 - [ ] **T3 — `seeding.py`: inflow → vehicles (CP2).**
   - Acceptance: `seed_vehicles(boundary_inflow, spec, rng)` converts the inflow
@@ -522,7 +522,7 @@ is the opt-in end-to-end harness.
   - Verify: `pytest tests/test_microsim_seeding.py` — constant inflow → expected
     count + headways within tolerance; all `v_max ∈ [v_f−15, v_f+15] mph`; same
     seed → identical output.
-  - Files: `utils/microsim/seeding.py`, `tests/test_microsim_seeding.py`.
+  - Files: `microsim/seeding.py`, `tests/test_microsim_seeding.py`.
 
 - [ ] **T4 — `examples.py`: synthetic corridors + uniform fixture.**
   - Acceptance: tiny synthetic corridor builder and a **deterministic
@@ -531,7 +531,7 @@ is the opt-in end-to-end harness.
     equivalence test.
   - Verify: `pytest tests/test_microsim_examples.py` — fixture has the asserted
     constant density/velocity and vehicle count.
-  - Files: `utils/microsim/examples.py`, `tests/test_microsim_examples.py`.
+  - Files: `microsim/examples.py`, `tests/test_microsim_examples.py`.
 
 - [ ] **T5 — `simulate.py`: single-lane main loop (CP3).**
   - Acceptance: `simulate(spec, vehicles) -> MicrosimResult`; vectorized across
@@ -540,7 +540,7 @@ is the opt-in end-to-end harness.
   - Verify: `pytest tests/test_microsim_simulate.py` — invariants on a synthetic
     corridor: `gap ≥ 0` (no overlap) every step; `v ∈ [v_MIN, v_max]`; smoke run
     completes.
-  - Files: `utils/microsim/simulate.py`, `tests/test_microsim_simulate.py`.
+  - Files: `microsim/simulate.py`, `tests/test_microsim_simulate.py`.
 
 - [ ] **T6 — `aggregate.py`: Edie + comparator wiring (CP4).**
   - Acceptance: `aggregate_to_cells(result, cells, *, grid="5min")` returns
@@ -550,7 +550,7 @@ is the opt-in end-to-end harness.
   - Verify: `pytest tests/test_microsim_aggregate.py` — Edie exact on the uniform
     fixture (`ρ = N/L`, `q = N·v/L`); wrapper produces a micro `validation.csv`
     in the CTM schema.
-  - Files: `utils/microsim/aggregate.py`, `tests/test_microsim_aggregate.py`.
+  - Files: `microsim/aggregate.py`, `tests/test_microsim_aggregate.py`.
 
 - [ ] **T7 — `charging.py`: original mCONV + uniform-limit equivalence (CP5).**
   - Acceptance: `micro_demand(result, pad, eta_EV)` indexes `dwc.build_P_y` at
@@ -560,7 +560,7 @@ is the opt-in end-to-end harness.
     hand calc (`∫ P_y dt`). `pytest -m slow tests/test_dwc_validation.py` —
     **uniform-density limit: corridor-aggregate micro energy vs `dwc.compute`
     relative error `< 1e-6`** (the headline regression test).
-  - Files: `utils/microsim/charging.py`, `tests/test_microsim_charging.py`,
+  - Files: `microsim/charging.py`, `tests/test_microsim_charging.py`,
     `tests/test_dwc_validation.py`.
 
 - [ ] **T8 — `run_dwc_validation.py`: study driver (CP6).**
@@ -577,11 +577,11 @@ is the opt-in end-to-end harness.
     `pyproject.toml`.
 
 - [ ] **T9 — Wire-up + docs.**
-  - Acceptance: `utils/microsim/__init__.py` exports the public API; `README.md`
+  - Acceptance: `microsim/__init__.py` exports the public API; `README.md`
     module map mentions `microsim` + the driver; `dwc_demand_implementation_plan.md`
     P7 progress-log entry added (date, what shipped, what was learned).
   - Verify: `pytest` (full suite green); `python -c "import
-    ctm_for_dwc.utils.microsim"` succeeds; README/plan reviewed.
-  - Files: `utils/microsim/__init__.py`, `README.md`,
+    ctm_for_dwc.microsim"` succeeds; README/plan reviewed.
+  - Files: `microsim/__init__.py`, `README.md`,
     `docs/dwc_demand_implementation_plan.md`.
 ```

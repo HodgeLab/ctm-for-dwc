@@ -47,8 +47,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from ctm_for_dwc.utils.ctm import gap_aware_fill
-from ctm_for_dwc.utils.ctm.assembly import parse_ramp_vds_ids
+from ctm_for_dwc.ctm import gap_aware_fill
+from ctm_for_dwc.ctm.assembly import parse_ramp_vds_ids
 
 _FLOW = "total_flow_[veh/5-min]"
 _TS = "timestamp"

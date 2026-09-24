@@ -1,6 +1,6 @@
 """Step 3b: extract per-detector CSVs from downloaded PeMS 5-minute .gz files.
 
-Wraps :class:`ctm_for_dwc.utils.pems.PeMSExtractor`. Reads every ``.gz`` at
+Wraps :class:`ctm_for_dwc.pems.PeMSExtractor`. Reads every ``.gz`` at
 the top level of ``--gz-dir`` (default: ``<repo_root>/data/pems/timeseries/``,
 where ``scripts/download_pems_timeseries.py`` saves them) and writes one CSV
 per ``vds_id`` under ``--gz-dir/csv_files/``. Existing detector CSVs are
@@ -23,7 +23,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from ctm_for_dwc.utils.pems import PeMSExtractor
+from ctm_for_dwc.pems import PeMSExtractor
 
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_GZ_DIR = REPO / "data" / "pems" / "timeseries"

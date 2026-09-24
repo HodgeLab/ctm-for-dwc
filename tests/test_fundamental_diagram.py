@@ -1,5 +1,5 @@
 """Tests for the fundamental-diagram fit in
-:mod:`utils.ctm.fd_calibration` (Step 4 of ``docs/ctm_module.md``).
+:mod:`ctm.fd_calibration` (Step 4 of ``docs/ctm_module.md``).
 
 Strategy
 --------
@@ -30,7 +30,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ctm_for_dwc.utils.ctm.fd_calibration import (
+from ctm_for_dwc.ctm.fd_calibration import (
     CalibrationCode,
     estimate_congestion_wave_speed,
     estimate_free_flow_speed,

@@ -1,5 +1,5 @@
 """Step 8: data-shaping adapters that turn PeMS VDS timeseries into the
-wide-format inputs :func:`utils.ctm.io.scenario_from_dataframes` expects.
+wide-format inputs :func:`ctm.io.scenario_from_dataframes` expects.
 
 Two pieces live here today:
 
@@ -73,7 +73,7 @@ def _resample_5min_to_sim_cadence(
     The shared core of :func:`inflow_from_vds`,
     :func:`demand_from_ramp_vds`, and :func:`beta_from_off_ramp_vds`.
     Inputs may have been gap-filled by a
-    :mod:`utils.ctm.ramp_fill` strategy before being passed in; the
+    :mod:`ctm.ramp_fill` strategy before being passed in; the
     resampler doesn't care where the values came from, only that the
     window contains no NaN.
 
@@ -142,7 +142,7 @@ def inflow_from_vds(
     to the half-open window ``[start, end)``, and resamples to sim
     cadence via :func:`_resample_5min_to_sim_cadence`. Output is in
     veh/h and ready to pass as ``inflow`` to
-    :func:`utils.ctm.io.scenario_from_dataframes`.
+    :func:`ctm.io.scenario_from_dataframes`.
 
     Parameters
     ----------
@@ -240,7 +240,7 @@ def demand_from_ramp_vds(
     ``fill_strategy`` if supplied, slice to ``[start, end)``, and
     resample to sim cadence via :func:`_resample_5min_to_sim_cadence`.
     The result is keyed by the cell's integer row index, which is
-    what :func:`utils.ctm.io.scenario_from_dataframes` expects.
+    what :func:`ctm.io.scenario_from_dataframes` expects.
 
     Cells without an on-ramp, **or** with ``on_ramp=True`` but no matched
     ramp VDS (``on_ramp_vds_id`` is NaN), produce no column. The
@@ -249,7 +249,7 @@ def demand_from_ramp_vds(
 
     ``on_ramp_vds_id`` may be a single id, ``NaN``, or a list-valued
     Step-5 manual edit (parsed via
-    :func:`utils.ctm.assembly.parse_ramp_vds_ids`). When the column
+    :func:`ctm.assembly.parse_ramp_vds_ids`). When the column
     carries multiple ids for a cell, the per-VDS flows are loaded,
     filled, resampled, and **summed** into one demand column.
 
@@ -269,7 +269,7 @@ def demand_from_ramp_vds(
         :func:`inflow_from_vds`.
     fill_strategy : callable, optional
         Gap-filler applied to each ramp VDS's full timeseries before
-        windowing. See :mod:`utils.ctm.ramp_fill` for ready-made
+        windowing. See :mod:`ctm.ramp_fill` for ready-made
         Level 1 / 2 / 2b strategies. With ``None`` (the default), any
         NaN sample in the sim window raises -- matching
         :func:`inflow_from_vds`'s strict default.
@@ -529,7 +529,7 @@ def initial_state_from_vds(
     For each row in ``cells_df``, locates the sample at ``at_time`` in the
     mainline VDS's timeseries CSV (``timeseries_dir / <vds_id>.csv``) and
     computes the per-cell density. The result feeds the ``rho0`` argument
-    of :func:`utils.ctm.io.scenario_from_dataframes`.
+    of :func:`ctm.io.scenario_from_dataframes`.
 
     Lane-count contract
     -------------------

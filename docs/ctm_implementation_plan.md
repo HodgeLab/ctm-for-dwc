@@ -18,10 +18,10 @@ this doc is the build plan.
 
 ## Module layout
 
-A self-contained subpackage under the library (`utils/` = importable):
+A self-contained subpackage under the library (`src/ctm_for_dwc/` = importable):
 
 ```
-src/ctm_for_dwc/utils/ctm/
+src/ctm_for_dwc/ctm/
   __init__.py     # public API
   model.py        # Cell, Freeway, Scenario dataclasses + validation
   engine.py       # step() and simulate() — the six canonical equations

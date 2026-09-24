@@ -18,7 +18,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from ctm_for_dwc.utils.pems.extractor import PeMSExtractor
+from ctm_for_dwc.pems.extractor import PeMSExtractor
 
 
 # ---- Synthetic gzipped-PeMS fixture builder ------------------------------

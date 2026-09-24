@@ -11,7 +11,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
-_REPO_ROOT = Path(__file__).resolve().parents[4]
+_REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def resolve_credentials(

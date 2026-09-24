@@ -1,6 +1,6 @@
 """Step 4: calibrate triangular-FD parameters from PeMS timeseries.
 
-Wraps :func:`utils.ctm.fd_calibration.calibrate_fundamental_diagrams` (and
+Wraps :func:`ctm.fd_calibration.calibrate_fundamental_diagrams` (and
 ``calibrate_ramp_capacities``) in a CLI matching the style of the other
 CTM-module demo scripts
 (:mod:`scripts.build_ctm_from_osm`,
@@ -20,7 +20,7 @@ CTM-module demo scripts
 The output CSV is keyed on ``Station ID`` and is what Step 1's
 ``cells.csv`` (via the ``vds_id`` column attached in Step 2) joins
 against to finish the freeway schema before passing to
-:func:`utils.ctm.io.freeway_from_dataframe`.
+:func:`ctm.io.freeway_from_dataframe`.
 
 Run from the repo root::
 
@@ -45,7 +45,7 @@ import logging
 import sys
 from pathlib import Path
 
-from ctm_for_dwc.utils.ctm import fd_calibration
+from ctm_for_dwc.ctm import fd_calibration
 
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_ROOT = REPO / "data" / "pems"
