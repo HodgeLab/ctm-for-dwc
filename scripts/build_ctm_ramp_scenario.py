@@ -13,12 +13,15 @@ Dispatch per ramp VDS (following the Step-7 decision flowchart):
   that conservation reads;
 * **completely-absent** detectors on a type-(a)/(b) stretch are recovered
   by mainline **conservation** (no model needed);
-* **completely-absent** detectors on a type-(c) stretch get **zero** flow
-  with a warning; the diffsim optimizer recovers them.
+* **completely-absent** detectors on a type-(c) stretch have no data and no
+  conservation relation; they are seeded with ``--type-c-fraction`` (default
+  0.1) of the stretch's upstream mainline flow, with a warning, and the
+  diffsim optimizer recovers them. The seed must be non-zero: the optimizer
+  cannot move a demand that starts at exactly 0.
 
 Virtual VDS ids (e.g. ``'v400001'`` -- ramps that physically exist but are
-absent from PeMS) are "completely absent" by construction. Conservation
-covers a stretch side's *total* ramp flow, so when an absent ramp shares its
+absent from PeMS) are "completely absent" by construction. Conservation and
+the type-(c) seed cover a stretch side's *total* ramp flow, so when an absent ramp shares its
 stretch side with measured detectors, their (gap-filled) flows are
 subtracted from the estimate before it is assigned.
 
@@ -93,6 +96,13 @@ def _conservation_flow(stretch: pd.Series, ts_dir: Path, *,
     return np.maximum(q_down - q_up, 0.0) if is_on_ramp else np.maximum(q_up - q_down, 0.0)
 
 
+def _mainline_fraction_flow(stretch: pd.Series, ts_dir: Path, *,
+                            start, end, fraction: float) -> np.ndarray:
+    """Seed ramp flow [veh/hr] as a fraction of the upstream mainline flow."""
+    q_up = _ml_flow_veh_hr(int(stretch["up_ml_id"]), ts_dir, start=start, end=end)
+    return fraction * q_up
+
+
 # ---- Stretch mapping helpers ------------------------------------------------
 
 def _parse_stretch_ramp_ids(value) -> list[int | str]:
@@ -130,8 +140,8 @@ def _subtract_measured_siblings(
 ) -> np.ndarray:
     """Remove measured same-side sibling ramp flows from a stretch-total estimate.
 
-    Conservation estimates cover the *total* on- (resp. off-) ramp
-    flow of a stretch, so an absent ramp sharing its stretch side with
+    Conservation and type-(c) seed estimates cover the *total* on- (resp.
+    off-) ramp flow of a stretch, so an absent ramp sharing its stretch side with
     measured detectors would double-count their vehicles. Siblings are
     gap-aware filled before subtraction; samples the filler leaves
     NaN (bins with zero history) count as 0 so one empty bin can't turn the
@@ -192,6 +202,11 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--cells", required=True, type=Path)
     parser.add_argument("--stretches", required=True, type=Path)
     parser.add_argument("--timeseries-dir", required=True, type=Path)
+    parser.add_argument("--type-c-fraction", type=float, default=0.1,
+                        help="Seed for completely-absent ramps on type-(c) stretches, "
+                             "as a fraction of the stretch's upstream mainline flow "
+                             "(default 0.1). Keep it > 0: the diffsim optimizer "
+                             "cannot move a demand that starts at 0.")
     parser.add_argument("--start", required=True, type=pd.Timestamp)
     parser.add_argument("--end", required=True, type=pd.Timestamp)
     parser.add_argument("--dt-seconds", required=True, type=float,
@@ -222,12 +237,15 @@ def main(argv: list[str] | None = None) -> None:
             print(f"  WARN: {label}-ramp VDS {vds_id} not in stretches; using 0",
                   file=sys.stderr)
             return np.zeros(T5)
-        if str(stretch["config_type"]) not in ("a", "b"):
+        if str(stretch["config_type"]) in ("a", "b"):
+            est = _conservation_flow(stretch, ts_dir, start=start, end=end,
+                                     is_on_ramp=is_on_ramp)
+        else:
             print(f"  WARN: {label}-ramp VDS {vds_id} has no data on a "
-                  "type-(c) stretch; using 0", file=sys.stderr)
-            return np.zeros(T5)
-        est = _conservation_flow(stretch, ts_dir, start=start, end=end,
-                                 is_on_ramp=is_on_ramp)
+                  f"type-(c) stretch; seeding with {args.type_c_fraction} x "
+                  "upstream mainline flow", file=sys.stderr)
+            est = _mainline_fraction_flow(stretch, ts_dir, start=start, end=end,
+                                          fraction=args.type_c_fraction)
         return _subtract_measured_siblings(
             est, stretch, ids_col, vds_id, ts_dir, start=start, end=end)
 

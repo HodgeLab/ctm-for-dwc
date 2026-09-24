@@ -11,7 +11,9 @@ docs/ctm_module.md, Step 7, "Why not a convex QP").
 
 Decision variables (free, all ramps -- observed ramp data is held out as the
 test set): on-ramp-cell `demand` (>= 0 via clamp) and off-ramp-cell `beta`
-(in (0,1) via sigmoid), placed at the ramp cells and zero elsewhere. They are
+(in (0,1) via sigmoid), placed at the ramp cells and zero elsewhere. The clamp
+has zero gradient at exactly 0, so starting demand is floored at
+`--min-init-demand` (default 1 veh/h); otherwise a zero seed never moves. They are
 **piecewise-constant over 5-min blocks** (the PeMS cadence, matching the QP's
 `r_blk`/`s_blk`): per-step ramps would be ~sp5x more unknowns than 5-min
 observations and badly underdetermined. Objective: scale-normalized MSE of
@@ -129,6 +131,7 @@ def optimize_bundle(
     w_rho: float = 1.0,
     w_flow: float = 1.0,
     beta_init: float = 0.05,
+    min_init_demand: float = 1.0,
     imputed_dir: Path | None = None,
     imputed_weight: float = 0.3,
     patience: int | None = None,
@@ -141,7 +144,10 @@ def optimize_bundle(
 
     ``patience`` (iters without a ``min_delta`` *relative* loss improvement)
     enables early stopping with best-iterate restore; ``None`` runs all
-    ``iters`` and uses the final iterate. ``log_fn`` receives a per-iteration
+    ``iters`` and uses the final iterate. Starting demand at on-ramp cells is
+    floored at ``min_init_demand`` [veh/h]: the ``>= 0`` clamp has zero
+    gradient at exactly 0, so a block that starts at 0 would never move.
+    ``log_fn`` receives a per-iteration
     metrics dict (``iter``/``loss``/``density_rmse``/``flow_rmse``/
     ``density_mape``/``flow_mape``) every ``log_every`` iters -- the W&B seam,
     kept out of this function so it stays import-light and testable. Returns a
@@ -181,6 +187,8 @@ def optimize_bundle(
         return arr.reshape(n, n_5min, sp5).mean(axis=2)
 
     d0 = to_blocks(_wide(Path(init_demand), n, T) if init_demand else np.zeros((n, T)))
+    # clamp(., min=0) has zero gradient at exactly 0, so a zero start is dead.
+    d0[meta["on_ramp_cells"]] = np.maximum(d0[meta["on_ramp_cells"]], min_init_demand)
     if init_beta:
         b0 = to_blocks(_wide(Path(init_beta), n, T))
     else:
@@ -325,6 +333,7 @@ def optimize_bundle(
         "flow_scale": flow_scale,
         "init_demand": str(init_demand) if init_demand else None,
         "init_beta": str(init_beta) if init_beta else None,
+        "min_init_demand": min_init_demand,
     }
     (out_dir / "optimize_report.json").write_text(json.dumps(report, indent=2))
     return report
@@ -349,6 +358,9 @@ def main() -> None:
     p.add_argument("--w-flow", "--w_flow", dest="w_flow", type=float, default=1.0)
     p.add_argument("--beta-init", type=float, default=0.05,
                    help="Off-ramp beta initial value when --init-beta is absent.")
+    p.add_argument("--min-init-demand", type=float, default=1.0,
+                   help="Floor [veh/h] on starting on-ramp demand; a block starting "
+                        "at exactly 0 gets no gradient and would never move.")
     p.add_argument("--imputed-dir", "--imputed_dir", dest="imputed_dir", type=Path, default=None,
                    help="augment_observed_grid.py output dir (e.g. .../imputed/k2_d1.0); "
                         "scores imputed cells too. Default: bundle's observed_*.csv only.")
@@ -378,6 +390,7 @@ def main() -> None:
             "lr_demand": args.lr_demand, "lr_beta": args.lr_beta,
             "rho_scale": args.rho_scale, "flow_scale": args.flow_scale,
             "w_rho": args.w_rho, "w_flow": args.w_flow, "beta_init": args.beta_init,
+            "min_init_demand": args.min_init_demand,
             "imputed_dir": str(args.imputed_dir) if args.imputed_dir else None,
             "imputed_weight": args.imputed_weight,
             "patience": patience, "min_delta": args.min_delta,
@@ -399,7 +412,7 @@ def main() -> None:
         iters=args.iters, lr_demand=args.lr_demand, lr_beta=args.lr_beta,
         rho_scale=args.rho_scale, flow_scale=args.flow_scale,
         w_rho=args.w_rho, w_flow=args.w_flow, beta_init=args.beta_init,
-        imputed_dir=args.imputed_dir, imputed_weight=args.imputed_weight,
+        min_init_demand=args.min_init_demand, imputed_dir=args.imputed_dir, imputed_weight=args.imputed_weight,
         patience=patience, min_delta=args.min_delta,
         log_every=args.log_every, log_fn=log_fn, out_dir=out_dir,
     )

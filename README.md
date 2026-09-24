@@ -68,8 +68,9 @@ optimize_ramp_flows_diffsim.py   # refine the ramp profiles through the exact CT
 ```
 
 `build_ctm_ramp_scenario.py` output seeds the optimizer (absent ramps with no
-conservation relation start at 0); `optimize_ramp_flows_diffsim.py` produces
-the ramp flows used for simulation.
+conservation relation start at a fraction of mainline flow, and the optimizer
+floors every starting demand above 0); `optimize_ramp_flows_diffsim.py`
+produces the ramp flows used for simulation.
 
 **Simulation and demand** (Steps 8-10):
 

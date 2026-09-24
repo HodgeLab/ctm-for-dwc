@@ -6,6 +6,10 @@ optimizer (1) fits density+flow, (2) recovers the held-out ramp flows on
 single-ramp cells (unique inverse), and (3) writes wide demand/beta CSVs that
 round-trip through the real ``simulate`` -- i.e. are drop-in for
 ``simulate_ctm_corridor.py`` / ``validate_ctm_corridor.py``.
+
+The optimizer is warm-started as in practice (a non-zero ``--init-demand``);
+a zero start relies on the ``min_init_demand`` floor, because the ``>= 0``
+clamp has zero gradient at exactly 0.
 """
 
 from __future__ import annotations
@@ -76,10 +80,20 @@ def _write_synthetic_bundle(tmp_path: Path):
     return b, res, rho0, inflow
 
 
+def _write_init_demand(bundle: Path, inflow: np.ndarray, fraction: float) -> Path:
+    """Wide T x N warm-start demand: ``fraction`` of mainline inflow at the on-ramp."""
+    init = np.zeros((_T, _N))
+    init[:, 1] = fraction * inflow
+    path = bundle / "init_demand.csv"
+    pd.DataFrame(init, columns=[str(i) for i in range(_N)]).to_csv(path, index=False)
+    return path
+
+
 def test_optimizer_recovers_ramps_and_output_roundtrips(tmp_path):
     bundle, truth, rho0, inflow = _write_synthetic_bundle(tmp_path)
 
-    report = optimize_bundle(bundle, iters=500)
+    report = optimize_bundle(
+        bundle, iters=500, init_demand=_write_init_demand(bundle, inflow, 0.1))
 
     # (1) density + flow fit (the objective), reported as RMSE and MAPE.
     assert report["density_rmse"] < 1e-2, report
@@ -105,6 +119,20 @@ def test_optimizer_recovers_ramps_and_output_roundtrips(tmp_path):
     # non-ramp cells carry zero demand / zero beta.
     assert np.allclose(demand_df[0], 0.0) and np.allclose(demand_df[2], 0.0)
     assert np.allclose(beta_df[0], 0.0) and np.allclose(beta_df[1], 0.0)
+
+
+def test_zero_seed_is_floored_and_recovers(tmp_path):
+    """With no --init-demand every demand block starts at 0, where the clamp's
+    gradient is 0. The default min_init_demand floor lets it move; with the
+    floor disabled it stays frozen at 0."""
+    bundle, truth, *_ = _write_synthetic_bundle(tmp_path)
+    report = optimize_bundle(bundle, iters=500)
+    assert report["density_rmse"] < 1e-2, report
+    demand = pd.read_csv(bundle / "demand.csv")["1"].to_numpy()
+    assert np.sqrt(np.mean((demand - truth.on_ramp[1]) ** 2)) < 1.0
+
+    optimize_bundle(bundle, iters=50, min_init_demand=0.0)
+    assert np.allclose(pd.read_csv(bundle / "demand.csv")["1"], 0.0)
 
 
 def test_ramp_inputs_are_block_constant(tmp_path):
