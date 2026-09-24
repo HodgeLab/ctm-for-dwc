@@ -46,7 +46,8 @@ scripts name their step in the first line of their docstring.
 list_osm_refs.py                 # pick the --ref for the next step
 build_ctm_from_osm.py            # Steps 1+2: OSM -> Corridor -> cell table, VDS -> cell
 download_pems_station_metadata.py
-download_pems_timeseries.py      # Step 3
+download_pems_timeseries.py      # Step 3: clearinghouse -> .gz files
+extract_pems_timeseries.py       # Step 3: .gz files -> one CSV per VDS
 calibrate_fundamental_diagrams.py  # Step 4: writes station_metadata_calibrated.csv
 regenerate_cell_artifacts.py     # Step 5 helper: after manual edits to cells.csv
 assemble_ctm_freeway.py          # Step 6: -> freeway.csv

@@ -219,8 +219,8 @@ reads a PeMS `station_meta` text file (column schema: `ID`, `Fwy`, `Dir`,
 spelling.
 
 For users who don't already have the file on disk,
-`download_pems_station_metadata(district, ..., out_path=None)` wraps the
-existing `PeMSDownloader` to fetch the latest snapshot for a Caltrans
+`ctm_for_dwc.utils.pems.download_pems_station_metadata(district, ...,
+out_path=None)` wraps `PeMSDownloader` to fetch the latest snapshot for a Caltrans
 district. Credentials come from `PEMS_USERNAME` / `PEMS_PASSWORD` (auto-
 loaded from `.env`); the default cache directory is `data/pems/`
 (gitignored). The module docstring documents the manual-download path too
@@ -305,10 +305,11 @@ with median lateral distance to the centerline under 3 m and Caltrans-PM
 projection within 0.5 mi of PeMS's reported `Abs_PM` for most stations.
 
 ## Step 3: VDS Timeseries Download
-Implemented by two classes in `ctm_for_dwc.utils.data_downloading`:
+Implemented by two classes in `ctm_for_dwc.utils.pems`:
 `PeMSDownloader` (clearinghouse query + batch download) and `PeMSExtractor`
-(per-detector parsing of the downloaded `.gz` files). End-to-end demo:
-`scripts/download_pems_timeseries.py`.
+(per-detector parsing of the downloaded `.gz` files), each with its own
+script: `scripts/download_pems_timeseries.py` then
+`scripts/extract_pems_timeseries.py`.
 
 Step 2 has already pinned a specific `vds_id` to every cell, so this step
 only needs to fetch the time series for those particular detectors. The
@@ -317,7 +318,7 @@ union of `cells.csv`'s `vds_id` column is the exact list to pass as
 the same column.
 
 (Station metadata downloads — the *spatial* side of "VDS identification" —
-live in Step 2 as `download_pems_station_metadata`; this step is
+are used in Step 2 via `utils.pems.download_pems_station_metadata`; this step is
 specifically the *timeseries* download that Step 4 calibrates against.)
 
 **Stage 1: clearinghouse query + download.** `PeMSDownloader` authenticates
@@ -359,35 +360,36 @@ end_date=..., start_time=..., end_time=...)` drops rows outside that
 window at file-load time, so very long histories can be trimmed down to
 a calibration-relevant span without ever materializing the full corpus.
 
-**Demo CLI.** `scripts/download_pems_timeseries.py` wires the two classes
-into one invocation:
+**CLI.** One script per stage:
 
 ```
 python scripts/download_pems_timeseries.py \
-    --district 4 --year 2022 --month January \
-    --detectors 400839,400840
+    --district 4 --year 2022 --month January
+python scripts/extract_pems_timeseries.py --detectors 400839,400840
 ```
 
-Flags: `--district`, `--year` (or `--year-start` / `--year-end`),
-`--month`, `--detectors`, optional `--start-date` / `--end-date`
-clipping, and `--out-dir` (default: `<repo>/data/pems/timeseries/`, in
-the gitignored `data/` tree). Credentials come from
-`PEMS_USERNAME` / `PEMS_PASSWORD` (auto-loaded from `.env`); pass
-`--extract-only` to skip the download and just re-extract whatever
-`.gz` files are already on disk (the path for users who'd rather grab
-files by hand from the clearinghouse web UI at
-`https://pems.dot.ca.gov/?dnode=Clearinghouse&type=station_5min`).
+`download_pems_timeseries.py` takes `--district`, `--year` (or
+`--year-start` / `--year-end`), `--month`, and `--out-dir` (default:
+`<repo>/data/pems/timeseries/`, in the gitignored `data/` tree).
+Credentials come from `PEMS_USERNAME` / `PEMS_PASSWORD` (auto-loaded from
+`.env` by `utils.pems.resolve_credentials`) or `--username` / `--password`.
+`extract_pems_timeseries.py` needs no network: it takes `--gz-dir` (same
+default), `--detectors`, and optional `--start-date` / `--end-date`
+clipping, and writes to `<gz-dir>/csv_files/`. To grab files by hand
+instead, download them from the clearinghouse web UI at
+`https://pems.dot.ca.gov/?dnode=Clearinghouse&type=station_5min` into the
+`.gz` directory and run only the extract script.
 
-**Test surface.** 38 unit tests in `tests/test_pems_downloader.py` and
-`tests/test_pems_extractor.py` cover the parsing, URL construction,
-dedupe, and lane-count inference paths. The extractor tests use ≈ 10-row
-synthetic `.gz` files written to `tmp_path` so the suite stays under
-the file-size budget; the downloader tests stub the two network seams
-(`_open_url` and `_download_file`) via `monkeypatch` rather than hitting
-the live clearinghouse. The live login path itself is exercised
-indirectly by the `@pytest.mark.network` round-trip in
-`test_ctm_caltrans.py` (which goes through the same
-`PeMSDownloader.__init__`).
+**Test surface.** 44 tests across `tests/test_pems_downloader.py`,
+`tests/test_pems_extractor.py`, `tests/test_pems_credentials.py` and
+`tests/test_extract_pems_timeseries.py` cover the parsing, URL
+construction, dedupe, lane-count inference, credential lookup, and the
+extract CLI. The extractor tests use ≈ 10-row synthetic `.gz` files
+written to `tmp_path` so the suite stays under the file-size budget; the
+downloader tests stub the two network seams (`_open_url` and
+`_download_file`) via `monkeypatch` rather than hitting the live
+clearinghouse. The live login path (`PeMSDownloader.__init__`) is not
+exercised by any test.
 
 ## Step 4: Fundamental Diagram Calibration
 Implemented in `ctm_for_dwc.utils.ctm.fd_calibration` (the FD plot is

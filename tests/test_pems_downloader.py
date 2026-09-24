@@ -1,8 +1,9 @@
 """Tests for :class:`PeMSDownloader` -- clearinghouse query + batch download.
 
 The real constructor logs in to ``pems.dot.ca.gov`` over HTTP via mechanize;
-that login path stays out of unit tests (it's covered indirectly by the
-``@pytest.mark.network`` round-trip in ``test_ctm_caltrans.py``). Here we
+that login path stays out of unit tests and is not exercised by any test
+(the ``@pytest.mark.network`` test in ``test_ctm_caltrans.py`` hits the
+Caltrans postmile service, not PeMS). Here we
 instantiate via ``__new__`` to bypass ``__init__`` and exercise the parsing,
 URL-construction, and dedupe logic in isolation, monkeypatching the network-
 touching seams (``_open_url`` and ``_download_file``) where needed.
