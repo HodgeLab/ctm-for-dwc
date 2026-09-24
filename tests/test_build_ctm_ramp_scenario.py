@@ -156,14 +156,24 @@ def _type_c_case(tmp_path):
     return base, out_dir
 
 
-def test_type_c_absent_ramp_gets_zero(tmp_path, capsys):
+def test_type_c_absent_ramp_seeded_with_mainline_fraction(tmp_path, capsys):
+    """An absent type-(c) ramp is seeded with --type-c-fraction (default 0.1)
+    of the upstream mainline flow, never 0 (diffsim can't move a zero seed)."""
     base, out_dir = _type_c_case(tmp_path)
     main(base)
     demand = pd.read_csv(out_dir / "demand.csv")
     beta = pd.read_csv(out_dir / "beta.csv")
-    np.testing.assert_allclose(demand["0"], 120.0)        # 10 veh/5min * 12
-    np.testing.assert_allclose(beta["1"], 0.0)            # absent ramp -> zero
+    np.testing.assert_allclose(demand["0"], 120.0)        # measured: 10 veh/5min * 12
+    # s = 0.1 * q_up = 0.1 * 1200 = 120; f = q_down = 1320 veh/hr.
+    np.testing.assert_allclose(beta["1"], 120.0 / (1320.0 + 120.0))
     assert "has no data" in capsys.readouterr().err
+
+
+def test_type_c_fraction_flag_is_honored(tmp_path):
+    base, out_dir = _type_c_case(tmp_path)
+    main(base + ["--type-c-fraction", "0.2"])
+    beta = pd.read_csv(out_dir / "beta.csv")
+    np.testing.assert_allclose(beta["1"], 240.0 / (1320.0 + 240.0))
 
 
 def test_type_b_absent_ramp_uses_conservation(tmp_path):

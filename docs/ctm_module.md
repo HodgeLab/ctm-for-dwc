@@ -742,10 +742,10 @@ flowchart TD
     partial -- yes --> hist["fill missing values using<br/>historical average & persistence"]
     partial -- no --> config["determine ramp<br/>configuration"]
     config -- "type (a), (b)" --> cons["fill missing values using<br/>flow conservation"]
-    config -- "type (c)" --> zero["start from zero flow"]
+    config -- "type (c)" --> frac["seed with a fraction of<br/>upstream mainline flow"]
     hist --> seed
     cons --> seed
-    zero --> seed
+    frac --> seed
     seed["starting profile<br/>(demand.csv, beta.csv)"] --> refine["refine all ramps with diffsim"]
     refine --> stop([stop])
 ```
@@ -791,8 +791,10 @@ one reason diffsim refines every ramp rather than trusting the starting profile.
 
 ### Absent ramps on type-(c) stretches
 With no ramp data and no conservation relation, a completely absent ramp on a
-type-(c) stretch starts at **zero** flow (with a warning), and diffsim recovers
-it. Earlier versions estimated these ramps with a trained model (a GRU, and the
+type-(c) stretch is seeded with a fraction (`--type-c-fraction`, default 0.1)
+of the stretch's upstream mainline flow, with a warning, and diffsim recovers
+it. The seed only needs to be non-zero (see the demand floor under
+"Refinement with diffsim"). Earlier versions estimated these ramps with a trained model (a GRU, and the
 methods of [Kan et al. 2021](https://doi.org/10.1109/TITS.2020.2989365) and
 [Zhang et al. 2024](https://doi.org/10.1109/TITS.2023.3315693)); those were
 removed once diffsim made a careful starting profile unnecessary, and remain in
@@ -802,7 +804,7 @@ git history.
 
 The starting profile is built by `scripts/build_ctm_ramp_scenario.py`: gap fill
 (short gaps persisted, longer gaps historical-averaged), type-(a)/(b)
-conservation, and zero for absent type-(c) ramps. It writes an on-ramp demand
+conservation, and a mainline-fraction seed for absent type-(c) ramps. It writes an on-ramp demand
 and off-ramp split ratio profile at sim cadence.
 `scripts/simulate_ctm_corridor.py` takes `--demand` / `--beta` CSVs; when they
 are omitted, every cell gets zero demand and zero split ratio (ramps are
@@ -883,6 +885,13 @@ optimizer checks): build it with the bundle's `--start` / `--end` and
 `--dt-seconds` set to the bundle's `meta.json` `dt_s`. Without `--init-demand` / `--init-beta` the
 optimizer starts from zero demand and `--beta-init` at every off-ramp.
 
+**Demand floor.** Demand is kept $\ge 0$ by a clamp, whose gradient is exactly
+0 at the bound, so a demand block that *starts* at 0 never moves. Every starting
+on-ramp demand is therefore raised to at least `--min-init-demand` (default
+1 veh/h); any positive value is enough. This covers zero blocks from every
+source: measured zeros, conservation clipped at 0, and a zero-demand start. A
+block pushed below 0 *during* optimization still gets no gradient.
+
 **Why not a convex QP.** Diffsim replaced an inverse-CTM quadratic program
 (Julia/JuMP, removed; recover with `git show pre-cleanup:julia/`) that solved
 for ramp flows with the CTM update equations as constraints, the CTM `min`
@@ -923,7 +932,7 @@ timeseries behind such an id, so each consumer handles it explicitly:
 * **Offline scenario builder** (`scripts/build_ctm_ramp_scenario.py`) --
   a virtual id is "VDS completely absent" by construction and dispatches
   on the `config_type` of the stretch that lists it: conservation for
-  type (a)/(b), zero for type (c). Conservation covers the stretch
+  type (a)/(b), a mainline-fraction seed for type (c). Both cover the stretch
   side's **total** ramp flow, so when the virtual ramp shares its stretch
   side with measured detectors, their historical-average-filled flows are
   subtracted from the estimate (clipped at 0) before it is assigned --
