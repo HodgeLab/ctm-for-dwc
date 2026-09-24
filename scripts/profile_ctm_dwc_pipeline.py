@@ -57,7 +57,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from ctm_for_dwc.utils.ctm import (
+from ctm_for_dwc.ctm import (
     compute_metrics,
     freeway_from_dataframe,
     inflow_from_vds,
@@ -65,9 +65,9 @@ from ctm_for_dwc.utils.ctm import (
     scenario_from_dataframes,
     simulate,
 )
-from ctm_for_dwc.utils.dwc.adapter import corridor_from_ctm, mainline_vht
-from ctm_for_dwc.utils.dwc.demand import compute
-from ctm_for_dwc.utils.dwc.model import PadSpec
+from ctm_for_dwc.dwc.adapter import corridor_from_ctm, mainline_vht
+from ctm_for_dwc.dwc.demand import compute
+from ctm_for_dwc.dwc.model import PadSpec
 
 
 # Both helpers are verbatim copies from the two scripts this one fuses; kept

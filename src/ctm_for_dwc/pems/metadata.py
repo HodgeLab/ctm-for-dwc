@@ -1,7 +1,7 @@
 """Download PeMS ``station_meta`` files from the clearinghouse.
 
 :func:`download_pems_station_metadata` fetches one district's metadata
-snapshot; :func:`ctm_for_dwc.utils.ctm.vds.load_pems_station_metadata` reads
+snapshot; :func:`ctm_for_dwc.ctm.vds.load_pems_station_metadata` reads
 and filters it for the CTM pipeline (Step 2).
 """
 
@@ -17,7 +17,7 @@ from .credentials import resolve_credentials
 
 # Default download target lives in the repo so subsequent runs find it without
 # re-querying the clearinghouse. The directory is gitignored.
-_REPO_ROOT = Path(__file__).resolve().parents[4]
+_REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_PEMS_DIR = _REPO_ROOT / "data" / "pems"
 PEMS_META_FILE_TYPE = "meta"
 
@@ -34,7 +34,7 @@ def download_pems_station_metadata(
 ) -> Path:
     """Fetch one PeMS ``station_meta`` text file for a district + year.
 
-    Uses :class:`ctm_for_dwc.utils.pems.downloader.PeMSDownloader`
+    Uses :class:`ctm_for_dwc.pems.downloader.PeMSDownloader`
     against the live clearinghouse (``pems.dot.ca.gov``). Credentials come
     from the ``PEMS_USERNAME`` / ``PEMS_PASSWORD`` environment variables
     (loaded from ``.env`` via ``python-dotenv`` if present) unless
@@ -79,7 +79,7 @@ def download_pems_station_metadata(
     """
     # Local import so this module stays importable when the downloader's
     # heavy/optional deps (mechanize, bs4) aren't available.
-    from ctm_for_dwc.utils.pems.downloader import PeMSDownloader
+    from ctm_for_dwc.pems.downloader import PeMSDownloader
 
     username, password = resolve_credentials(username, password)
 
@@ -124,7 +124,7 @@ def download_pems_station_metadata(
                                 suffix=".txt")[1])
     try:
         # Use the underlying mechanize browser to stream the file directly.
-        from ctm_for_dwc.utils.pems.settings import BASE_URL
+        from ctm_for_dwc.pems.settings import BASE_URL
         dl.browser.retrieve(
             f"{BASE_URL}{chosen['download_url']}", str(tmp),
         )

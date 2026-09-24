@@ -30,12 +30,12 @@ from pathlib import Path
 
 import pandas as pd
 
-from ctm_for_dwc.utils.ctm.cells import (
+from ctm_for_dwc.ctm.cells import (
     cells_to_geodataframe,
     corridor_from_artifacts,
     flag_cell_length_warnings,
 )
-from ctm_for_dwc.utils.ctm.plots import (
+from ctm_for_dwc.ctm.plots import (
     plot_cell_layout,
     plot_corridor_map,
 )

@@ -1,6 +1,6 @@
 """Differentiable (PyTorch) reimplementation of the canonical CTM step.
 
-:func:`step` mirrors :func:`utils.ctm.engine.step` exactly -- the same six
+:func:`step` mirrors :func:`ctm.engine.step` exactly -- the same six
 update equations of ``docs/ctm_module.md`` (Kurzhanskiy 2007, sec. 4.2.1) -- but
 in torch, so the mainline density/flow trajectory is differentiable w.r.t. the
 ramp inputs (``demand``, ``beta``). A numerical parity test

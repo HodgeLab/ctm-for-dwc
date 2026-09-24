@@ -23,7 +23,7 @@ from bs4 import BeautifulSoup
 from http.cookiejar import LWPCookieJar
 
 # Local imports
-from ctm_for_dwc.utils.pems.settings import (
+from ctm_for_dwc.pems.settings import (
     DATA_PATH,
     BASE_URL,
     DISTRICTS,

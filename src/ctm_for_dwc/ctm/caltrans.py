@@ -76,7 +76,7 @@ SHN_POSTMILES_TENTH_FEATURESERVER = (
 
 # Default download target lives in the repo so subsequent runs can find it
 # without an internet round-trip. The path is gitignored.
-_REPO_ROOT = Path(__file__).resolve().parents[4]
+_REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_POSTMILE_DIR = _REPO_ROOT / "data" / "caltrans"
 DEFAULT_POSTMILE_FILE = DEFAULT_POSTMILE_DIR / "shn_postmiles_tenth.geojson"
 

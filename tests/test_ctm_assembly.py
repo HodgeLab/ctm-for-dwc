@@ -1,4 +1,4 @@
-"""Unit tests for ``utils/ctm/assembly.py``.
+"""Unit tests for ``ctm/assembly.py``.
 
 These cover the Step-6 freeway-table assembly: joining Step-1+2 cells with
 Step-4 calibration, per-lane → per-cell scaling for q_max / rho_jam /
@@ -12,14 +12,14 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ctm_for_dwc.utils.ctm import (
+from ctm_for_dwc.ctm import (
     FREEWAY_COLUMNS,
     assemble_freeway_table,
     compute_cfl_advisory,
     format_cfl_advisory,
     parse_ramp_vds_ids,
 )
-from ctm_for_dwc.utils.ctm.io import freeway_from_dataframe
+from ctm_for_dwc.ctm.io import freeway_from_dataframe
 
 
 # ---- Fixtures -------------------------------------------------------------

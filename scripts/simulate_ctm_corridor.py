@@ -1,17 +1,17 @@
 """Step 8: end-to-end CTM simulation on a calibrated corridor.
 
 Wires together the Step 1-6 artifacts and Step 8's PeMS -> Scenario
-adapters to actually run :func:`utils.ctm.engine.simulate` on a real
+adapters to actually run :func:`ctm.engine.simulate` on a real
 corridor:
 
 1. Build a :class:`Freeway` from the Step-6 ``freeway.csv`` with the
    user-chosen ``--dt-seconds`` (pick this from Step 6's CFL advisory).
 2. Extract upstream boundary inflow ``f_0(k)`` from the corridor's
    upstream-most mainline VDS via
-   :func:`utils.ctm.scenario.inflow_from_vds`. Window controlled by
+   :func:`ctm.scenario.inflow_from_vds`. Window controlled by
    ``--start`` / ``--end``.
 3. Extract initial density ``rho_i(0)`` from each cell's mainline VDS
-   at ``--start`` via :func:`utils.ctm.scenario.initial_state_from_vds`.
+   at ``--start`` via :func:`ctm.scenario.initial_state_from_vds`.
    Requires ``lanes == vds_lanes`` per cell (Step 5 territory).
 4. Optionally load wide on-ramp demand and off-ramp split-ratio CSVs
    (``--demand`` / ``--beta``), produced by Step 7
@@ -54,7 +54,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from ctm_for_dwc.utils.ctm import (
+from ctm_for_dwc.ctm import (
     compute_metrics,
     freeway_from_dataframe,
     inflow_from_vds,
@@ -62,7 +62,7 @@ from ctm_for_dwc.utils.ctm import (
     scenario_from_dataframes,
     simulate,
 )
-from ctm_for_dwc.utils.ctm.plots import (
+from ctm_for_dwc.ctm.plots import (
     downsample_to_plot_period,
     per_period_totals,
     plot_aggregate_metrics,
@@ -256,7 +256,7 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     for name, frame in result.to_dataframes().items():
         frame.to_csv(out_dir / f"{name}.csv")
-    # Self-contained bundle for the DWC demand pipeline (utils.dwc.adapter
+    # Self-contained bundle for the DWC demand pipeline (dwc.adapter
     # reloads it via SimulationResult.from_npz).
     result.to_npz(out_dir / "result.npz")
 

@@ -2,7 +2,7 @@
 
 Ramp detectors (PeMS Type ∈ {OR, FR}) suffer more outages than mainline
 detectors, so the raw 5-min CSVs Step 3 downloads often have NaN samples
-that the scenario adapters (:mod:`utils.ctm.scenario`) can't consume
+that the scenario adapters (:mod:`ctm.scenario`) can't consume
 directly. This module provides two pure-function fillers, both sharing
 the signature::
 

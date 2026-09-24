@@ -13,7 +13,7 @@ Two ground-truth sources are supported today:
 
 * **CTMSIM reference output** (:func:`compare_against_ctmsim`) -- the
   Kurzhanskiy 2007 / Aurora reference CSVs bundled under
-  ``utils/ctm/ctmsim_results/<day>/``. Compares sim density, mainline
+  ``ctm/ctmsim_results/<day>/``. Compares sim density, mainline
   flow, and the four aggregate metrics (VHT, VMT, delay, productivity
   loss) to CTMSIM v1.1's CSV exports for the same .mat config.
   Useful for regression-style validation of engine behavior against
@@ -79,7 +79,7 @@ def compare_against_historical(
     Parameters
     ----------
     result : SimulationResult
-        Output of :func:`utils.ctm.engine.simulate`. The freeway's
+        Output of :func:`ctm.engine.simulate`. The freeway's
         ``dt`` must evenly divide 5 minutes, and the sim horizon
         ``n_steps * dt`` must be a positive whole multiple of 5 minutes.
     cells_df : pandas.DataFrame
@@ -127,7 +127,7 @@ def compare_against_historical(
           isn't a whole multiple of 5 minutes.
         * ``start`` is misaligned to the 5-min grid.
         * Any cell has ``lanes != vds_lanes`` (per the
-          :func:`utils.ctm.scenario.initial_state_from_vds` contract --
+          :func:`ctm.scenario.initial_state_from_vds` contract --
           observed density isn't directly comparable to sim density
           when the OSM-reported and PeMS-reported lane counts disagree).
     KeyError
@@ -311,7 +311,7 @@ def compare_corridor_aggregates(
 ) -> CorridorAggregates:
     """Corridor-total VMT and VHT, sim vs observed PeMS, over the sim window.
 
-    Unlike the per-cell corridor-long metrics in :mod:`utils.ctm.metrics`
+    Unlike the per-cell corridor-long metrics in :mod:`ctm.metrics`
     (which sum *every* cell and include the on-ramp queues), this
     restricts to one term per *unique* mainline VDS -- the cell whose
     ``vds_source`` is ``direct`` or ``direct_tiebreak``. On-ramp queues
@@ -351,7 +351,7 @@ def compare_corridor_aggregates(
     Parameters
     ----------
     result : SimulationResult
-        Output of :func:`utils.ctm.engine.simulate`. Same ``dt`` /
+        Output of :func:`ctm.engine.simulate`. Same ``dt`` /
         horizon constraints as :func:`compare_against_historical`.
     cells_df : pandas.DataFrame
         Step 1+2 ``cells.csv``; must carry ``vds_id`` and ``vds_source``.
@@ -788,7 +788,7 @@ class ObservedGrid:
 
     ``flow`` [veh/h] and ``density`` [veh/mi] are ``(n_5min, n_cells)``
     (time down rows, cells across columns) so they render with the same
-    :func:`utils.ctm.plots.plot_flow_density_contour` as the sim's
+    :func:`ctm.plots.plot_flow_density_contour` as the sim's
     ``flow_contour``/``density_contour`` -- same distance x-axis, same
     time-in-hours y-axis. Cells with no direct/tiebreak VDS (and invalid
     observed samples) are NaN, so measured coverage shows against the full
@@ -905,11 +905,11 @@ def _sim_density_5min(
     interval flow and an interval mean speed), so the comparable sim value
     is the window mean rather than the state at one boundary. Averages the
     *post-step* densities ``rho_i(k+1)`` inside each window -- the same
-    alignment :mod:`utils.ctm.metrics` and
+    alignment :mod:`ctm.metrics` and
     :func:`compare_corridor_aggregates` use, which also keeps the initial
     condition out of the comparison (``rho_i(0)`` is seeded from the
     observed value at ``start`` by
-    :func:`utils.ctm.scenario.initial_state_from_vds`, so including it
+    :func:`ctm.scenario.initial_state_from_vds`, so including it
     would score a residual that is zero by construction).
     """
     horizon = n_5min * steps_per_5min
@@ -1113,11 +1113,11 @@ def compare_against_ctmsim(
     Parameters
     ----------
     result : SimulationResult
-        Output of :func:`utils.ctm.engine.simulate`. Must have horizon
+        Output of :func:`ctm.engine.simulate`. Must have horizon
         ``plot_samples * sim_steps_per_plot_sample``.
     ctmsim_results_dir : Path or str
         Directory containing the three reference CSVs above (typically
-        ``utils/ctm/ctmsim_results/<day>/``).
+        ``ctm/ctmsim_results/<day>/``).
     plot_samples : int, default 288
         Number of plotting samples (``K``) in the CTMSIM CSVs --
         24 hours / 5 min per sample = 288 for the I-210W reference.

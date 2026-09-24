@@ -1,4 +1,4 @@
-"""Tests for the Step-7 gap-fillers in ``utils/ctm/ramp_fill.py``.
+"""Tests for the Step-7 gap-fillers in ``ctm/ramp_fill.py``.
 
 The fillers share signature ``fill(df, *, flow_col, ...) -> df``.
 These tests exercise each one on a controlled synthetic series: a
@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ctm_for_dwc.utils.ctm.ramp_fill import (
+from ctm_for_dwc.ctm.ramp_fill import (
     gap_aware_fill,
     persistence_fill,
 )

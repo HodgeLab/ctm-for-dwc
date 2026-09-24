@@ -1,4 +1,4 @@
-"""Tests for ``utils/ctm/osm.py``: extracting a CTM Corridor from an osmnx graph.
+"""Tests for ``ctm/osm.py``: extracting a CTM Corridor from an osmnx graph.
 
 The tests build small in-memory ``MultiDiGraph`` instances that look like
 what ``osmnx.simplify_graph`` would emit -- WGS84 node coordinates, OSM
@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 from shapely.geometry import LineString
 
-from ctm_for_dwc.utils.ctm.osm import (
+from ctm_for_dwc.ctm.osm import (
     Corridor,
     MainlineSegment,
     RampJunction,

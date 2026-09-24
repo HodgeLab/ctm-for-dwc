@@ -13,14 +13,14 @@ matplotlib.use("Agg")
 
 import numpy as np
 
-from ctm_for_dwc.utils.ctm.engine import simulate
-from ctm_for_dwc.utils.ctm.examples import (
+from ctm_for_dwc.ctm.engine import simulate
+from ctm_for_dwc.ctm.examples import (
     four_cell_freeway,
     four_cell_scenario,
 )
-from ctm_for_dwc.utils.dwc import plots
-from ctm_for_dwc.utils.dwc.adapter import corridor_from_ctm
-from ctm_for_dwc.utils.dwc.model import CorridorSpec, DemandResult, PadSpec
+from ctm_for_dwc.dwc import plots
+from ctm_for_dwc.dwc.adapter import corridor_from_ctm
+from ctm_for_dwc.dwc.model import CorridorSpec, DemandResult, PadSpec
 
 
 _MI = 1609.344  # meters per mile, matching plots._METERS_PER_MILE

@@ -17,17 +17,17 @@ hatchling build.
 
 ## Layout
 
-`utils/` is library code (import from here). `scripts/` are entrypoints and
+`src/ctm_for_dwc/` is library code (import from here). `scripts/` are entrypoints and
 one-offs (run these, don't import them).
 
 | Module | Role |
 |---|---|
-| `utils/ctm/` | The core module: CTM data model, engine, and the whole OSM-to-simulation pipeline. See `docs/ctm_module.md`. |
-| `utils/dwc/` | DWC demand module: CTM `VHT` -> adapted mCONV -> spatiotemporal charging demand (`E`). See `docs/dwc_demand_module.md`. |
-| `utils/pems/` | PeMS clearinghouse access: `PeMSDownloader` (download files), `PeMSExtractor` (`.gz` dumps → per-VDS CSVs), `download_pems_station_metadata`, `resolve_credentials`, and URL settings. Downloader/extractor adapted from Seb-Good/caltrans-pems. |
-| `utils/plot_style.py` | Shared matplotlib style for paper figures (`PAPER_RC`, `COLUMN_W`, `PAPER_DPI`). |
+| `ctm/` | The core module: CTM data model, engine, and the whole OSM-to-simulation pipeline. See `docs/ctm_module.md`. |
+| `dwc/` | DWC demand module: CTM `VHT` -> adapted mCONV -> spatiotemporal charging demand (`E`). See `docs/dwc_demand_module.md`. |
+| `pems/` | PeMS clearinghouse access: `PeMSDownloader` (download files), `PeMSExtractor` (`.gz` dumps → per-VDS CSVs), `download_pems_station_metadata`, `resolve_credentials`, and URL settings. Downloader/extractor adapted from Seb-Good/caltrans-pems. |
+| `plot_style.py` | Shared matplotlib style for paper figures (`PAPER_RC`, `COLUMN_W`, `PAPER_DPI`). |
 
-Inside `utils/ctm/`, the pipeline stages map to modules: `osm.py` + `cells.py`
+Inside `ctm/`, the pipeline stages map to modules: `osm.py` + `cells.py`
 (Step 1), `vds.py` (Step 2), `fd_calibration.py` (Step 4: fundamental
 diagrams and ramp capacities), `assembly.py` (Step 6), `ramp_fill.py` +
 `scenario.py` (Steps 7-8), `model.py` + `engine.py` + `results.py` (the

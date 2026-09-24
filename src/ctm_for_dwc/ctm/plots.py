@@ -36,7 +36,7 @@ extracted one.
   two-sample QQ grid.
 
 **Fundamental-diagram calibration** (used by
-:mod:`utils.ctm.fd_calibration`):
+:mod:`ctm.fd_calibration`):
 
 * :func:`plot_fundamental_diagram`   -- one detector's (density, flow)
   cloud with the fitted triangular FD.
@@ -421,7 +421,7 @@ def plot_qq_pooled(qq, *, quantity: str, out_path: Path) -> None:
     on the line => the model reproduces the marginal distribution of the
     quantity.
 
-    ``qq`` is a :class:`utils.ctm.validation.QQResult`.
+    ``qq`` is a :class:`ctm.validation.QQResult`.
     """
     unit = _QQ_UNITS[quantity]
     sim, obs = qq.pooled(quantity)
@@ -444,7 +444,7 @@ def plot_qq_percell(
     skipped. If no cell qualifies, a placeholder figure is written so the
     promised path still exists.
 
-    ``qq`` is a :class:`utils.ctm.validation.QQResult`.
+    ``qq`` is a :class:`ctm.validation.QQResult`.
     """
     unit = _QQ_UNITS[quantity]
     cells = [
@@ -503,7 +503,7 @@ def plot_fundamental_diagram(
     column width with no title -- the detector ID belongs in the caption.
 
     ``bin_df`` and the two models come from
-    :mod:`utils.ctm.fd_calibration`; ``params`` must contain
+    :mod:`ctm.fd_calibration`; ``params`` must contain
     ``capacity``, ``free_flow_speed``, ``congestion_wave_speed``,
     ``jam_density`` and ``critical_density``.
     """

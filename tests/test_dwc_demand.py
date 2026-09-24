@@ -7,9 +7,9 @@ linearity, and non-negativity (layers 1-2).
 
 import numpy as np
 
-from ctm_for_dwc.utils.dwc.demand import compute_demand
-from ctm_for_dwc.utils.dwc.mapping import build_M_CTM
-from ctm_for_dwc.utils.dwc.spatial import (
+from ctm_for_dwc.dwc.demand import compute_demand
+from ctm_for_dwc.dwc.mapping import build_M_CTM
+from ctm_for_dwc.dwc.spatial import (
     build_P_y,
     build_S_R,
     build_S_T,

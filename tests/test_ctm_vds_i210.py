@@ -22,12 +22,12 @@ import osmnx as ox
 import pytest
 import scipy.io as sio
 
-from ctm_for_dwc.utils.ctm.caltrans import (
+from ctm_for_dwc.ctm.caltrans import (
     download_caltrans_postmiles,
 )
-from ctm_for_dwc.utils.ctm.cells import cells_from_corridor
-from ctm_for_dwc.utils.ctm.osm import corridor_from_graph
-from ctm_for_dwc.utils.ctm.vds import (
+from ctm_for_dwc.ctm.cells import cells_from_corridor
+from ctm_for_dwc.ctm.osm import corridor_from_graph
+from ctm_for_dwc.ctm.vds import (
     assign_vds_to_cells,
     load_pems_station_metadata,
     project_vds_to_corridor,
@@ -36,7 +36,7 @@ from ctm_for_dwc.utils.ctm.vds import (
 REPO = Path(__file__).resolve().parents[1]
 GRAPHML = REPO / "tests/fixtures/osm/i210_bbox.graphml"
 PEMS_FIXTURE = REPO / "tests/fixtures/pems/d07_meta_2023_12_22.txt"
-CTMSIM_MAT = REPO / "src/ctm_for_dwc/utils/ctm/ctmsim_configs/w060412.mat"
+CTMSIM_MAT = REPO / "src/ctm_for_dwc/ctm/ctmsim_configs/w060412.mat"
 
 
 @pytest.fixture(scope="module")

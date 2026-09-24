@@ -8,8 +8,8 @@ result by hand on a small system and asserting the engine matches.
 import numpy as np
 import pytest
 
-from ctm_for_dwc.utils.ctm.engine import step
-from ctm_for_dwc.utils.ctm.model import Cell, Freeway
+from ctm_for_dwc.ctm.engine import step
+from ctm_for_dwc.ctm.model import Cell, Freeway
 
 
 def _two_identical_cells(dt: float = 1.0 / 120.0) -> Freeway:

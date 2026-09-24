@@ -107,7 +107,7 @@ class SimulationResult:
         every per-cell parameter) and ``Scenario`` to reconstruct an equivalent
         :class:`SimulationResult` via :meth:`from_npz` -- no original config
         objects or CSVs needed. Intended for handing a run off to the DWC
-        demand pipeline (``utils.dwc.adapter``).
+        demand pipeline (``dwc.adapter``).
         """
         data: dict[str, np.ndarray] = {
             f"result__{name}": getattr(self, name) for name in _RESULT_ARRAYS

@@ -74,14 +74,14 @@ the source of assembled corridors for any downstream analysis.
   - [Cell-length rule (Step 5)](#cell-length-rule-step-5)
 
 ## Step 1: Roadway --> Cell Mapping
-Implemented in `ctm_for_dwc.utils.ctm.osm` (corridor extraction),
-`ctm_for_dwc.utils.ctm.cells` (cell layout), and
-`ctm_for_dwc.utils.ctm.caltrans` (optional Caltrans postmile
+Implemented in `ctm_for_dwc.ctm.osm` (corridor extraction),
+`ctm_for_dwc.ctm.cells` (cell layout), and
+`ctm_for_dwc.ctm.caltrans` (optional Caltrans postmile
 annotation). End-to-end demo: `scripts/build_ctm_from_osm.py`.
 
 The mapping is a three-stage pipeline that takes an OpenStreetMap network for a
 region and emits a freeway-schema cell table ready for
-`utils.ctm.io.freeway_from_dataframe`. Each stage is intentionally small so it
+`ctm.io.freeway_from_dataframe`. Each stage is intentionally small so it
 can be tested and swapped in isolation.
 
 **Stage 1: OSM → `Corridor`.** The caller fetches a roadway graph via any
@@ -168,7 +168,7 @@ the two PNGs, the build script also writes `mainline.geojson`,
 corridor's geometry + metadata (`ref`, `direction`, `target_bearing`,
 `crs`, optional Caltrans postmile lookup) without depending on the live
 osmnx graph. `corridor_to_artifacts` / `corridor_from_artifacts` in
-`utils.ctm.cells` write and read this trio; Step 5's regenerator script
+`ctm.cells` write and read this trio; Step 5's regenerator script
 uses them to rebuild `cells.geojson` and the PNGs after a user
 hand-edits `cells.csv`.
 
@@ -188,7 +188,7 @@ fixes the on-ramp blending factor at $\gamma_i = 1$. `Cell.gamma` defaults
 to 1.0 accordingly (matching CTMSIM canonical); the dissertation's
 Examples 1 and §3.4 — which are stated in the Gomes & Horowitz / four-mode
 form with $\gamma_i = 0$ — pin γ explicitly in
-`utils.ctm.examples`. The on-ramp allocation factor $\xi_i$ is orthogonal
+`ctm.examples`. The on-ramp allocation factor $\xi_i$ is orthogonal
 to ramp position (it controls how much of the cell's empty space the
 on-ramp can fill) and defaults to 1.0, matching both conventions.
 
@@ -202,7 +202,7 @@ span the dissertation's PM 24-39 range when anchored at Vernon Ave and the
 SR-134 split.
 
 ## Step 2: VDS --> Cell Mapping
-Implemented in `ctm_for_dwc.utils.ctm.vds`. End-to-end demo:
+Implemented in `ctm_for_dwc.ctm.vds`. End-to-end demo:
 `scripts/build_ctm_from_osm.py --pems-metadata {auto|PATH}`.
 
 Step 2 attaches a PeMS vehicle detector station (VDS) to every cell produced
@@ -219,7 +219,7 @@ reads a PeMS `station_meta` text file (column schema: `ID`, `Fwy`, `Dir`,
 spelling.
 
 For users who don't already have the file on disk,
-`ctm_for_dwc.utils.pems.download_pems_station_metadata(district, ...,
+`ctm_for_dwc.pems.download_pems_station_metadata(district, ...,
 out_path=None)` wraps `PeMSDownloader` to fetch the latest snapshot for a Caltrans
 district. Credentials come from `PEMS_USERNAME` / `PEMS_PASSWORD` (auto-
 loaded from `.env`); the default cache directory is `data/pems/`
@@ -305,7 +305,7 @@ with median lateral distance to the centerline under 3 m and Caltrans-PM
 projection within 0.5 mi of PeMS's reported `Abs_PM` for most stations.
 
 ## Step 3: VDS Timeseries Download
-Implemented by two classes in `ctm_for_dwc.utils.pems`:
+Implemented by two classes in `ctm_for_dwc.pems`:
 `PeMSDownloader` (clearinghouse query + batch download) and `PeMSExtractor`
 (per-detector parsing of the downloaded `.gz` files), each with its own
 script: `scripts/download_pems_timeseries.py` then
@@ -318,7 +318,7 @@ union of `cells.csv`'s `vds_id` column is the exact list to pass as
 the same column.
 
 (Station metadata downloads — the *spatial* side of "VDS identification" —
-are used in Step 2 via `utils.pems.download_pems_station_metadata`; this step is
+are used in Step 2 via `pems.download_pems_station_metadata`; this step is
 specifically the *timeseries* download that Step 4 calibrates against.)
 
 **Stage 1: clearinghouse query + download.** `PeMSDownloader` authenticates
@@ -372,7 +372,7 @@ python scripts/extract_pems_timeseries.py --detectors 400839,400840
 `--year-start` / `--year-end`), `--month`, and `--out-dir` (default:
 `<repo>/data/pems/timeseries/`, in the gitignored `data/` tree).
 Credentials come from `PEMS_USERNAME` / `PEMS_PASSWORD` (auto-loaded from
-`.env` by `utils.pems.resolve_credentials`) or `--username` / `--password`.
+`.env` by `pems.resolve_credentials`) or `--username` / `--password`.
 `extract_pems_timeseries.py` needs no network: it takes `--gz-dir` (same
 default), `--detectors`, and optional `--start-date` / `--end-date`
 clipping, and writes to `<gz-dir>/csv_files/`. To grab files by hand
@@ -392,8 +392,8 @@ clearinghouse. The live login path (`PeMSDownloader.__init__`) is not
 exercised by any test.
 
 ## Step 4: Fundamental Diagram Calibration
-Implemented in `ctm_for_dwc.utils.ctm.fd_calibration` (the FD plot is
-`utils.ctm.plots.plot_fundamental_diagram`). End-to-end demo:
+Implemented in `ctm_for_dwc.ctm.fd_calibration` (the FD plot is
+`ctm.plots.plot_fundamental_diagram`). End-to-end demo:
 `scripts/calibrate_fundamental_diagrams.py`.
 
 For each VDS produced by Step 3, this step fits the five-parameter
@@ -401,7 +401,7 @@ triangular FD ($q_{max,i}$, $v_{f,i}$, $w_i$, $\rho_{jam,i}$,
 $\rho_{crit,i}$) from the (density, flow) cloud observed by that
 detector. Keyed on `Station ID`, the calibrated parameters slot into
 `cells.csv` via the `vds_id` column attached in Step 2, completing the
-freeway schema required by `utils.ctm.io.freeway_from_dataframe`.
+freeway schema required by `ctm.io.freeway_from_dataframe`.
 
 **Per-detector pipeline.** For each detector,
 `calibrate_fundamental_diagrams`:
@@ -501,7 +501,7 @@ timeseries on disk (Step 3 wasn't run for that detector, or PeMS
 returned no data) get `ramp_capacity_[veh/hr]=NaN`, which Step 6's
 assembly translates into $R_i = \infty$ — the right "no measurement →
 no constraint" fall-back; the CTM cell defaults already allow
-infinite ramp capacity (`utils.ctm.io` schema: `on_ramp_capacity`
+infinite ramp capacity (`ctm.io` schema: `on_ramp_capacity`
 defaults to `inf` when missing/NaN).
 
 **Calibration philosophy: data-driven, not knob-based.** CTMSIM
@@ -594,11 +594,11 @@ re-runs `flag_cell_length_warnings` on the edited table so the
 `length_warning` column stays consistent with the new lengths.
 
 ## Step 6: CTM Freeway Assembly
-Implemented in `ctm_for_dwc.utils.ctm.assembly`. End-to-end
+Implemented in `ctm_for_dwc.ctm.assembly`. End-to-end
 demo: `scripts/assemble_ctm_freeway.py`.
 
 This step joins three independent artifacts into a single per-cell freeway
-table that slots directly into `utils.ctm.io.freeway_from_dataframe`:
+table that slots directly into `ctm.io.freeway_from_dataframe`:
 
 | input                                  | source                          | role                                                |
 |----------------------------------------|---------------------------------|-----------------------------------------------------|
@@ -697,7 +697,7 @@ prints this advisory verbatim:
 picks `dt` from the advisory and passes the freeway CSV to
 `freeway_from_dataframe(df, dt=...)` themselves at simulation time --
 keeping the freeway-construction (and its validation) at the moment
-where `dt` is known is what `utils.ctm.io.freeway_from_dataframe` is
+where `dt` is known is what `ctm.io.freeway_from_dataframe` is
 designed for, and decouples assembly from simulation pacing.
 
 ### CLI
@@ -834,7 +834,7 @@ python scripts/simulate_ctm_corridor.py \
 The starting profile is refined by fitting the *whole corridor* at once: find
 the ramp inputs that make the CTM's mainline density **and flow** match
 observed PeMS, running the **exact** forward simulator every iteration and
-descending the error into the ramp inputs via autograd. `utils/ctm/diffsim.py`
+descending the error into the ramp inputs via autograd. `ctm/diffsim.py`
 is a PyTorch reimplementation of the engine step (pinned to the numpy engine by
 `tests/test_ctm_diffsim.py`).
 
@@ -855,7 +855,7 @@ is a PyTorch reimplementation of the engine step (pinned to the numpy engine by
 
 **Unobserved cells (optional).** Scoring only direct-VDS cells leaves the others
 free to drift. `scripts/augment_observed_grid.py` fills the full
-`(n_cells, n_5min)` grid first (`utils/ctm/impute.py`): a direct-VDS cell
+`(n_cells, n_5min)` grid first (`ctm/impute.py`): a direct-VDS cell
 missing some 5-min steps is filled from the detector's own
 (day-of-week, time-of-day) history, and a cell with no direct VDS by a
 spatial-temporal KNN over observed and history-filled cells. The optimizer
@@ -961,15 +961,15 @@ under-models the real corridor.
 
 | object       | source                                       | what feeds it                                  |
 |--------------|----------------------------------------------|------------------------------------------------|
-| `Freeway`    | `utils.ctm.io.freeway_from_dataframe`        | Step 6 `freeway.csv`                           |
+| `Freeway`    | `ctm.io.freeway_from_dataframe`        | Step 6 `freeway.csv`                           |
 | `dt`         | user choice                                  | Step 6 CFL advisory (suggested Δt is loud-printed) |
-| `Scenario`   | `utils.ctm.io.scenario_from_dataframes`      | inflow + demand + beta + rho0 + q0 (see below) |
+| `Scenario`   | `ctm.io.scenario_from_dataframes`      | inflow + demand + beta + rho0 + q0 (see below) |
 
 ### Stage 1: Build the `Freeway`
 
 ```python
 import pandas as pd
-from ctm_for_dwc.utils.ctm import freeway_from_dataframe
+from ctm_for_dwc.ctm import freeway_from_dataframe
 
 df = pd.read_csv("scripts/output/ctm_corridor/I_210_W/freeway.csv")
 dt_h = 10.0 / 3600.0                          # 10 s, from Step 6 advisory
@@ -994,13 +994,13 @@ expects:
 | `q0`     | scalar or `(n_cells,)` | veh           | initial on-ramp queue $q_i(0)$ (usually 0)               |
 
 The boundary `inflow` and the initial `rho0` come straight off PeMS via
-two adapters in `utils/ctm/scenario.py`. Both accept timestamp bounds
+two adapters in `ctm/scenario.py`. Both accept timestamp bounds
 so a wide downloaded window can feed a narrow sim run without
 re-downloading:
 
 ```python
 import pandas as pd
-from ctm_for_dwc.utils.ctm import (
+from ctm_for_dwc.ctm import (
     inflow_from_vds, initial_state_from_vds, scenario_from_dataframes,
 )
 
@@ -1085,7 +1085,7 @@ the true boundary.
 ### Stage 3: Run the simulation and inspect
 
 ```python
-from ctm_for_dwc.utils.ctm import simulate, compute_metrics
+from ctm_for_dwc.ctm import simulate, compute_metrics
 
 result = simulate(freeway, scenario)        # SimulationResult
 frames = result.to_dataframes()             # wide frames per quantity
@@ -1104,7 +1104,7 @@ For users coming from CTMSIM, the same engine accepts a CTMSIM
 configuration directly:
 
 ```python
-from ctm_for_dwc.utils.ctm import (
+from ctm_for_dwc.ctm import (
     freeway_from_ctmsim_mat, ctmsim_initial_densities,
     ctmsim_demand_at_sim_steps, simulate,
 )
@@ -1136,7 +1136,7 @@ result. The remaining follow-ups are:
   and simulation.
 
 ## Step 9: Validation Against Historical Data
-Implemented in `utils/ctm/validation.py`. End-to-end demo:
+Implemented in `ctm/validation.py`. End-to-end demo:
 `scripts/validate_ctm_corridor.py`. First step:
 `compare_against_historical(result, cells_df, timeseries_dir, *,
 start) -> pandas.DataFrame`.
@@ -1237,7 +1237,7 @@ fit up to two corridor scalars — total **VMT** [veh·mi] and **VHT**
 aggregate corridor productivity?" rather than point fits.
 
 It is deliberately **not** the corridor-long VMT/VHT from
-`utils/ctm/metrics.py` (which sums *every* cell with its own cell
+`ctm/metrics.py` (which sums *every* cell with its own cell
 length and on-ramp queues). Instead:
 
 * **One term per unique mainline VDS.** Only the cell whose
@@ -1361,7 +1361,7 @@ corridor GEH<5 pass-rate.
 The Step-7 fillers reconstruct on-ramp demand and off-ramp flow from
 ramp detectors that suffer frequent outages, and those reconstructed
 values feed the scenario directly -- yet the *real* gaps they fill have
-no ground truth to score against. `utils/ctm/ramp_validation.py`
+no ground truth to score against. `ctm/ramp_validation.py`
 measures fill accuracy by **synthetic hold-out**: take the *known*
 (non-NaN) stretches of a ramp VDS series, blank fixed-length blocks of
 them, fill with each strategy, and compare the fill to the held-out
@@ -1427,7 +1427,7 @@ would switch on.
 
 A second validation surface: regression-style comparison of our
 engine against the **CTMSIM v1.1 reference output** bundled under
-`utils/ctm/ctmsim_results/<day>/`. Useful when calibrating engine
+`ctm/ctmsim_results/<day>/`. Useful when calibrating engine
 changes -- if a refactor breaks the round-trip, the per-cell or
 per-metric stats surface it immediately.
 

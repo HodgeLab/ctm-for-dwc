@@ -8,7 +8,7 @@ Each test pins one property of ``PadSpec`` or ``CorridorSpec`` from
 import numpy as np
 import pytest
 
-from ctm_for_dwc.utils.dwc.model import (
+from ctm_for_dwc.dwc.model import (
     CorridorSpec,
     DemandResult,
     PadSpec,
@@ -154,7 +154,7 @@ def test_corridor_spec_rejects_nonpositive_cell_length():
 
 
 def test_newbolt_small_scale_pad_matches_paper_table_1():
-    from ctm_for_dwc.utils.dwc.examples import newbolt_small_scale
+    from ctm_for_dwc.dwc.examples import newbolt_small_scale
 
     spec = newbolt_small_scale()
     assert spec.pad.alpha == 2.0
@@ -165,7 +165,7 @@ def test_newbolt_small_scale_pad_matches_paper_table_1():
 
 
 def test_newbolt_small_scale_corridor_holds_three_tiles():
-    from ctm_for_dwc.utils.dwc.examples import newbolt_small_scale
+    from ctm_for_dwc.dwc.examples import newbolt_small_scale
 
     spec = newbolt_small_scale()
     assert len(spec.cell_lengths_m) == 1

@@ -286,7 +286,7 @@ def assign_vds_to_cells(
     1. For each cell, find VDSs whose ``pm_cum`` lies in
        ``(cell.pm_start, cell.pm_end]`` -- closed at end so a VDS exactly on
        a cell boundary belongs to the upstream cell (same half-open
-       convention as ramps in :mod:`utils.ctm.cells`).
+       convention as ramps in :mod:`ctm.cells`).
     2. If the cell has one direct VDS, assign it (``vds_source ==
        "direct"``).
     3. If multiple, apply ``tiebreaker``:

@@ -3,8 +3,8 @@
 import numpy as np
 import pytest
 
-from ctm_for_dwc.utils.ctm import examples
-from ctm_for_dwc.utils.ctm.model import Cell, Freeway, Scenario
+from ctm_for_dwc.ctm import examples
+from ctm_for_dwc.ctm.model import Cell, Freeway, Scenario
 
 
 def test_rho_crit_defaults_to_qmax_over_vf():

@@ -1,7 +1,7 @@
-"""Tests for the CTMSIM .mat adapter in utils/ctm/io.py.
+"""Tests for the CTMSIM .mat adapter in ctm/io.py.
 
 Uses the I-210W ``w060412.mat`` config that ships with CTMSIM v1.1 (bundled
-under ``utils/ctm/ctmsim_configs/``) as a fixture.
+under ``ctm/ctmsim_configs/``) as a fixture.
 """
 
 from __future__ import annotations
@@ -11,14 +11,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from ctm_for_dwc.utils.ctm import (
+from ctm_for_dwc.ctm import (
     ctmsim_demand_at_sim_steps,
     ctmsim_initial_densities,
     freeway_from_ctmsim_mat,
 )
 
 REPO = Path(__file__).resolve().parents[1]
-CTMSIM_MAT = REPO / "src/ctm_for_dwc/utils/ctm/ctmsim_configs/w060412.mat"
+CTMSIM_MAT = REPO / "src/ctm_for_dwc/ctm/ctmsim_configs/w060412.mat"
 
 
 @pytest.fixture(scope="module")
