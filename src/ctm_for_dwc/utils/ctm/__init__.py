@@ -79,10 +79,8 @@ from .validation import (
     restrict_to_direct_tiebreak,
 )
 from .vds import (
-    DEFAULT_PEMS_DIR,
     assign_ramp_vds_to_cells,
     assign_vds_to_cells,
-    download_pems_station_metadata,
     load_pems_station_metadata,
     project_vds_to_corridor,
 )
@@ -155,7 +153,5 @@ __all__ = [
     "project_vds_to_corridor",
     "assign_vds_to_cells",
     "assign_ramp_vds_to_cells",
-    "download_pems_station_metadata",
-    "DEFAULT_PEMS_DIR",
     "examples",
 ]

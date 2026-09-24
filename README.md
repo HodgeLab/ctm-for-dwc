@@ -24,8 +24,7 @@ one-offs (run these, don't import them).
 |---|---|
 | `utils/ctm/` | The core module: CTM data model, engine, and the whole OSM-to-simulation pipeline. See `docs/ctm_module.md`. |
 | `utils/dwc/` | DWC demand module: CTM `VHT` -> adapted mCONV -> spatiotemporal charging demand (`E`). See `docs/dwc_demand_module.md`. |
-| `utils/data_downloading.py` | `PeMSDownloader` / `PeMSExtractor` — scrape the PeMS clearinghouse. Adapted from Seb-Good/caltrans-pems. |
-| `utils/pems_settings.py` | PeMS URLs and district list for the downloader. |
+| `utils/pems/` | PeMS clearinghouse access: `PeMSDownloader` (download files), `PeMSExtractor` (`.gz` dumps → per-VDS CSVs), `download_pems_station_metadata`, `resolve_credentials`, and URL settings. Downloader/extractor adapted from Seb-Good/caltrans-pems. |
 | `utils/plot_style.py` | Shared matplotlib style for paper figures (`PAPER_RC`, `COLUMN_W`, `PAPER_DPI`). |
 
 Inside `utils/ctm/`, the pipeline stages map to modules: `osm.py` + `cells.py`
