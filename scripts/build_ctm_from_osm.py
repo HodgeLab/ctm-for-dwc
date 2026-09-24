@@ -94,10 +94,10 @@ from ctm_for_dwc.utils.ctm.plots import (
 from ctm_for_dwc.utils.ctm.vds import (
     assign_ramp_vds_to_cells,
     assign_vds_to_cells,
-    download_pems_station_metadata,
     load_pems_station_metadata,
     project_vds_to_corridor,
 )
+from ctm_for_dwc.utils.pems import download_pems_station_metadata
 
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_OUT = REPO / "scripts/output/ctm_corridor"

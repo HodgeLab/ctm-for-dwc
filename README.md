@@ -24,8 +24,7 @@ one-offs (run these, don't import them).
 |---|---|
 | `utils/ctm/` | The core module: CTM data model, engine, and the whole OSM-to-simulation pipeline. See `docs/ctm_module.md`. |
 | `utils/dwc/` | DWC demand module: CTM `VHT` -> adapted mCONV -> spatiotemporal charging demand (`E`). See `docs/dwc_demand_module.md`. |
-| `utils/data_downloading.py` | `PeMSDownloader` / `PeMSExtractor` — scrape the PeMS clearinghouse. Adapted from Seb-Good/caltrans-pems. |
-| `utils/pems_settings.py` | PeMS URLs and district list for the downloader. |
+| `utils/pems/` | PeMS clearinghouse access: `PeMSDownloader` (download files), `PeMSExtractor` (`.gz` dumps → per-VDS CSVs), `download_pems_station_metadata`, `resolve_credentials`, and URL settings. Downloader/extractor adapted from Seb-Good/caltrans-pems. |
 | `utils/plot_style.py` | Shared matplotlib style for paper figures (`PAPER_RC`, `COLUMN_W`, `PAPER_DPI`). |
 
 Inside `utils/ctm/`, the pipeline stages map to modules: `osm.py` + `cells.py`
@@ -47,7 +46,8 @@ scripts name their step in the first line of their docstring.
 list_osm_refs.py                 # pick the --ref for the next step
 build_ctm_from_osm.py            # Steps 1+2: OSM -> Corridor -> cell table, VDS -> cell
 download_pems_station_metadata.py
-download_pems_timeseries.py      # Step 3
+download_pems_timeseries.py      # Step 3: clearinghouse -> .gz files
+extract_pems_timeseries.py       # Step 3: .gz files -> one CSV per VDS
 calibrate_fundamental_diagrams.py  # Step 4: writes station_metadata_calibrated.csv
 regenerate_cell_artifacts.py     # Step 5 helper: after manual edits to cells.csv
 assemble_ctm_freeway.py          # Step 6: -> freeway.csv
