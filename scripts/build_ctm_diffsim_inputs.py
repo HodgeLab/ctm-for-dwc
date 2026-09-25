@@ -1,14 +1,13 @@
-"""Step 7 Level 3: build the ramp-flow optimization input bundle.
+"""Step 7: build the ramp-flow optimization input bundle.
 
 The model-based ramp-flow imputer fits the CTM's mainline density and flow to
 observed PeMS data, with on-ramp admitted flow ``r_i(k)`` and off-ramp flow
-``s_i(k)`` as the free variables (see Step 7, "Refinement with diffsim (Level 3)",
+``s_i(k)`` as the free variables (see Step 7, "Refinement with differentiable simulation",
 in docs/ctm_module.md). This script prepares its inputs from the existing Python
 pipeline and writes a self-contained CSV/JSON bundle.
 
 The bundle is consumed by ``scripts/optimize_ramp_flows_diffsim.py``, the
-differentiable forward-sim optimizer. It originally fed a convex QP solved in
-Julia; that solver was removed, but the bundle format outlived it.
+differentiable forward-sim optimizer.
 
 Bundle contents (written to ``--out-dir``):
 

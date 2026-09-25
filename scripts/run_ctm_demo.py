@@ -51,6 +51,10 @@ def report(start: str, steps: int = 2400) -> None:
     print(f"    productivity_loss= {metrics.productivity_loss[-1]:8.4f}  mi*h")
 
 
-if __name__ == "__main__":
+def main():
     report("empty")
     report("jam")
+
+
+if __name__ == "__main__":
+    main()

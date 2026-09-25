@@ -1,13 +1,8 @@
-"""Step 7 Level 3: differentiable forward-sim ramp-flow optimizer.
+"""Step 7b: differentiable forward-sim ramp-flow optimizer.
 
-Rather than the relaxed convex QP this replaced (a Julia solver, since
-removed -- recover it with `git show pre-cleanup:julia/`), this fits the ramp
-inputs by running the *exact* CTM forward simulator each iteration and
-descending the mainline density+flow error into the ramp `demand`/`beta` via
-autograd (`ctm.diffsim`). Because it never leaves the exact dynamics, the
-recovered inputs round-trip by construction -- the transfer failure that made
-the relaxed QP degrade on longer corridors cannot occur (see
-docs/ctm_module.md, Step 7, "Why not a convex QP").
+This fits the ramp inputs by running the *exact* CTM forward simulator each iteration 
+and descending the mainline density+flow error into the ramp `demand`/`beta` via
+autograd (`ctm.diffsim`).
 
 Decision variables (free, all ramps -- observed ramp data is held out as the
 test set): on-ramp-cell `demand` (>= 0 via clamp) and off-ramp-cell `beta`
@@ -30,6 +25,11 @@ Logs per-iteration loss / density_rmse / flow_rmse to Weights & Biases
 disable) so hyperparameter sweeps are inspectable, and early-stops on the loss
 (relative `--min-delta` improvement over `--patience` iters) with best-iterate
 restore so a sweep run doesn't burn iterations after it converges.
+
+Because it never leaves the exact dynamics, the
+recovered inputs round-trip by construction -- the transfer failure that made
+the relaxed QP degrade on longer corridors cannot occur (see
+docs/ctm_module.md, Step 7, "Why not a convex QP").
 
     python scripts/optimize_ramp_flows_diffsim.py \
         --bundle case_studies/I880N_5mi/diffsim_inputs \

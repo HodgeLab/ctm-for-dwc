@@ -1,6 +1,6 @@
-"""Step 7: build demand.csv and beta.csv for a CTM simulation window.
+"""Step 7a: build demand.csv and beta.csv for a CTM simulation window.
 
-This is the **only** home of ramp-fill logic: ``simulate_ctm_corridor.py``
+This is where ramp flow profiles are created; ``simulate_ctm_corridor.py``
 consumes the ``demand.csv`` / ``beta.csv`` written here (or simulates with
 zero demand / zero splits when none are supplied). The same files are the
 starting point that ``optimize_ramp_flows_diffsim.py`` refines.
@@ -26,7 +26,7 @@ stretch side with measured detectors, their (gap-filled) flows are
 subtracted from the estimate before it is assigned.
 
 Aggregates per CTM cell and writes demand.csv + beta.csv at sim cadence,
-ready for ``simulate_ctm_corridor.py --demand --beta``.
+ready for ``simulate_ctm_corridor.py``, or ``optimize_ramp_flows_diffsim.py``
 
 Run from the repo root::
 

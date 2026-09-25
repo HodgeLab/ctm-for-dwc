@@ -1,6 +1,12 @@
 # Cell Transmission Model (CTM) Module
 The cell transmission model (CTM) is a first-order macroscopic transportation model introduced by 
-[Daganzo](https://www.sciencedirect.com/science/article/pii/0191261594900027?via%3Dihub) and adapted by [Munoz](https://ieeexplore.ieee.org/document/1383703). Later, [Kurzhanskiy](https://www2.eecs.berkeley.edu/Pubs/TechRpts/2007/EECS-2007-148.html) introduced the link-node cell transmission model (LN-CTM). In any case, the model discretizes a freeway into a set of n cells, each characterized by a fundamental diagram, and iteratively evolves the density of traffic within each cell according to a set of [state update equations](#ctm-state-update-equations). The [Caltrans Performance Measurement System (PeMS) database](https://dot.ca.gov/programs/traffic-operations/mpr/pems-source) is a frequently used data source for CTM case studies, thanks to its densely-instrumented network. 
+[Daganzo](https://www.sciencedirect.com/science/article/pii/0191261594900027?via%3Dihub) and adapted by [Munoz](https://ieeexplore.ieee.org/document/1383703). 
+
+The model discretizes a freeway into a set of N cells, each characterized by a fundamental diagram, and iteratively evolves the density of traffic  within each cell and the flow between cells according to a set of [state update equations](#ctm-state-update-equations). 
+
+This module heavily references [a PhD dissertation from Alex Kurzhanskiy](https://www2.eecs.berkeley.edu/Pubs/TechRpts/2007/EECS-2007-148.html), where the state update equations and theory behind the model are well-explained.
+
+The [Caltrans Performance Measurement System (PeMS) database](https://dot.ca.gov/programs/traffic-operations/mpr/pems-source) is a frequently used data source for CTM case studies, thanks to its densely-instrumented network. 
 
 Application of the CTM to a given freeway corridor involves the following steps:
 
@@ -8,9 +14,9 @@ Application of the CTM to a given freeway corridor involves the following steps:
 2) Mapping of VDSs to CTM cells
 3) Identification of vehicle detector stations (VDSs) associated with the corridor and collection of timeseries data from each VDS
 4) Calibration of fundamental diagram parameters for each available VDS
-5) Manual validation of cell mappings
+5) Manual validation of cell mappings and fundamental diagram parameters
 6) CTM freeway assembly
-7) Ramp flow estimation
+7) Calibration of freeway on- and off-ramp flows
 8) Running a CTM simulation
 9) Validation against historical data
 
@@ -18,23 +24,21 @@ The numbering reflects the actual data-pipeline order: cell layout
 (Step 1) comes first because everything downstream is keyed by cell;
 VDS-to-cell mapping (Step 2) pins a detector to each cell; per-cell
 timeseries (Step 3) feed the fundamental-diagram calibration (Step 4);
-manual validation (Step 5) is the user's chance to fix any Step 1/2
-mistakes before downstream consumption; freeway assembly (Step 6)
+manual validation (Step 5) is the user's chance to fix any mistakes in 
+model construction before before downstream consumption; freeway assembly (Step 6)
 joins all of the above into a per-cell table ready for the engine;
-ramp-flow estimation (Step 7) supplies the time-varying on-ramp
-demand and off-ramp split-ratio inputs the scenario needs; Step 8
+ramp-flow calibration (Step 7) supplies the time-varying on-ramp
+demand and off-ramp split-ratio inputs for a specific scenario; Step 8
 runs the simulation end-to-end; and Step 9 compares the result
 against historical PeMS observations to validate the fit.
 
 **Where assembled corridors live.** Running this pipeline produces
 per-corridor *case studies*, tracked in the repo under
-[`case_studies/`](../case_studies) (not `scripts/output/`) so that
+[`case_studies/`](../case_studies) so that
 manual edits to `cells.csv` are version-controlled. Each case study is
 one corridor stretch named `{route}{dir}_{length}` (e.g. `I880N_10mi`)
 and holds the common corridor files (`cells.csv`, `freeway.csv`,
-`corridor.json`, plus GIS artifacts) alongside one subdirectory per
-simulation scenario (e.g. `no_ramps`, `histAve_ramps`, `persist_ramps`,
-`qp_ramps`), each carrying that run's outputs. Treat that directory as
+`corridor.json`, plus GIS artifacts). Treat that directory as
 the source of assembled corridors for any downstream analysis.
 
 ## Table of Contents
@@ -43,13 +47,13 @@ the source of assembled corridors for any downstream analysis.
 - [Step 2: VDS --> Cell Mapping](#step-2-vds----cell-mapping)
 - [Step 3: VDS Timeseries Download](#step-3-vds-timeseries-download)
 - [Step 4: Fundamental Diagram Calibration](#step-4-fundamental-diagram-calibration)
-- [Step 5: Manual Validation of Cell Mappings](#step-5-manual-validation-of-cell-mappings)
+- [Step 5: Manual Validation](#step-5-manual-validation)
 - [Step 6: CTM Freeway Assembly](#step-6-ctm-freeway-assembly)
   - [Stage 1: Mainline join + per-lane → per-cell scaling](#stage-1-mainline-join--per-lane--per-cell-scaling)
   - [Stage 2: Ramp capacity lookup](#stage-2-ramp-capacity-lookup)
   - [Stage 3: $\Delta T$ advisory](#stage-3-delta-t-advisory)
   - [CLI](#cli)
-- [Step 7: Ramp Flow Estimation](#step-7-ramp-flow-estimation)
+- [Step 7: Ramp Flow Calibration](#step-7-ramp-flow-calibration)
 - [Step 8: Running a CTM Simulation](#step-8-running-a-ctm-simulation)
   - [Inputs](#inputs)
   - [Stage 1: Build the `Freeway`](#stage-1-build-the-freeway)
@@ -141,15 +145,13 @@ min_length=0.2, max_length=1.0)` annotates the cells DataFrame with a
 `length_warning` column flagging cells outside `[min_length, max_length]`
 miles. Two regimes get flagged:
 
-* `"too_short"` (length < 0.2 mi): forces the **CFL-bounded
-  (Courant–Friedrichs–Lewy)** sampling period to be uncomfortably
+* `"too_short"` (length < 0.2 mi): simulation timestep to be unreasonably
   small. The CTM update requires $v_{f,i}\,\Delta T \le l_i$
   (Kurzhanskiy 2007 eq. 4.1) — a vehicle at free-flow speed must not
   traverse more than one cell per sim step — so at $v_f$ = 65 mph a
   0.2-mi cell already caps $\Delta T$ near 11 s, and anything shorter
   pushes the engine toward sub-10-s timesteps. Later steps (notably
-  Step 6's $\Delta T$ advisory) refer back to this CFL bound; the
-  acronym is introduced here.
+  Step 6's $\Delta T$ advisory) refer back to this constraint.
 * `"too_long"` (length > 1.0 mi): the cell averages over too much
   spatial heterogeneity (multiple lane-add/-drop sections or more than
   one bottleneck) for the CTM dynamics to stay realistic.
@@ -158,7 +160,7 @@ miles. Two regimes get flagged:
 one-line summary (`length warnings : too_short=N, too_long=M`). The
 column survives into both `cells.csv` and `cells.geojson` so a quick
 QGIS filter (`length_warning != 'ok'`) lights up the at-risk cells.
-Step 5 (cell-length tuning) addresses the long-cell case by splitting;
+Step 5 (manual validation) addresses the long-cell case by splitting;
 the short-cell case typically calls for merging upstream-or-downstream
 with a neighbor or accepting the tighter $\Delta T$.
 
@@ -446,6 +448,24 @@ calibration. Subsequent runs of
 Step 1 can read this CSV directly as a drop-in replacement for the raw
 PeMS metadata.
 
+**FD calibration outcome codes.** `calibrate_fundamental_diagrams.py` tags every detector with a
+`calibration_code` (int) + `calibration_status` (string) column in the
+calibrated metadata, so failed fits are flagged rather than silently dropped.
+Only `0` is a success; any non-zero code leaves the FD parameter columns NaN.
+The same scheme is mirrored onto `ramp_metadata_calibrated.csv`.
+
+| code | status | meaning |
+|---|---|---|
+| 0 | `ok` | params computed and passed validation |
+| 1 | `missing_timeseries` | timeseries CSV absent / unreadable |
+| 2 | `no_data_after_filter` | no rows survived the `pct_observed` threshold or the IQR filter |
+| 3 | `no_congestion_points` | too few points above the critical-density seed to fit the congestion branch (mainline only) |
+| 4 | `validation_failed` | fit rejected by `validate_fd_params` (non-positive speeds/capacity, `w >= v_f`, bad density ordering, or triangle inconsistency) |
+
+Validation strictness is tunable from the CLI: `--iqr-multiplier` (row-level
+outlier filter), `--bin-iqr-multiplier` and `--bin-size` (congestion-branch
+binning), and `--triangle-rtol` (triangle-consistency tolerance).
+
 **CLI demo.** `scripts/calibrate_fundamental_diagrams.py` wires the
 whole pipeline together:
 
@@ -531,7 +551,7 @@ columns in your Step-1 `cells.csv` (Step 2's `assign_ramp_vds_to_cells`
 fills those in). Step 3's downloader is unchanged — pass the same ramp
 VDS list as `--detectors` to fetch their `.gz` timeseries first.
 
-## Step 5: Manual Validation of Cell Mappings
+## Step 5: Manual Validation
 
 The automatic mappings in Steps 1 and 2 get you 90% of the way there, however 
 some manual inspection of the result is necessary. For this purpose, .geojson 
@@ -676,7 +696,7 @@ absent, the cell falls back to the NaN / ∞ default.
 
 ### Stage 3: $\Delta T$ advisory
 
-The CFL condition $v_{f,i}\,\Delta T \le l_i$ (Kurzhanskiy 2007 eq. 4.1)
+The stability constraint $v_{f,i}\,\Delta T \le l_i$ (Kurzhanskiy 2007 eq. 4.1)
 caps the stable sim timestep at
 $\Delta T_{\max} = \min_i l_i / v_{f,i}$. `compute_cfl_advisory` returns
 the per-cell bounds, the binding cell, and a suggested round
@@ -716,7 +736,7 @@ The output `freeway.csv` carries `length`, `q_max`, `v_f`, `w`,
 schema as `freeway_to_dataframe`'s output minus the `gamma` / `xi`
 columns (which fall back to the cell defaults).
 
-## Step 7: Ramp Flow Estimation
+## Step 7: Ramp Flow Calibration
 Ramp flows are required boundary conditions in the CTM; they determine the number of vehicles 
 entering or exiting the simulation at each cell in each timestep. We obtain ramp flows directly 
 from the PeMS timeseries data, which presents a challenge for simulation when the data are missing.
@@ -731,7 +751,7 @@ Step 7 runs in two stages:
 
 1. **Starting profile** (`scripts/build_ctm_ramp_scenario.py`) -- fill every ramp from the data
    it has, following the decision flowchart below, and write `demand.csv` / `beta.csv`.
-2. **Refinement with diffsim** (`scripts/optimize_ramp_flows_diffsim.py`) -- fit *every* ramp's
+2. **Refinement with differentiable simulation** (`scripts/optimize_ramp_flows_diffsim.py`) -- fit *every* ramp's
    `demand` / `beta` so the exact CTM reproduces observed mainline density and flow, starting
    from the stage-1 profile. Its `demand.csv` / `beta.csv` are what
    `scripts/simulate_ctm_corridor.py --demand --beta` consumes.
@@ -752,7 +772,9 @@ flowchart TD
     refine --> stop([stop])
 ```
 
-### Stretch identification
+### Starting Profile
+
+#### Stretch identification
 
 Ramp-configuration type and the mainline↔ramp topology are determined **directly
 from PeMS station postmiles**, not from the CTM cell grid (which snaps ramps to
@@ -767,17 +789,17 @@ on-ramp and ≥1 off-ramp. Review the flagged rows (unresolved `FF` connectors,
 open end stretches, multi-ramp interchanges) before use; rebuilding overwrites
 manual edits.
 
-### Historical Average & Persistence
+#### Historical Average & Persistence
 This strategy is used for all Type 2 scenarios; the specific method (historical average vs. persistence) is determined based on the duration of the gap in the timeseries data.
 If the gap is 1 or 2 samples, missing values are filled by persisting the most recent measurement.
 If the gap is longer, missing values are filled using the historical average for that particular (day-of-week, time-of-day) slot.
 
-### Flow conservation
+#### Flow conservation
 This strategy applies to a subset of Type 1 scenarios, depending on the configuration of the highway stretch which contains missing ramp flow data. Configurations are shown below.
 
 ![ramp_configs](ramp_configurations.png)
 
-If the highway stretch contains only one ramp (type (a) or (b)), then the missing ramp flow is fully-determined by conservation of flow:
+If the highway stretch contains only one ramp (type (a) or (b)), then the missing ramp flow is (theoretically) fully-determined by conservation of flow:
 
 $$ q_{up} + r = q_{down} + s $$
 
@@ -791,7 +813,7 @@ typical on-ramp flow (median $r \approx 348$ veh/hr). Conservation-derived
 starting values can therefore be biased, and they are clipped at zero. This is
 one reason diffsim refines every ramp rather than trusting the starting profile.
 
-### Absent ramps on type-(c) stretches
+#### Absent ramps on type-(c) stretches
 With no ramp data and no conservation relation, a completely absent ramp on a
 type-(c) stretch is seeded with a fraction (`--type-c-fraction`, default 0.1)
 of the stretch's upstream mainline flow, with a warning, and diffsim recovers
@@ -802,37 +824,10 @@ methods of [Kan et al. 2021](https://doi.org/10.1109/TITS.2020.2989365) and
 removed once diffsim made a careful starting profile unnecessary, and remain in
 git history.
 
-### CLI
-
-The starting profile is built by `scripts/build_ctm_ramp_scenario.py`: gap fill
-(short gaps persisted, longer gaps historical-averaged), type-(a)/(b)
-conservation, and a mainline-fraction seed for absent type-(c) ramps. It writes an on-ramp demand
-and off-ramp split ratio profile at sim cadence.
-`scripts/simulate_ctm_corridor.py` takes `--demand` / `--beta` CSVs; when they
-are omitted, every cell gets zero demand and zero split ratio (ramps are
-effectively ignored).
-
-```
-python scripts/build_ctm_ramp_scenario.py \
-    --cells case_studies/I880N_10mi/cells.csv \
-    --stretches data/pems/stretches/880_N.csv \
-    --timeseries-dir data/pems/csv_files \
-    --start "2022-04-12 06:00" --end "2022-04-12 09:00" \
-    --dt-seconds 10
-python scripts/simulate_ctm_corridor.py \
-    --freeway scripts/output/ctm_corridor/I_210_W/freeway.csv \
-    --cells   scripts/output/ctm_corridor/I_210_W/cells.csv \
-    --timeseries-dir data/pems/csv_files \
-    --dt-seconds 10 \
-    --start "2022-04-12 06:00" --end "2022-04-12 09:00" \
-    --demand case_studies/I880N_10mi/demand.csv \
-    --beta   case_studies/I880N_10mi/beta.csv
-```
-
-### Refinement with diffsim (Level 3)
+### Refinement with Differentiable Simulation
 
 The starting profile is refined by fitting the *whole corridor* at once: find
-the ramp inputs that make the CTM's mainline density **and flow** match
+the ramp inputs that make the CTM's mainline density and flow match
 observed PeMS, running the **exact** forward simulator every iteration and
 descending the error into the ramp inputs via autograd. `ctm/diffsim.py`
 is a PyTorch reimplementation of the engine step (pinned to the numpy engine by
@@ -861,25 +856,20 @@ missing some 5-min steps is filled from the detector's own
 spatial-temporal KNN over observed and history-filled cells. The optimizer
 reads these with `--imputed-dir` and weights them with `--imputed-weight`.
 
+### CLI
+
+The starting profile is built by `scripts/build_ctm_ramp_scenario.py`: gap fill
+(short gaps persisted, longer gaps historical-averaged), type-(a)/(b)
+conservation, and a mainline-fraction seed for absent type-(c) ramps. It writes an on-ramp demand
+and off-ramp split ratio profile at sim cadence.
+
 ```
-# 1. Build the input bundle (freeway, rho0, inflow, observed density/flow, meta)
-python scripts/build_ctm_diffsim_inputs.py \
-    --freeway case_studies/I880N_5mi/freeway.csv \
-    --cells   case_studies/I880N_5mi/cells.csv \
+python scripts/build_ctm_ramp_scenario.py \
+    --cells case_studies/I880N_10mi/cells.csv \
+    --stretches data/pems/stretches/880_N.csv \
     --timeseries-dir data/pems/csv_files \
-    --start "2023-06-01 00:00" --end "2023-06-02 00:00"
-# 2. (optional) impute unobserved cells of the observed grids
-python scripts/augment_observed_grid.py \
-    --bundle case_studies/I880N_5mi/diffsim_inputs \
-    --cells  case_studies/I880N_5mi/cells.csv \
-    --timeseries-dir data/pems/csv_files --k 2 --knn-decay 1.0
-# 3. Optimize, starting from the build_ctm_ramp_scenario.py profile
-python scripts/optimize_ramp_flows_diffsim.py \
-    --bundle case_studies/I880N_5mi/diffsim_inputs \
-    --init-demand case_studies/I880N_5mi/demand.csv \
-    --init-beta   case_studies/I880N_5mi/beta.csv \
-    --iters 3000
-# -> demand.csv, beta.csv, optimize_report.json in the bundle dir
+    --start "2022-04-12 06:00" --end "2022-04-12 09:00" \
+    --dt-seconds 10
 ```
 
 The starting profile must cover the same window and `dt` as the bundle (the
@@ -894,22 +884,39 @@ on-ramp demand is therefore raised to at least `--min-init-demand` (default
 source: measured zeros, conservation clipped at 0, and a zero-demand start. A
 block pushed below 0 *during* optimization still gets no gradient.
 
-**Why not a convex QP.** Diffsim replaced an inverse-CTM quadratic program
-(Julia/JuMP, removed; recover with `git show pre-cleanup:julia/`) that solved
+The diffsim refinement requires a bundle of inputs (the CTM freeway, initial density profile, 
+inflow to the furthest-upstream cell, observed density and flow from PeMS, and metadata for the 
+simulation profile), built by `scripts/build_ctm_diffsim_inputs.py`. Imputation for unobserved 
+cells is optionally done using `scripts/augment_observed_grid.py`. Refinement is then run using 
+`scripts/optimize_ramp_flows_diffsim.py`.
+
+```
+# 1. Build the input bundle (freeway, rho0, inflow, observed density/flow, meta)
+python scripts/build_ctm_diffsim_inputs.py \
+    --freeway case_studies/I880N_10mi/freeway.csv \
+    --cells   case_studies/I880N_10mi/cells.csv \
+    --timeseries-dir data/pems/csv_files \
+    --start "2022-04-12 06:00" --end "2022-04-12 09:00" 
+# 2. (optional) impute unobserved cells of the observed grids
+python scripts/augment_observed_grid.py \
+    --bundle case_studies/I880N_10mi/diffsim_inputs \
+    --cells  case_studies/I880N_10mi/cells.csv \
+    --timeseries-dir data/pems/csv_files --k 2 --knn-decay 1.0
+# 3. Optimize, starting from the build_ctm_ramp_scenario.py profile
+python scripts/optimize_ramp_flows_diffsim.py \
+    --bundle case_studies/I880N_10mi/diffsim_inputs \
+    --init-demand case_studies/I880N_10mi/demand.csv \
+    --init-beta   case_studies/I880N_10mi/beta.csv \
+    --iters 3000
+# -> demand.csv, beta.csv, optimize_report.json in the bundle dir
+```
+
+**Why not a convex QP.** Diffsim replaced an inverse-CTM quadratic program that solved
 for ramp flows with the CTM update equations as constraints, the CTM `min`
 operators relaxed to $\le$ to stay convex, and only density in the objective.
 It matched observed density almost exactly, but the recovered ramp flows were
 non-unique and not a valid CTM trajectory: fed back through the exact
 simulator, the results did not transfer, and got worse with corridor length.
-On I-880 N (2023-06-01, 24 h), scored against historical PeMS and compared to
-the historical-average ramp fill:
-
-| case | metric | QP | histAve |
-|---|---|---|---|
-| 1mi (2 cells)  | density RMSE / flow RMSE | **19.9** / 638 | 24.6 / **342** |
-| 1mi            | flow MAPE / GEH<5        | 12.3% / 62%    | 11.8% / 60%    |
-| 5mi (14 cells) | density MAPE / flow MAPE | 47% / 50%      | **27% / 17%**  |
-| 5mi            | flow RMSE / GEH<5        | 955 / 24%      | **443 / 44%**  |
 
 Density alone does not pin the ramp flows, and a relaxed solution need not be a
 physical one. Diffsim answers both: it never leaves the exact dynamics, so its
@@ -946,16 +953,16 @@ map resolves duplicates silently to whichever stretch parses last.
 ## Step 8: Running a CTM Simulation
 End-to-end demo: `scripts/simulate_ctm_corridor.py`.
 
-With Steps 1-6 done you have a corridor-shaped, FD-calibrated freeway;
-this step wires it through the engine. The Python entry points
+With Steps 1-7 done you have all the pieces in place for simulation;
+this step wires them through the engine. The Python entry points
 (`freeway_from_dataframe`, `scenario_from_dataframes`, `simulate`,
 `compute_metrics`) and the PeMS adapters
-(`inflow_from_vds`, `initial_state_from_vds`) are all in place. A
-ramp-bearing corridor still needs Step 7's `demand` / `beta`
-adapters before its full input is calibrated; until then the demo
-script defaults both to zero -- on-ramps see no inflow and off-ramps
-pass all traffic through, which is fine for a smoke run but
-under-models the real corridor.
+(`inflow_from_vds`, `initial_state_from_vds`) are all in place. On-ramp
+`demand` and off-ramp `beta` come from Step 7: the `demand.csv` /
+`beta.csv` that `optimize_ramp_flows_diffsim.py` writes. Without them
+both default to zero -- on-ramps see no inflow and off-ramps pass all
+traffic through, which is fine for a smoke run but under-models a
+ramp-bearing corridor.
 
 ### Inputs
 
@@ -1019,16 +1026,30 @@ inflow = inflow_from_vds(
 # Per-cell initial density at sim_start (raises if any lanes != vds_lanes):
 rho0 = initial_state_from_vds(cells, ts_dir, at_time=sim_start)
 
-# demand and beta still need Step 7's adapters; see "Unfinished work" below.
+# On-ramp demand and off-ramp split ratios from Step 7 (the diffsim
+# optimizer's output). Wide T x n_cells CSVs; column labels are cell indices.
+step7_dir = "scripts/output/ctm_corridor/I_210_W/diffsim_inputs"
+demand_df = pd.read_csv(f"{step7_dir}/demand.csv")
+beta_df = pd.read_csv(f"{step7_dir}/beta.csv")
+demand_df.columns = demand_df.columns.astype(int)
+beta_df.columns = beta_df.columns.astype(int)
+
 scenario = scenario_from_dataframes(
     freeway,
     inflow=inflow,
-    # demand=demand_df,    # Step 7
-    # beta=beta_df,        # Step 7
+    demand=demand_df,
+    beta=beta_df,
     rho0=rho0,
     q0=0.0,
 )
 ```
+
+The Step 7 CSVs must cover the same window and `dt` as the simulation (one
+row per sim step). For a quick run without Step 7, the in-memory adapters
+`demand_from_ramp_vds` and `beta_from_off_ramp_vds` (also in
+`ctm/scenario.py`) build the same wide frames straight from the ramp VDS
+timeseries, but they only cover ramps that have a detector: they skip
+virtual ramps and have no conservation or diffsim step.
 
 `inflow_from_vds` resamples PeMS's 5-minute counts directly to sim
 cadence — no intermediate `× 12` round-trip. When `dt ≤ 5 min` (the
@@ -1049,39 +1070,6 @@ column appears in the formula — they're read only for the precondition.
 The freeway and scenario are revalidated again inside `simulate`, so
 any cell/step shape mismatch surfaces before the loop runs.
 
-### One-shot CLI
-
-`scripts/simulate_ctm_corridor.py` bundles the three stages above:
-
-```
-python scripts/simulate_ctm_corridor.py \
-    --freeway scripts/output/ctm_corridor/I_210_W/freeway.csv \
-    --cells   scripts/output/ctm_corridor/I_210_W/cells.csv \
-    --timeseries-dir data/pems/csv_files \
-    --dt-seconds 10 \
-    --start "2022-04-12 06:00" \
-    --end   "2022-04-12 09:00"
-```
-
-It builds the `Freeway`, extracts inflow + initial state from PeMS,
-runs `simulate`, computes metrics, and writes one CSV per output
-quantity (the dict from `SimulationResult.to_dataframes`) plus a
-`summary.txt` with horizon totals (VHT, VMT, delay, productivity
-loss) and corridor travel-time stats into `--out-dir` (default:
-`<freeway parent>/sim/`).
-
-`--demand` and `--beta` are optional wide CSVs; both default to **zero
-for every cell** when omitted. A ramp-bearing corridor will still
-simulate under that default -- on-ramps simply see no inflow and
-off-ramps pass all traffic through. Once Step 7 lands, both will be
-generated from PeMS automatically (likely via the same one-shot
-script).
-
-The corridor's upstream-most mainline VDS (i.e. the source of
-$f_0(k)$) is taken from `cells.csv`'s first row by default;
-`--upstream-vds` overrides it if a different detector is closer to
-the true boundary.
-
 ### Stage 3: Run the simulation and inspect
 
 ```python
@@ -1097,6 +1085,40 @@ metrics = compute_metrics(result)           # VHT, VMT, delay, productivity loss
 `(n_cells, T+1)`, flows are `(n_cells, T)`). `compute_metrics` reduces
 those into per-cell + total VHT/VMT/delay/productivity-loss series
 (Kurzhanskiy 2007 eqs. 4.9-4.17).
+
+### One-shot CLI
+
+`scripts/simulate_ctm_corridor.py` bundles the three stages above:
+
+```
+python scripts/simulate_ctm_corridor.py \
+    --freeway scripts/output/ctm_corridor/I_210_W/freeway.csv \
+    --cells   scripts/output/ctm_corridor/I_210_W/cells.csv \
+    --timeseries-dir data/pems/csv_files \
+    --dt-seconds 10 \
+    --start "2022-04-12 06:00" \
+    --end   "2022-04-12 09:00" \
+    --demand scripts/output/ctm_corridor/I_210_W/diffsim_inputs/demand.csv \
+    --beta   scripts/output/ctm_corridor/I_210_W/diffsim_inputs/beta.csv
+```
+
+It builds the `Freeway`, extracts inflow + initial state from PeMS,
+runs `simulate`, computes metrics, and writes one CSV per output
+quantity (the dict from `SimulationResult.to_dataframes`) plus a
+`summary.txt` with horizon totals (VHT, VMT, delay, productivity
+loss) and corridor travel-time stats into `--out-dir` (default:
+`<freeway parent>/sim/`).
+
+`--demand` and `--beta` take Step 7's wide CSVs (the diffsim optimizer's
+`demand.csv` / `beta.csv`, or `build_ctm_ramp_scenario.py`'s unrefined
+ones). Both default to **zero for every cell** when omitted: a
+ramp-bearing corridor still simulates, but on-ramps see no inflow and
+off-ramps pass all traffic through.
+
+The corridor's upstream-most mainline VDS (i.e. the source of
+$f_0(k)$) is taken from `cells.csv`'s first row by default;
+`--upstream-vds` overrides it if a different detector is closer to
+the true boundary.
 
 ### Round-trip against CTMSIM (already wired)
 
@@ -1118,22 +1140,6 @@ demand = ctmsim_demand_at_sim_steps("ctmsim_configs/w060412.mat")
 The I-210 W reference run in `tests/test_ctm_ctmsim_compare.py` exercises
 this path end-to-end against the dissertation's MATLAB output.
 
-### Unfinished work
-
-All four PeMS → scenario adapters are now in place
-(`inflow_from_vds`, `initial_state_from_vds`, `demand_from_ramp_vds`,
-`beta_from_off_ramp_vds`), and `build_ctm_ramp_scenario.py` wires gap
-fill + type-(a)/(b) conservation end-to-end, with diffsim refining the
-result. The remaining follow-ups are:
-
-* **Standalone scenario CSV builder.** A thin
-  `scripts/build_ctm_scenario.py` that bundles the four adapters
-  against a `cells.csv` + the Step-3 timeseries directory and writes
-  `inflow.csv`, `demand.csv`, `beta.csv`, `rho0.csv` next to the
-  Step-6 `freeway.csv`. The `simulate_ctm_corridor.py` flow already
-  composes them in-memory; the standalone CLI is useful when the
-  user wants to inspect / edit the wide frames between extraction
-  and simulation.
 
 ## Step 9: Validation Against Historical Data
 Implemented in `ctm/validation.py`. End-to-end demo:
@@ -1612,6 +1618,6 @@ These reproduce the canonical update for $\beta_i=0$ or whenever flow is below c
 
 ### Cell-length rule (Step 5)
 
-The Step-5 requirement $v_{f,i}\,\Delta T \le l_i$ is the Courant (CFL) condition for this scheme: a vehicle at free-flow speed cannot cross more than one cell per step. The dissertation states it as $\Delta T < \min_i l_i / v_{f,i}$ *(Kurzhanskiy eq. 4.1)*.
+The Step-5 requirement $v_{f,i}\,\Delta T \le l_i$ is the Courant-Friedrichs-Lewy (CFL) condition for this scheme: a vehicle at free-flow speed cannot cross more than one cell per step. The dissertation states it as $\Delta T < \min_i l_i / v_{f,i}$ *(Kurzhanskiy eq. 4.1)*.
 
 > Notation note: the four-mode form comes from Muralidharan & Horowitz, who — like the dissertation's Ch. 3 — work in *normalized* units: the state is the vehicle count per cell (their Table 1 lists jam density as veh/section, i.e. per cell, not per mile), with cell length and time step folded into the speeds, so no $\tfrac{\Delta T}{l_i}$ factor appears in their conservation equation. Converting that count $n_i$ to the physical density used here is $\rho_i = n_i/l_i$ — standard CTM unit bookkeeping, not a formula written in the paper.

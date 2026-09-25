@@ -1,4 +1,4 @@
-"""Generate DWC demand from CTM simulation.
+"""Step 10: Generate DWC demand from CTM simulation.
 
 Builds a DWC corridor from a CTM simulation result and CLI-supplied corridor specs, calculates
 DWC demand at every timestamp and Rx pad position, and writes nine plots and a summary of

@@ -1,4 +1,4 @@
-"""Step 10: compare CTM case studies across corridor lengths.
+"""Compare CTM case studies across corridor lengths.
 
 Reads the summary text files the per-study scripts already wrote -- no
 simulation or metric is recomputed here:

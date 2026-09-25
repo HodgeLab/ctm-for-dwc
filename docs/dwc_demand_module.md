@@ -29,7 +29,7 @@ Note that we have renamed the paper's conversion factor $\rho$ to $\gamma$; we r
 
 ![mCONV_image](mCONV.png)
 
-### Reference Algorithms (Newbolt 2024a)
+#### Reference Algorithms (Newbolt 2024a)
 The spatial submodule reproduces the three algorithms of the conventional
 *mCONV* method, which are restated here for completeness.
 The pseudocode is transcribed from Newbolt 2024a (§II-C) with additional comments.
@@ -104,11 +104,36 @@ last positions correspond to the Rx pad entering and leaving the corridor.
 
 **Implementation note.** The product $\mathbf{T_R}\mathbf{S_T}$ is a discrete
 convolution, $P_A = \mathbf{S_R} * \mathbf{S_T}$ — the dense Toeplitz form is
-the paper's exposition, not a computational requirement. Our implementation
-forms $P_A$ directly (`np.convolve`, or `scipy.signal.fftconvolve` for large
-kernels) in $O(n)$ memory; the dense $\mathbf{T_R}$ is materialized only to
-reproduce the original mCONV exactly. See the implementation plan's
-"Resolution vs. compute" section.
+the paper's exposition, not a computational requirement, and it scales poorly 
+for large networks (the spatial submodule discretizes the corridor onto a grid
+of spacing `dx_grid`, so the number of positions is `n = corridor_length / dx_grid`,
+and `T_R` is `O(n²)`).
+
+Our implementation forms $P_A$ directly (`np.convolve`, or `scipy.signal.fftconvolve` 
+for large kernels); the dense $\mathbf{T_R}$ is materialized only to
+reproduce the original mCONV exactly (`method="toeplitz"`). Direct convolution
+scales **linearly** in `n`, with small constants: `P_y` and
+`S_T` are `O(n)` vectors (~100 KB even at 4 mi / 0.5 m).
+Note: the demand profile `E` is `O(T·n)`, but can be aggregated to per-pad / per-feeder
+demand if `m` is large.
+
+**Benchmark** (`scripts/benchmark_dwc_convolution.py`; Rx pad δ = 1.5 m,
+kernel = round(δ/dx); time to form `P_A`):
+
+| corridor | resolution | n | kernel | np.convolve | fftconvolve | dense `T_R` |
+|---|---|---|---|---|---|---|
+| 1 mi | 0.5 m | 3.2 K | 3 | 0.00 ms | 0.06 ms | 7.0 ms |
+| 50 mi | 0.5 m | 161 K | 3 | 0.08 ms | 2.3 ms | OOM (207 GB) |
+| 50 mi | 0.1 m | 805 K | 15 | 5.4 ms | 12 ms | OOM (5.2 TB) |
+| 10 mi | 0.01 m | 1.6 M | 150 | 34 ms | 29 ms | OOM (21 TB) |
+| 1 mi | 0.001 m | 1.6 M | 1500 | 446 ms | 30 ms | OOM (21 TB) |
+| 12 m bench | 0.1 mm | 120 K | 15000 | 409 ms | 1.9 ms | OOM (130 GB) |
+
+The dense `T_R` is OOM beyond a 1-mile coarse corridor;
+`np.convolve` wins for small kernels (coarse grids), `fftconvolve` wins for
+large kernels (fine grids — Newbolt fidelity: 1.9 ms vs 409 ms). The
+crossover sits near a kernel of ~150–256 grid units, which is why
+`build_P_y(method="auto")` switches to `fft` above `len(S_R) > 256`.
 
 ### Temporal Dependence
 Assume that a vehicle's velocity $\mathbf{v} \in \mathbb{R}^{m \times 1}$ along the corridor $\mathbf{x} \in \mathbb{R}^{m \times 1}$ is known (e.g., through a traffic simulation module).
@@ -194,10 +219,3 @@ At the same time, by leaving the $\mathbf{P_y}$ construction unchanged, we are a
 
     We assume that vehicle headways are always strictly greater than $\alpha + \delta$ (4.5 m using the dimensions from Newbolt 2024a).
     As such, multiple Rx pads do not occupy the same Tx pad simultaneously, and the Tx pad delivers $\beta'$ to a single vehicle at all times.
-
-### Validation Plan
-To validate the adapted *mCONV* model, we plan to implement the car-following, multi-lane microsimulation described in [Newbolt 2024b](https://ieeexplore.ieee.org/document/10741859) for a small corridor and run the original *mCONV* over many sampled microscopic trajectories.
-We will compare the resulting DWC demand profile against one that we generate with a CTM + adapted *mCONV* approach. Acceptance criteria:
-
-1. __Uniform-density limit__ — when density and velocity are constant within each cell, the adaptation is exact. Corridor-aggregate energy must agree with the microscopic computation to numerical tolerance (relative error $< 10^{-6}$).
-2. __Non-uniform regimes__ — the two methods diverge because $\mathbf{M_{CTM}}$ assumes uniform within-cell occupancy. We will report this divergence as a function of the within-cell density/velocity gradient and confirm it stays within a stated bound (provisional target: aggregate-energy relative error $< 5\%$ for realistic CTM density profiles; to be confirmed against the use case).

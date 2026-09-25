@@ -1,4 +1,4 @@
-"""Step 9: validate a CTM simulation result against historical PeMS data.
+"""Step 9: Validate a CTM simulation result against historical PeMS data.
 
 Loads the self-contained ``result.npz`` that
 ``scripts/simulate_ctm_corridor.py`` writes (which carries the density
