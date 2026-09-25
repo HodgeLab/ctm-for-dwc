@@ -1,89 +1,121 @@
-# transportation-models
+# ctm-for-dwc
 
-Models for automobile transportation. Code to download, process, validate, and
-model **Caltrans PeMS** freeway traffic data for a study corridor (postmiles
-6.7–13.7, Alameda County, both directions).
+This repository contains code to accompany the paper "Scalable Load Models for Dynamic Wireless Charging of Electric Vehicles in Power Systems." The project uses **Caltrans PeMS** data to calibrate a **Cell Transmission Model (CTM)** for freeway traffic flow simulation, which feeds a projection of the energy demand from **dynamic wireless charging (DWC)** of electric vehicles on the freeway.
 
-Two modeling threads:
-
-1. **Imputation model** — a GRU (`SimpleGRU`) that fills masked flow/density
-   values, trained with a combined MSE + fundamental-diagram physics loss.
-   Experiments are tracked in Weights & Biases (entity `transportation-models`,
-   project `PeMS-Imputation`).
-2. **CTM representation** — a graph (`Freeway`) that fuses GMNS links/nodes,
-   PeMS detector metadata, and postmile/boundary shapefiles into a
-   Cell-Transmission-Model-ready NetworkX network, including split-ratio
-   computation at diverging nodes.
-
-The package lives in `src/transportation_models/` (installed as
-`transportation-models`, imported as `transportation_models`). Python ≥ 3.10,
-hatchling build.
 
 ## Layout
 
-`utils/` is library code (import from here). `scripts/` are entrypoints and
-one-offs (run these, don't import them).
+Library code lives in `src/ctm_for_dwc/`. 
+Entrypoint scripts for the library live in `scripts/`.
 
 | Module | Role |
 |---|---|
-| `utils/constants.py` | Filesystem paths, corridor bounds, and hand-curated GMNS-link→PeMS-station overrides (`NB/SB_LINK_TO_STATION_OVERRIDE`). Edit here when spatial matching picks the wrong detector. |
-| `utils/data_downloading.py` | `PeMSDownloader` / `PeMSExtractor` — scrape the PeMS clearinghouse. Adapted from Seb-Good/caltrans-pems. |
-| `utils/pems_settings.py` | PeMS URLs and district list for the downloader. |
-| `utils/data_processing.py` | `PeMSDataProcessor` (core preprocessing pipeline) + `TargetNormalization`. Load → unit-standardize → normalize → FD calibration → timestamp deconstruction → encode/scale → sequence/imputation dataset. |
-| `utils/representation.py` | `Freeway` class + helpers for OSM→GMNS conversion, link classification/direction, and split ratios. Largest module (~2.6k lines). |
-| `utils/validation.py` | DataFrame structure/value checks and diagnostic plots. |
-| `utils/fetch_wandb_results.py` | Pull W&B runs into a DataFrame for analysis. |
-| `utils/logs.py` | `make_logger()` — timestamped file logger under `./logs/`. |
-| `utils/dwpt/` | DWPT demand module: CTM `VHT` → adapted mCONV → spatiotemporal charging demand (`E`). See `docs/dwpt_demand_module.md`. |
-| `utils/microsim/` | N-lane Newbolt modified-Gipps microsimulation (with lane-changing) used to validate the macroscopic DWPT pipeline (`gipps`, `lanechange`, `seeding`, `simulate`, `aggregate` (Edie), `charging`). See `docs/dwpt_validation_spec.md`. |
+| `ctm/` | The CTM module: model construction, calibration, and simulation engine. See `docs/ctm_module.md`. |
+| `dwc/` | DWC demand module: CTM results -> DWC demand. See `docs/dwc_demand_module.md`. |
+| `pems/` | PeMS clearinghouse access: `PeMSDownloader` (download files) and `PeMSExtractor` (`.gz` dumps → per-VDS CSVs). Downloader adapted from [Seb-Good/caltrans-pems](https://github.com/Seb-Good/caltrans-pems). |
+| `plot_style.py` | Shared matplotlib style for paper figures (`PAPER_RC`, `COLUMN_W`, `PAPER_DPI`). |
 
-Typical pipeline:
+
+## Pipeline
+
+Steps are numbered as in [docs/ctm_module.md](docs/ctm_module.md), and most
+scripts name their step in the first line of their docstring.
+
+**Corridor build-out** (done once per case study; dormant between new corridors):
 
 ```
-download_pems_data.py            # fetch raw PeMS data
-  → calibrate_fundamental_diagrams.py   # writes station_metadata_calibrated.csv
-  → generate_long_df.py / generate_gmns_links_and_nodes.py / build_freeway.py
-  → model_prototyping.py         # train the GRU
-  → analyze_vds_outages.py, plot_*   # analysis / QA
+list_osm_refs.py                 # pick the --ref for the next step
+build_ctm_from_osm.py            # Steps 1+2: OSM -> Corridor -> cell table, VDS -> cell
+download_pems_station_metadata.py
+download_pems_timeseries.py      # Step 3: clearinghouse -> .gz files
+extract_pems_timeseries.py       # Step 3: .gz files -> one CSV per VDS
+calibrate_fundamental_diagrams.py  # Step 4: writes station_metadata_calibrated.csv
+regenerate_cell_artifacts.py     # Step 5 helper: after manual edits to cells.csv
+assemble_ctm_freeway.py          # Step 6: -> freeway.csv
 ```
 
-### FD calibration outcome codes
+Assembled corridors live in `case_studies/<corridor>/`.
 
-`calibrate_fundamental_diagrams.py` tags every detector with a
-`calibration_code` (int) + `calibration_status` (string) column in the
-calibrated metadata, so failed fits are flagged rather than silently dropped.
-Only `0` is a success; any non-zero code leaves the FD parameter columns NaN.
-The same scheme is mirrored onto `ramp_metadata_calibrated.csv`.
+**Ramp flows** (Step 7) — mainline detectors are well-covered in PeMS, but ramps are not,
+so a starting ramp profile is built from the data and then refined through the
+CTM:
 
-| code | status | meaning |
-|---|---|---|
-| 0 | `ok` | params computed and passed validation |
-| 1 | `missing_timeseries` | timeseries CSV absent / unreadable |
-| 2 | `no_data_after_filter` | no rows survived the `pct_observed` threshold or the IQR filter |
-| 3 | `no_congestion_points` | too few points above the critical-density seed to fit the congestion branch (mainline only) |
-| 4 | `validation_failed` | fit rejected by `validate_fd_params` (non-positive speeds/capacity, `w ≥ v_f`, bad density ordering, or triangle inconsistency) |
+```
+build_pems_stretches.py          # stretch table (ramp configuration types)
+build_ctm_ramp_scenario.py       # ramp flow imputation seeding -> demand.csv, beta.csv
+build_ctm_diffsim_inputs.py      # bundled inputs for model-based ramp flow calibration
+augment_observed_grid.py         # impute unobserved cells of the bundle's grids (optional)
+optimize_ramp_flows_diffsim.py   # model-based calibration of ramp profiles
+```
 
-Validation strictness is tunable from the CLI: `--iqr-multiplier` (row-level
-outlier filter), `--bin-iqr-multiplier` and `--bin-size` (congestion-branch
-binning), and `--triangle-rtol` (triangle-consistency tolerance).
+`build_ctm_ramp_scenario.py` output seeds the optimizer (absent ramps with no
+conservation relation start at a fraction of mainline flow, and the optimizer
+floors every starting demand above 0); `optimize_ramp_flows_diffsim.py`
+produces the ramp flows used for simulation.
+
+**Simulation and demand** (Steps 8-10):
+
+```
+simulate_ctm_corridor.py         # Step 8
+validate_ctm_corridor.py         # Step 9: score against historical PeMS
+generate_dwc_demand.py           # Step 10: CTM result -> DWC demand + plots
+```
+
+Demos and profiling: `run_ctm_demo.py` (standalone, no data required),
+`run_ctm_ctmsim_demo.py` (from a CTMSIM `.mat` config),
+`run_dwc_demand_demo.py`, `profile_ctm_dwc_pipeline.py`,
+`benchmark_dwc_convolution.py`, `analyze_dwc_temporal_aggregation.py`.
+
+
 
 ## Conventions
 
 - Every file opens with a module docstring describing its role; public
   functions use NumPy-style docstrings.
-- Scripts use `# %%` cell markers (Jupyter / VS Code interactive) and configure
-  logging to stdout inline; library modules use `logging.getLogger(__name__)`.
-- Preprocessing intentionally **preserves a contiguous 5-minute grid** — gaps
+- Scripts are `argparse` CLIs with a `main()` behind an
+  `if __name__ == "__main__":` guard and print progress to stderr. Library modules that log
+  use `logging.getLogger(__name__)` (except `PeMSDownloader`, which has its
+  own stdout `scraper` logger); scripts that want those records on screen call
+  `logging.basicConfig`, as `assemble_ctm_freeway.py` and
+  `calibrate_fundamental_diagrams.py` do.
+- PeMS data preprocessing intentionally **preserves a contiguous 5-minute grid** — gaps
   become NaN rows rather than being dropped. Don't "clean" these out.
 - `pct_observed` is the data-quality field; `PCT_OBSERVED_THRESHOLD` gates
   missing / low-quality intervals.
 
 ## Running
 
-- Tests: `pytest` (config in `pyproject.toml`; `testpaths=["tests"]`). Install
-  test dependencies via the `test` extra: `pip install -e ".[test]"`.
-- Secrets are read from a gitignored `.env`: PeMS credentials
-  (`PEMS_USERNAME` / `PEMS_PASSWORD`) and `WANDB_*`. Loaded via `python-dotenv`.
-- **Data is not in the repo.** Paths in `constants.py` point at an external
-  drive (`/Volumes/easystore/...`); some scripts hardcode HPC paths
-  (`/projects/rost5691/...`). Expect to repoint these for the current machine.
+**Install** (Python 3.10 or newer), from the repo root:
+
+```
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[test]"
+```
+
+This installs the package in editable mode, so code changes take effect without
+reinstalling. The dependencies come from `pyproject.toml`; `requirements.txt` is
+only a `pip freeze` snapshot of one working environment.
+
+**Run a script** from the repo root. This demo needs no data and finishes in a
+few seconds:
+
+```
+python scripts/run_ctm_demo.py
+```
+
+Every other script takes `--help` to list its options:
+
+```
+python scripts/simulate_ctm_corridor.py --help
+```
+
+**Data and credentials.** Data is not in the repo. Scripts read and write under
+the gitignored `data/` directory by default; point their path flags (such as
+`--timeseries-dir`) elsewhere if your data lives somewhere else. Scripts that
+download from PeMS need an account: put `PEMS_USERNAME` and `PEMS_PASSWORD` in a
+`.env` file at the repo root (it is gitignored). `optimize_ramp_flows_diffsim.py`
+logs to Weights & Biases; pass `--no-wandb` if you don't use it.
+
+**Tests:** run `pytest`. Tests that use the network or run slowly are skipped by
+default; run them with `pytest -m network` or `pytest -m slow`.

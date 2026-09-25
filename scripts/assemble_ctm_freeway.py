@@ -1,7 +1,7 @@
 """Step 6: assemble a CTM-ready freeway table from Step 1+2 + Step 4 outputs.
 
 This script joins three artifacts and writes a single per-cell freeway CSV
-that slots directly into :func:`utils.ctm.io.freeway_from_dataframe`:
+that slots directly into :func:`ctm.io.freeway_from_dataframe`:
 
   * ``cells.csv``                       (Step 1+2)  -- cell geometry +
                                                        mainline/ramp VDS ids.
@@ -48,7 +48,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from transportation_models.utils.ctm.assembly import (
+from ctm_for_dwc.ctm.assembly import (
     assemble_freeway_table,
     compute_cfl_advisory,
     format_cfl_advisory,

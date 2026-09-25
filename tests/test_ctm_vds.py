@@ -1,4 +1,4 @@
-"""Tests for the Step-4 VDS pipeline in ``utils/ctm/vds.py``.
+"""Tests for the Step-4 VDS pipeline in ``ctm/vds.py``.
 
 Unit tests use synthetic CSVs / corridors so the surface under test is just
 the logic of each layer. The I-210W integration test (P4e) lives separately
@@ -15,12 +15,12 @@ import pandas as pd
 import pytest
 from shapely.geometry import LineString, Point
 
-from transportation_models.utils.ctm.osm import (
+from ctm_for_dwc.ctm.osm import (
     Corridor,
     MainlineSegment,
     RampJunction,
 )
-from transportation_models.utils.ctm.vds import (
+from ctm_for_dwc.ctm.vds import (
     assign_ramp_vds_to_cells,
     assign_vds_to_cells,
     load_pems_station_metadata,

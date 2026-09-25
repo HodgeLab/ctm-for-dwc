@@ -1,7 +1,8 @@
 """Step 4: calibrate triangular-FD parameters from PeMS timeseries.
 
-Wraps :meth:`PeMSDataProcessor.calibrate_fundamental_diagrams` in a CLI
-matching the style of the other CTM-module demo scripts
+Wraps :func:`ctm.fd_calibration.calibrate_fundamental_diagrams` (and
+``calibrate_ramp_capacities``) in a CLI matching the style of the other
+CTM-module demo scripts
 (:mod:`scripts.build_ctm_from_osm`,
 :mod:`scripts.download_pems_timeseries`,
 ``download_caltrans_postmiles``). The script:
@@ -19,7 +20,7 @@ matching the style of the other CTM-module demo scripts
 The output CSV is keyed on ``Station ID`` and is what Step 1's
 ``cells.csv`` (via the ``vds_id`` column attached in Step 2) joins
 against to finish the freeway schema before passing to
-:func:`utils.ctm.io.freeway_from_dataframe`.
+:func:`ctm.io.freeway_from_dataframe`.
 
 Run from the repo root::
 
@@ -32,8 +33,8 @@ Run from the repo root::
 
     # Override paths (e.g. when timeseries data lives on an external drive):
     python scripts/calibrate_fundamental_diagrams.py \\
-        --root-directory /Volumes/data/pems \\
-        --metadata /Volumes/data/pems/metadata/station_metadata.csv \\
+        --root-directory /path/to/pems \\
+        --metadata /path/to/pems/metadata/station_metadata.csv \\
         --out-dir scripts/output/fd_calibration
 """
 
@@ -44,26 +45,7 @@ import logging
 import sys
 from pathlib import Path
 
-from transportation_models.utils.data_processing import PeMSDataProcessor
-
-
-def _enable_stdout_logging() -> None:
-    """Stream the data_processing logger's records to the terminal.
-
-    ``data_processing`` configures the root logger with a file handler only
-    (``include_stdout=False``), so its INFO/WARNING records never reach the
-    console. Attach a stdout StreamHandler so calibration progress and the
-    "0 rows survived the imputation threshold" warning are visible here.
-    """
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(
-        logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-    )
-    logging.getLogger().addHandler(handler)
-
-    # The root logger runs at DEBUG, so matplotlib's noisy font-manager/backend
-    # DEBUG records would otherwise flood the terminal. Quiet them to WARNING.
-    logging.getLogger("matplotlib").setLevel(logging.WARNING)
+from ctm_for_dwc.ctm import fd_calibration
 
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_ROOT = REPO / "data" / "pems"
@@ -78,7 +60,10 @@ def _parse_detectors(value: str | None) -> list[str] | None:
 
 
 def main() -> None:
-    _enable_stdout_logging()
+    logging.basicConfig(
+        level=logging.INFO, stream=sys.stdout,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--root-directory", type=Path, default=DEFAULT_ROOT,
@@ -120,22 +105,21 @@ def main() -> None:
     parser.add_argument(
         "--iqr-multiplier", type=float, default=1.0,
         help=("IQR-fence multiplier for the row-level outlier filter "
-              "(default 1.0, matching PeMSDataProcessor)"),
+              "(default 1.0)"),
     )
     parser.add_argument(
         "--bin-iqr-multiplier", type=float, default=1.0,
         help=("IQR-fence multiplier for the per-bin congestion-branch filter "
-              "(default 1.0, matching PeMSDataProcessor)"),
+              "(default 1.0)"),
     )
     parser.add_argument(
         "--bin-size", type=int, default=10,
-        help=("number of points per congestion density bin (default 10, "
-              "matching PeMSDataProcessor)"),
+        help="number of points per congestion density bin (default 10)",
     )
     parser.add_argument(
         "--triangle-rtol", type=float, default=0.05,
         help=("relative tolerance for the triangle-consistency validation "
-              "gate (default 0.05, matching PeMSDataProcessor)"),
+              "gate (default 0.05)"),
     )
     parser.add_argument(
         "--make-plots", action="store_true",
@@ -170,29 +154,23 @@ def main() -> None:
     print(f"  detectors= {detectors if detectors else 'all mainline'}",
           file=sys.stderr)
 
-    proc = PeMSDataProcessor(
-        root_directory=str(root_dir),
-        metadata_filepath=str(metadata_path),
-        imputation_threshold=args.imputation_threshold,
-        save_directory=str(out_dir),
-    )
-
+    timeseries_dir = root_dir / "timeseries_data"
     plots_dir = (out_dir / "plots") if args.make_plots else None
-    if plots_dir is not None:
-        plots_dir.mkdir(parents=True, exist_ok=True)
+    calibrated_csv = out_dir / "station_metadata_calibrated.csv"
 
-    proc.calibrate_fundamental_diagrams(
+    fd_calibration.calibrate_fundamental_diagrams(
+        metadata_path,
+        timeseries_dir,
         detectors=detectors,
+        imputation_threshold=args.imputation_threshold,
         iqr_multiplier=args.iqr_multiplier,
         bin_iqr_multiplier=args.bin_iqr_multiplier,
         bin_size=args.bin_size,
         triangle_rtol=args.triangle_rtol,
-        make_plots=args.make_plots,
-        saved_plot_dir=plots_dir,
-        save_params=True,
+        plot_dir=plots_dir,
+        output_path=calibrated_csv,
     )
 
-    calibrated_csv = out_dir / "station_metadata_calibrated.csv"
     print(f"fd calibration: done. calibrated metadata -> {calibrated_csv}",
           file=sys.stderr)
     if plots_dir is not None:
@@ -201,12 +179,15 @@ def main() -> None:
     ramp_detectors = _parse_detectors(args.ramp_detectors)
     if ramp_detectors:
         print(f"ramp calibration: {len(ramp_detectors)} VDSs", file=sys.stderr)
-        proc.calibrate_ramp_capacities(
-            detectors=ramp_detectors,
-            quantile=args.ramp_capacity_quantile,
-            save_params=True,
-        )
         ramp_csv = out_dir / "ramp_metadata_calibrated.csv"
+        fd_calibration.calibrate_ramp_capacities(
+            ramp_detectors,
+            metadata_path,
+            timeseries_dir,
+            imputation_threshold=args.imputation_threshold,
+            quantile=args.ramp_capacity_quantile,
+            output_path=ramp_csv,
+        )
         print(f"ramp calibration: done. ramp metadata -> {ramp_csv}",
               file=sys.stderr)
 

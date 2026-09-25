@@ -29,7 +29,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from transportation_models.utils.ctm.vds import download_pems_station_metadata
+from ctm_for_dwc.pems import download_pems_station_metadata
 
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_OUT = REPO / "data" / "pems" / "station_metadata.csv"

@@ -14,7 +14,7 @@ Run from the repo root:
 
 from __future__ import annotations
 
-from transportation_models.utils.ctm import compute_metrics, examples, simulate
+from ctm_for_dwc.ctm import compute_metrics, examples, simulate
 
 
 def report(start: str, steps: int = 2400) -> None:
@@ -51,6 +51,10 @@ def report(start: str, steps: int = 2400) -> None:
     print(f"    productivity_loss= {metrics.productivity_loss[-1]:8.4f}  mi*h")
 
 
-if __name__ == "__main__":
+def main():
     report("empty")
     report("jam")
+
+
+if __name__ == "__main__":
+    main()

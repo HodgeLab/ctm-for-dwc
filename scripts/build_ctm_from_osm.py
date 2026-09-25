@@ -2,8 +2,8 @@
 
 Loads a freeway network from OSM (either a cached graphml file or a fresh
 osmnx download), runs the corridor extraction in
-:mod:`transportation_models.utils.ctm.osm`, lays out cells with
-:func:`transportation_models.utils.ctm.cells.cells_from_corridor`, and writes:
+:mod:`ctm_for_dwc.ctm.osm`, lays out cells with
+:func:`ctm_for_dwc.ctm.cells.cells_from_corridor`, and writes:
 
 * ``cells.csv``            -- the freeway-schema cell table (Step 4 fills in
                               the FD parameters before this can be passed to
@@ -50,7 +50,7 @@ Run from the repo root::
         --postmiles auto
 
     # Or point at a pre-downloaded SHN file (see
-    # `transportation_models.utils.ctm.caltrans` for the source):
+    # `ctm_for_dwc.ctm.caltrans` for the source):
     python scripts/build_ctm_from_osm.py \\
         --graphml tests/fixtures/osm/i210_bbox.graphml \\
         --ref "I 210" --direction W \\
@@ -76,28 +76,28 @@ from pathlib import Path
 
 import osmnx as ox
 
-from transportation_models.utils.ctm.caltrans import (
+from ctm_for_dwc.ctm.caltrans import (
     download_caltrans_postmiles,
     extract_route_number,
 )
-from transportation_models.utils.ctm.cells import (
+from ctm_for_dwc.ctm.cells import (
     cells_from_corridor,
     cells_to_geodataframe,
     corridor_to_artifacts,
     flag_cell_length_warnings,
 )
-from transportation_models.utils.ctm.osm import Corridor, corridor_from_graph
-from transportation_models.utils.ctm.plots import (
+from ctm_for_dwc.ctm.osm import Corridor, corridor_from_graph
+from ctm_for_dwc.ctm.plots import (
     plot_cell_layout,
     plot_corridor_map,
 )
-from transportation_models.utils.ctm.vds import (
+from ctm_for_dwc.ctm.vds import (
     assign_ramp_vds_to_cells,
     assign_vds_to_cells,
-    download_pems_station_metadata,
     load_pems_station_metadata,
     project_vds_to_corridor,
 )
+from ctm_for_dwc.pems import download_pems_station_metadata
 
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_OUT = REPO / "scripts/output/ctm_corridor"

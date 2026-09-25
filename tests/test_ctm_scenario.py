@@ -1,4 +1,4 @@
-"""Tests for ``utils/ctm/scenario.py`` -- the PeMS -> scenario adapters.
+"""Tests for ``ctm/scenario.py`` -- the PeMS -> scenario adapters.
 
 Covers :func:`inflow_from_vds` (resampling, timestamp bounds, alignment
 errors, NaN rejection) and :func:`initial_state_from_vds` (lane-match
@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from transportation_models.utils.ctm import (
+from ctm_for_dwc.ctm import (
     beta_from_off_ramp_vds,
     demand_from_ramp_vds,
     inflow_from_vds,
@@ -387,7 +387,7 @@ def test_initial_state_caches_shared_vds(tmp_path, monkeypatch):
         return orig_read_csv(*args, **kwargs)
 
     monkeypatch.setattr(
-        "transportation_models.utils.ctm.scenario.pd.read_csv",
+        "ctm_for_dwc.ctm.scenario.pd.read_csv",
         counting_read_csv,
     )
     rho = initial_state_from_vds(

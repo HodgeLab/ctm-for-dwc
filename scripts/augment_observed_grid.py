@@ -4,14 +4,14 @@ The differentiable ramp optimizer (`optimize_ramp_flows_diffsim.py`) scores the
 mainline density+flow only at cells with a direct VDS, leaving unobserved cells
 free to drift to unrealistic values. This step fills the full
 ``(n_cells, n_5min)`` grid from the PeMS measurements before scoring
-(docs/ramp_flow_estimation_module.md, "Model-based optimization"):
+(docs/ctm_module.md, Step 7, "Refinement with diffsim"):
 
 * **Type 2** (a direct-VDS cell missing at some 5-min steps) is filled from the
   detector's own ``(day-of-week, time-of-day)`` history;
 * **Type 1** (a cell with no direct VDS -- a full missing column) is filled by a
   spatial-temporal KNN over the surrounding observed and Type-2-filled cells.
 
-Both fills live in ``utils.ctm.impute``. Output is written per neighborhood
+Both fills live in ``ctm.impute``. Output is written per neighborhood
 config to ``<bundle>/imputed/k{K}_d{decay}/observed_{density,flow}.csv`` with
 columns ``cell, m_5min, value, source`` (``source`` in
 ``observed``/``hist``/``knn``). The imputed *values* depend on ``--k`` and
@@ -34,7 +34,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from transportation_models.utils.ctm.impute import (
+from ctm_for_dwc.ctm.impute import (
     historical_slot_fill,
     knn_impute_grid,
 )
@@ -77,12 +77,12 @@ def _vds_series(timeseries_dir: Path, vds_id: int, cache: dict):
 def _write_contours(out_dir, cells_df, raw, filled, n_5min, k, knn_decay):
     """Raw-vs-augmented space-time contours per quantity, for visual inspection.
 
-    Reuses ``utils.ctm.plots.plot_flow_density_contour`` (matplotlib imported
+    Reuses ``ctm.plots.plot_flow_density_contour`` (matplotlib imported
     lazily so ``--no-plot`` runs stay light). Raw grids show unobserved cells in
     black; raw and augmented share a color scale per quantity so the fill is
     directly comparable.
     """
-    from transportation_models.utils.ctm.plots import plot_flow_density_contour
+    from ctm_for_dwc.ctm.plots import plot_flow_density_contour
 
     n = next(iter(filled.values())).shape[0]
     if {"pm_start", "pm_end"} <= set(cells_df.columns):

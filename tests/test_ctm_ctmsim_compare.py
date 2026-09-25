@@ -27,7 +27,7 @@ import numpy as np
 import pytest
 import scipy.io as sio
 
-from transportation_models.utils.ctm import (
+from ctm_for_dwc.ctm import (
     Scenario,
     compute_metrics,
     ctmsim_initial_densities,
@@ -36,8 +36,8 @@ from transportation_models.utils.ctm import (
 )
 
 REPO = Path(__file__).resolve().parents[1]
-CONFIGS = REPO / "src/transportation_models/utils/ctm/ctmsim_configs"
-RESULTS = REPO / "src/transportation_models/utils/ctm/ctmsim_results"
+CONFIGS = REPO / "src/ctm_for_dwc/ctm/ctmsim_configs"
+RESULTS = REPO / "src/ctm_for_dwc/ctm/ctmsim_results"
 
 # CTMSIM I-210W defaults (User Guide §4): plotTS = 5 min, TS = 10 s -> 30 sim
 # steps per plotting sample over a 24-hour horizon.

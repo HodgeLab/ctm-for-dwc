@@ -1,4 +1,4 @@
-"""Tests for ``utils/ctm/validation.py`` -- sim vs historical PeMS comparison."""
+"""Tests for ``ctm/validation.py`` -- sim vs historical PeMS comparison."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from transportation_models.utils.ctm import (
+from ctm_for_dwc.ctm import (
     QQCellSamples, QQResult, compare_against_historical, corridor_rmse_mape,
     restrict_to_direct_tiebreak,
 )
@@ -310,7 +310,7 @@ def test_caches_shared_vds_reads_once(tmp_path, monkeypatch):
         return orig(*args, **kwargs)
 
     monkeypatch.setattr(
-        "transportation_models.utils.ctm.validation.pd.read_csv",
+        "ctm_for_dwc.ctm.validation.pd.read_csv",
         counting,
     )
     compare_against_historical(
@@ -501,7 +501,7 @@ def test_missing_vds_lanes_column_raises(tmp_path):
 # ---- compute_qq_samples --------------------------------------------------
 
 
-from transportation_models.utils.ctm import (  # noqa: E402
+from ctm_for_dwc.ctm import (  # noqa: E402
     QQResult, compute_qq_samples,
 )
 
@@ -639,13 +639,13 @@ def test_qq_missing_vds_source_column_raises(tmp_path):
 # ---- compare_against_ctmsim ----------------------------------------------
 
 
-from transportation_models.utils.ctm import (  # noqa: E402
+from ctm_for_dwc.ctm import (  # noqa: E402
     CTMSIMValidation, compare_against_ctmsim, simulate,
 )
 
 REPO = Path(__file__).resolve().parents[1]
-CTMSIM_CONFIGS = REPO / "src/transportation_models/utils/ctm/ctmsim_configs"
-CTMSIM_RESULTS = REPO / "src/transportation_models/utils/ctm/ctmsim_results"
+CTMSIM_CONFIGS = REPO / "src/ctm_for_dwc/ctm/ctmsim_configs"
+CTMSIM_RESULTS = REPO / "src/ctm_for_dwc/ctm/ctmsim_results"
 
 
 def _ctmsim_w060412_result():
@@ -792,7 +792,7 @@ def test_density_uses_window_mean_not_boundary_snapshot(tmp_path):
 
 
 def test_qq_density_samples_use_window_mean(tmp_path):
-    from transportation_models.utils.ctm import compute_qq_samples
+    from ctm_for_dwc.ctm import compute_qq_samples
 
     result, cells, start = _ramp_density_case(tmp_path)
     qq = compute_qq_samples(result, cells, tmp_path, start=start)

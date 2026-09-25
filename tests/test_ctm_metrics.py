@@ -10,8 +10,8 @@ diverge.
 import numpy as np
 import pytest
 
-from transportation_models.utils.ctm import examples, simulate
-from transportation_models.utils.ctm.metrics import compute_metrics
+from ctm_for_dwc.ctm import examples, simulate
+from ctm_for_dwc.ctm.metrics import compute_metrics
 
 DT = 1.0 / 120.0  # Example 1 time step [h]
 

@@ -1,4 +1,4 @@
-"""Unit tests for the PeMS grid imputation helpers (utils.ctm.impute).
+"""Unit tests for the PeMS grid imputation helpers (ctm.impute).
 
 Covers the Type-2 ``(dow, time-of-day)`` slot fill and the Type-1 KNN fill:
 the k=1 up/down average, exponential-decay ordering, weight normalization,
@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from transportation_models.utils.ctm.impute import (
+from ctm_for_dwc.ctm.impute import (
     historical_slot_fill,
     knn_impute_grid,
 )

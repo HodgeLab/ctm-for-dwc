@@ -20,12 +20,12 @@ import pandas as pd
 import pytest
 from shapely.geometry import LineString, Point
 
-from transportation_models.utils.ctm.cells import (
+from ctm_for_dwc.ctm.cells import (
     cells_from_corridor,
     cells_to_geodataframe,
     corridor_to_artifacts,
 )
-from transportation_models.utils.ctm.osm import (
+from ctm_for_dwc.ctm.osm import (
     Corridor,
     MainlineSegment,
     RampJunction,
@@ -80,7 +80,7 @@ def step1_dir(tmp_path) -> Path:
 def test_untouched_round_trip_matches_original_cells_geojson(step1_dir):
     """Running the regenerator without edits is geometrically idempotent."""
     # Stash the as-built cells.geojson for comparison.
-    from transportation_models.utils.ctm.cells import corridor_from_artifacts
+    from ctm_for_dwc.ctm.cells import corridor_from_artifacts
     original = cells_to_geodataframe(
         pd.read_csv(step1_dir / "cells.csv"),
         corridor_from_artifacts(step1_dir),

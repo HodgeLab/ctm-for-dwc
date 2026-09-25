@@ -1,8 +1,9 @@
 """Tests for :class:`PeMSDownloader` -- clearinghouse query + batch download.
 
 The real constructor logs in to ``pems.dot.ca.gov`` over HTTP via mechanize;
-that login path stays out of unit tests (it's covered indirectly by the
-``@pytest.mark.network`` round-trip in ``test_ctm_caltrans.py``). Here we
+that login path stays out of unit tests and is not exercised by any test
+(the ``@pytest.mark.network`` test in ``test_ctm_caltrans.py`` hits the
+Caltrans postmile service, not PeMS). Here we
 instantiate via ``__new__`` to bypass ``__init__`` and exercise the parsing,
 URL-construction, and dedupe logic in isolation, monkeypatching the network-
 touching seams (``_open_url`` and ``_download_file``) where needed.
@@ -16,8 +17,8 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from transportation_models.utils.data_downloading import PeMSDownloader
-from transportation_models.utils.pems_settings import BASE_URL
+from ctm_for_dwc.pems.downloader import PeMSDownloader
+from ctm_for_dwc.pems.settings import BASE_URL
 
 
 # ---- Helper: build a sham instance that skips the live login -------------
@@ -147,7 +148,7 @@ def test_create_data_directory_idempotent_on_existing_dir(tmp_path):
 def test_create_data_directory_falls_back_to_default_when_none(monkeypatch, tmp_path):
     sentinel = tmp_path / "default_data_path"
     monkeypatch.setattr(
-        "transportation_models.utils.data_downloading.DATA_PATH", str(sentinel)
+        "ctm_for_dwc.pems.downloader.DATA_PATH", str(sentinel)
     )
     out = PeMSDownloader._create_data_directory(None)
     assert out == str(sentinel)

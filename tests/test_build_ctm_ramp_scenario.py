@@ -1,7 +1,8 @@
 """Tests for ``scripts/build_ctm_ramp_scenario.py`` (Step 7 scenario builder).
 
 Covers the virtual-VDS-id paths: stretch-map keying, downstream-mainline
-lookup, and measured-sibling subtraction from stretch-total estimates.
+lookup, and measured-sibling subtraction from stretch-total estimates; plus
+the end-to-end dispatch for completely-absent ramps.
 """
 
 from __future__ import annotations
@@ -16,7 +17,6 @@ _REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO / "scripts"))
 
 from build_ctm_ramp_scenario import (  # noqa: E402
-    _build_feature_matrix,
     _furthest_downstream_ml_id,
     _parse_stretch_ramp_ids,
     _subtract_measured_siblings,
@@ -115,7 +115,7 @@ def test_subtract_measured_siblings_no_siblings_is_identity(tmp_path):
     np.testing.assert_allclose(out, [50.0, 0.0])
 
 
-# ---- --estimator modes (end-to-end through main) -----------------------------
+# ---- Absent-ramp dispatch (end-to-end through main) -------------------------
 
 
 def _write_mainline_csv(path: Path, flows_5min, *, start) -> None:
@@ -128,14 +128,14 @@ def _write_mainline_csv(path: Path, flows_5min, *, start) -> None:
     }).to_csv(path, index=False)
 
 
-def _estimator_case(tmp_path):
+def _type_c_case(tmp_path):
     """2-cell corridor: cell 0 has a measured on-ramp (900), cell 1 an absent
-    (virtual) off-ramp on a type-(c) stretch. Mainline 100/200 cover the sim
-    window plus GRU warmup lags."""
+    (virtual) off-ramp on a type-(c) stretch. Mainline 100/200 start before
+    the sim window."""
     ts_dir = tmp_path / "ts"; ts_dir.mkdir()
-    warmup_start = _START - pd.Timedelta(minutes=10)
-    _write_mainline_csv(ts_dir / "100.csv", np.full(4, 100.0), start=warmup_start)
-    _write_mainline_csv(ts_dir / "200.csv", np.full(4, 110.0), start=warmup_start)
+    history_start = _START - pd.Timedelta(minutes=10)
+    _write_mainline_csv(ts_dir / "100.csv", np.full(4, 100.0), start=history_start)
+    _write_mainline_csv(ts_dir / "200.csv", np.full(4, 110.0), start=history_start)
     _write_ramp_csv(ts_dir / "900.csv", np.array([10.0, 10.0]))
 
     cells = tmp_path / "cells.csv"
@@ -156,32 +156,29 @@ def _estimator_case(tmp_path):
     return base, out_dir
 
 
-def test_build_feature_matrix_warns_when_warmup_uncovered(tmp_path, capsys):
-    """Mainline data starting exactly at --start leaves the window_size-1
-    warmup lags uncovered; those windows carry NaN features and warn."""
-    ts_dir = tmp_path / "ts"; ts_dir.mkdir()
-    _write_mainline_csv(ts_dir / "100.csv", np.full(4, 100.0), start=_START)
-    _write_mainline_csv(ts_dir / "200.csv", np.full(4, 110.0), start=_START)
-    X = _build_feature_matrix(100, 200, ts_dir,
-                              start=_START, end=_END, window_size=3)
-    assert "warmup" in capsys.readouterr().err
-    assert np.isnan(X[0]).any()          # first window's earliest lags are NaN
-
-
-def test_estimator_none_zeros_absent_ramp(tmp_path, capsys):
-    base, out_dir = _estimator_case(tmp_path)
-    main(base + ["--estimator", "none"])
+def test_type_c_absent_ramp_seeded_with_mainline_fraction(tmp_path, capsys):
+    """An absent type-(c) ramp is seeded with --type-c-fraction (default 0.1)
+    of the upstream mainline flow, never 0 (diffsim can't move a zero seed)."""
+    base, out_dir = _type_c_case(tmp_path)
+    main(base)
     demand = pd.read_csv(out_dir / "demand.csv")
     beta = pd.read_csv(out_dir / "beta.csv")
-    np.testing.assert_allclose(demand["0"], 120.0)        # 10 veh/5min * 12
-    np.testing.assert_allclose(beta["1"], 0.0)            # absent ramp -> zero
+    np.testing.assert_allclose(demand["0"], 120.0)        # measured: 10 veh/5min * 12
+    # s = 0.1 * q_up = 0.1 * 1200 = 120; f = q_down = 1320 veh/hr.
+    np.testing.assert_allclose(beta["1"], 120.0 / (1320.0 + 120.0))
     assert "has no data" in capsys.readouterr().err
 
 
-def test_estimator_none_uses_conservation_on_type_b(tmp_path):
-    """Conservation needs no estimator, so it applies under every choice:
-    an absent off-ramp on a type-(b) stretch is recovered from the mainline
-    pair even with --estimator none."""
+def test_type_c_fraction_flag_is_honored(tmp_path):
+    base, out_dir = _type_c_case(tmp_path)
+    main(base + ["--type-c-fraction", "0.2"])
+    beta = pd.read_csv(out_dir / "beta.csv")
+    np.testing.assert_allclose(beta["1"], 240.0 / (1320.0 + 240.0))
+
+
+def test_type_b_absent_ramp_uses_conservation(tmp_path):
+    """An absent off-ramp on a type-(b) stretch is recovered from the
+    mainline pair by conservation."""
     ts_dir = tmp_path / "ts"; ts_dir.mkdir()
     # q_up = 110 veh/5min (1320 veh/hr), q_down = 100 (1200) -> s = 120 veh/hr.
     _write_mainline_csv(ts_dir / "100.csv", np.full(2, 110.0), start=_START)
@@ -199,67 +196,7 @@ def test_estimator_none_uses_conservation_on_type_b(tmp_path):
     main(["--cells", str(cells), "--stretches", str(stretches),
           "--timeseries-dir", str(ts_dir),
           "--start", str(_START), "--end", str(_END),
-          "--dt-seconds", "300", "--out-dir", str(out_dir),
-          "--estimator", "none"])
+          "--dt-seconds", "300", "--out-dir", str(out_dir)])
     beta = pd.read_csv(out_dir / "beta.csv")
     # beta = s / (f + s) = 120 / (1200 + 120)
     np.testing.assert_allclose(beta["0"], 120.0 / 1320.0)
-
-
-def test_estimator_gru_estimates_absent_ramp(tmp_path):
-    from transportation_models.utils.ramp_flow_estimation.gru import GruEstimator
-
-    base, out_dir = _estimator_case(tmp_path)
-    rng = np.random.default_rng(0)
-    # window_size 3 -> 6*3 traffic features + [dow, hour, slot] = 21 columns.
-    traffic = rng.uniform(50, 150, size=(200, 18))
-    time_feats = np.column_stack([rng.integers(0, 7, 200),
-                                  rng.integers(0, 24, 200),
-                                  rng.integers(0, 12, 200)])
-    X = np.hstack([traffic, time_feats]).astype(float)
-    est = GruEstimator(hidden_size=8, max_epochs=20, lr=1e-2, seed=0,
-                       device="cpu").fit(
-        X, np.full(200, 300.0), np.full(200, 240.0))
-    ckpt = tmp_path / "gru.pt"; est.save(ckpt)
-    manifest = tmp_path / "manifest.json"
-    manifest.write_text('{"corpus": {"window_size": 3}}')
-
-    main(base + ["--estimator", "gru", "--gru-checkpoint", str(ckpt),
-                 "--manifest", str(manifest)])
-    beta = pd.read_csv(out_dir / "beta.csv")
-    assert (beta["1"] > 0).all() and (beta["1"] < 1).all()
-
-
-def test_estimator_kan_estimates_absent_ramp(tmp_path):
-    from transportation_models.utils.ramp_flow_estimation.kan import KanEstimator
-    from transportation_models.utils.ramp_flow_estimation import bounds
-
-    base, out_dir = _estimator_case(tmp_path)
-    rng = np.random.default_rng(0)
-    q_up = rng.uniform(800.0, 1600.0, 200)
-    q_down = q_up + 200.0
-    # window_size 1 -> 6 traffic features + [dow, hour, slot] = 9 columns.
-    X = np.column_stack([q_up, np.full(200, 60.0), np.full(200, 0.05),
-                         q_down, np.full(200, 55.0), np.full(200, 0.06),
-                         rng.integers(0, 7, 200), rng.integers(0, 24, 200),
-                         rng.integers(0, 12, 200)])
-    alpha = np.full(200, 0.3)
-    r, s = bounds.reconstruct_pair(alpha, q_up, q_down, 6000.0)
-    kan = KanEstimator("rf", n_estimators=10, random_state=0).fit(
-        X, r, s, ctx={"c_w": np.full(200, 6000.0)})
-    ckpt = tmp_path / "kan.joblib"; kan.save(ckpt)
-    meta = tmp_path / "meta.csv"
-    pd.DataFrame({"Station ID": [100], "capacity": [2000.0],
-                  "Lanes": [3]}).to_csv(meta, index=False)
-
-    main(base + ["--estimator", "kan", "--kan-checkpoint", str(ckpt),
-                 "--station-meta", str(meta)])
-    beta = pd.read_csv(out_dir / "beta.csv")
-    assert (beta["1"] >= 0).all() and (beta["1"] < 1).all()
-
-
-def test_estimator_gru_requires_checkpoint_and_manifest(tmp_path):
-    import pytest
-    base, _ = _estimator_case(tmp_path)
-    with pytest.raises(SystemExit):
-        main(base + ["--estimator", "gru"])

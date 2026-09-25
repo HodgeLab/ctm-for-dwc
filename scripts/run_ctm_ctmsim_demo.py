@@ -1,8 +1,8 @@
 """End-to-end demo: load a CTMSIM .mat config, simulate, print, and plot.
 
 Loads one of the bundled I-210W configs from
-``src/transportation_models/utils/ctm/ctmsim_configs/`` (24-hour macroscopic
-freeway snapshots from CTMSIM v1.1, see :mod:`transportation_models.utils.ctm.io`),
+``src/ctm_for_dwc/ctm/ctmsim_configs/`` (24-hour macroscopic
+freeway snapshots from CTMSIM v1.1, see :mod:`ctm_for_dwc.ctm.io`),
 runs our engine for the full 24-hour horizon, prints a per-period summary, and
 writes four figures to ``--out-dir`` (default: ``scripts/output/ctm_demo/<day>``):
 
@@ -25,7 +25,7 @@ from pathlib import Path
 import numpy as np
 import scipy.io as sio
 
-from transportation_models.utils.ctm import (
+from ctm_for_dwc.ctm import (
     Scenario,
     compare_against_ctmsim,
     compute_metrics,
@@ -34,7 +34,7 @@ from transportation_models.utils.ctm import (
     freeway_from_ctmsim_mat,
     simulate,
 )
-from transportation_models.utils.ctm.plots import (
+from ctm_for_dwc.ctm.plots import (
     downsample_to_plot_period,
     per_period_totals,
     plot_aggregate_metrics,
@@ -43,8 +43,8 @@ from transportation_models.utils.ctm.plots import (
 )
 
 REPO = Path(__file__).resolve().parents[1]
-CONFIGS = REPO / "src/transportation_models/utils/ctm/ctmsim_configs"
-RESULTS = REPO / "src/transportation_models/utils/ctm/ctmsim_results"
+CONFIGS = REPO / "src/ctm_for_dwc/ctm/ctmsim_configs"
+RESULTS = REPO / "src/ctm_for_dwc/ctm/ctmsim_results"
 DEFAULT_OUT = REPO / "scripts/output/ctm_demo"
 
 # CTMSIM I-210W defaults: 5-min plotting period over 10-s sampling -> 30 sim
@@ -219,7 +219,7 @@ def main() -> None:
 
     # ---- CTMSIM ground-truth comparison ----------------------------------
     # Compare our trajectory and aggregate metrics against the CTMSIM v1.1
-    # reference CSVs bundled under utils/ctm/ctmsim_results/<day>/. The
+    # reference CSVs bundled under ctm/ctmsim_results/<day>/. The
     # block is skipped (with a note) when the reference directory is
     # missing for the chosen day.
     ref_dir = RESULTS / args.day

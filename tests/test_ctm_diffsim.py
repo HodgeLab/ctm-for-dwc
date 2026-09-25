@@ -1,8 +1,8 @@
 """Parity: the torch CTM step (diffsim) matches the numpy engine to ~1e-10.
 
 M1 of the differentiable forward-sim ramp optimizer. The torch reimplementation
-(``utils.ctm.diffsim.step``) is only trustworthy if it reproduces the exact
-dynamics of ``utils.ctm.engine.step``; this pins them together on the per-
+(``ctm.diffsim.step``) is only trustworthy if it reproduces the exact
+dynamics of ``ctm.engine.step``; this pins them together on the per-
 equation hand-calc systems from ``test_ctm_step.py`` plus randomized inputs
 that exercise every branch (finite/inf ramp caps, the beta=0/1 edges,
 congestion, boundary receiving). A single-cell + a multi-cell freeway cover the
@@ -13,10 +13,10 @@ import numpy as np
 import pytest
 import torch
 
-from transportation_models.utils.ctm import diffsim
-from transportation_models.utils.ctm.engine import simulate as np_simulate
-from transportation_models.utils.ctm.engine import step as np_step
-from transportation_models.utils.ctm.model import Cell, Freeway, Scenario
+from ctm_for_dwc.ctm import diffsim
+from ctm_for_dwc.ctm.engine import simulate as np_simulate
+from ctm_for_dwc.ctm.engine import step as np_step
+from ctm_for_dwc.ctm.model import Cell, Freeway, Scenario
 
 RTOL, ATOL = 0.0, 1e-9
 
