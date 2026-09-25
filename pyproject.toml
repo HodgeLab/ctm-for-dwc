@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ctm-for-dwc"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
     "beautifulsoup4",
     "geopandas",
@@ -23,12 +23,12 @@ dependencies = [
     "wandb"
 ]
 requires-python = ">= 3.10"
-authors = [{ name = "Rob Stallman", email = "robstallman3@gmail.com" }]
-description = "Code to analyze and develop models of transportation data "
+authors = [{ name = "Rob Stallman", email = "rob.stallman@colorado.edu" }]
+description = "Accompaniment to the paper 'Scalable Load Models for Dynamic Wireless Charging of Electric Vehicles in Power Systems.' The project uses Caltrans PeMS data to calibrate a Cell Transmission Model (CTM) for freeway traffic flow simulation, which feeds a projection of the energy demand from dynamic wireless charging (DWC) of electric vehicles (EVs)."
 readme = "README.md"
 license = "GPL-3.0-or-later"
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Programming Language :: Python",
 ]
 
